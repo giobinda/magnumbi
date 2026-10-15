@@ -82,7 +82,7 @@ impl Dialect {
     }
 
     /// Truncate a date/time column to the start of its day/week/month/... (weeks start on Monday).
-    fn trunc(self, grain: &str, col: &str, ftype: &str) -> String {
+    pub fn trunc(self, grain: &str, col: &str, ftype: &str) -> String {
         match self {
             Dialect::BigQuery => {
                 let unit = if grain == "week" { "ISOWEEK".to_string() } else { grain.to_uppercase() };
@@ -230,6 +230,9 @@ fn dim_expr(dl: Dialect, d: &Dimension, grain: Option<&str>, col: Option<String>
     }
     if !TIME_GRAINS.contains(&grain) {
         return err(format!("unknown grain {grain:?}; use one of {TIME_GRAINS:?}"));
+    }
+    if grain == "hour" && d.kind == "date" {
+        return err(format!("{:?} is a date: the hour grain needs a date-time dimension", d.name));
     }
     Ok(dl.trunc(grain, &col, &d.kind))
 }
@@ -555,7 +558,19 @@ pub fn compile_query(
     now: DateTime<Utc>,
     mandatory: &[Filter],
 ) -> Result<Compiled, QueryError> {
-    q.validate().map_err(QueryError)?;
+    compile_query_up_to(model, q, dl, now, mandatory, crate::schema::MAX_ROWS)
+}
+
+/// compile_query for internal queries that may return up to `max_rows` (blend sources).
+pub fn compile_query_up_to(
+    model: &Model,
+    q: &Query,
+    dl: Dialect,
+    now: DateTime<Utc>,
+    mandatory: &[Filter],
+    max_rows: i64,
+) -> Result<Compiled, QueryError> {
+    q.validate_up_to(max_rows).map_err(QueryError)?;
     let mut selects: Vec<String> = vec![];
     let mut columns: Vec<Column> = vec![];
     let mut aliases: Vec<(String, String)> = vec![]; // field ref (and bare name) -> output alias
@@ -607,7 +622,8 @@ pub fn compile_query(
             field: r.clone(),
             label,
             kind: "dimension",
-            kind_type: if grain.is_some() { "date".into() } else { d.kind.clone() },
+            // truncated to a day or longer it's a date; an hour is still a point in time
+            kind_type: if grain.is_some_and(|g| g != "hour") { "date".into() } else { d.kind.clone() },
             format: None,
             grain: grain.map(String::from),
             compare: None,
@@ -892,6 +908,25 @@ hierarchies:
         assert!(c.sql.contains("COUNT(*)"));
         assert!(c.sql.contains("ORDER BY\n  \"sold_at__month\""), "time series sort by time: {}", c.sql);
         assert!(compile(json!({"model": "sales", "dimensions": ["region:month"]})).is_err());
+    }
+
+    #[test]
+    fn internal_queries_may_return_more_rows() {
+        let big = q(json!({"model": "sales", "dimensions": ["store"], "measures": ["revenue"], "limit": 1_000_000}));
+        assert!(compile_query(&model(), &big, Dialect::Postgres, now(), &[]).unwrap_err().0.contains("limit"));
+        let c = compile_query_up_to(&model(), &big, Dialect::Postgres, now(), &[], 1_000_000).unwrap();
+        assert!(c.sql.ends_with("LIMIT 1000000"));
+    }
+
+    #[test]
+    fn hour_grain_on_times_only() {
+        let c =
+            compile(json!({"model": "sales", "dimensions": ["sold_at:hour"], "measures": ["transactions"]})).unwrap();
+        assert!(c.sql.contains("DATE_TRUNC('hour', \"sold_at\") AS \"sold_at__hour\""), "{}", c.sql);
+        assert_eq!(c.columns[0].kind_type, "time", "an hour is still a point in time, not a date");
+        assert!(compile(json!({"model": "sales", "dimensions": ["sold_on:hour"]})).unwrap_err().0.contains("hour"));
+        assert_eq!(Dialect::BigQuery.trunc("hour", "t", "datetime"), "DATETIME_TRUNC(t, HOUR)");
+        assert_eq!(Dialect::DuckDb.trunc("hour", "t", "time"), "DATE_TRUNC('hour', t)");
     }
 
     #[test]

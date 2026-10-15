@@ -156,6 +156,16 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     let scope = scope_for(&access, &session, org_choice.as_deref());
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
     let refresh = header(&parts, REFRESH_HEADER) == Some("1");
+    // the organisation's own blends join the project's models for this request
+    let mut project = project;
+    if scope.role.is_some() {
+        let org = scope.org.clone().unwrap_or_default();
+        match state.blends.get(&state.orgs, &org).await {
+            Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(org, "organisation's blends unavailable: {e:#}"),
+        }
+    }
     let caller = Caller { session, scope, role, access, access_errors, project, refresh };
     parts.extensions.insert(Arc::new(caller));
     next.run(Request::from_parts(parts, body)).await

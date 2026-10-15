@@ -29,6 +29,7 @@ export function formatDate(v: string, grain?: string | null): string {
     case 'quarter': return `${y} Q${Math.floor((m - 1) / 3) + 1}`
     case 'month': return `${y}-${p(m)}`
     case 'week': case 'day': return `${y}-${p(m)}-${p(day)}`
+    case 'hour': return `${y}-${p(m)}-${p(day)} ${p(d.getUTCHours())}:00`
     default: return v.length > 10 ? `${y}-${p(m)}-${p(day)} ${p(d.getUTCHours())}:${p(d.getUTCMinutes())}` : v
   }
 }

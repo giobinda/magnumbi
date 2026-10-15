@@ -1,0 +1,12 @@
+# Blend: taxi trips (DuckDB) with the weather of their borough and hour (PostgreSQL), joined on
+# ScramDB. Fields are written model.field: taxi.trips, weather.condition, ...
+name: taxi_weather
+label: Taxi trips × weather
+description: Each trip with the weather in its pickup borough during its pickup hour
+base: taxi
+joins:
+  - model: weather
+    on:
+      - pickup_borough = borough
+      - pickup_at:hour = observed_at:hour
+cache: 1h

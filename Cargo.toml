@@ -7,3 +7,7 @@ version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
 license = "UNLICENSED"
+
+# DuckDB's C++ is unusably slow unoptimised: optimise it even in development builds (built once)
+[profile.dev.package.libduckdb-sys]
+opt-level = 3

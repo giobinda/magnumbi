@@ -1,0 +1,104 @@
+# Semantic model: NYC yellow taxi trips (NYC Taxi & Limousine Commission open data).
+# Data: `make nyc-taxi ORG=globex` downloads five years (~208 million trips) and cleans them into that
+# organisation's DuckDB folder; then give the organisation a DuckDB connection `nyc_taxi` with the table
+# `trips = nyc_taxi/trips/*.parquet`, and import project/dashboards/nyc_taxi.yaml.
+name: taxi
+label: NYC taxi trips
+description: Yellow taxi trips in New York City (NYC TLC trip records), one row per trip; times are New York local time
+connection: nyc_taxi
+table: trips
+cache: 1h
+
+dimensions:
+  - name: pickup_at
+    label: Pickup time
+    type: datetime
+  - name: dropoff_at
+    label: Drop-off time
+    type: datetime
+    hidden: true
+  - name: pickup_hour
+    label: Pickup hour
+    type: number
+  - name: pickup_weekday
+    label: Pickup weekday
+  - name: pickup_borough
+    label: Pickup borough
+  - name: pickup_zone
+    label: Pickup zone
+    aggregation: count_distinct
+  - name: dropoff_borough
+    label: Drop-off borough
+  - name: dropoff_zone
+    label: Drop-off zone
+    aggregation: count_distinct
+  - name: vendor
+    label: Vendor
+  - name: payment
+    label: Payment type
+  - name: rate
+    label: Rate
+  - name: passengers
+    label: Passengers
+    type: number
+  - name: distance_mi
+    label: Distance (miles)
+    type: number
+  - name: duration_min
+    label: Duration (minutes)
+    type: number
+
+measures:
+  - name: trips
+    label: Trips
+    type: count
+  - name: revenue
+    label: Revenue
+    type: sum
+    sql: total
+    format: currency
+  - name: fares
+    label: Fares
+    type: sum
+    sql: fare
+    format: currency
+  - name: tips
+    label: Tips
+    type: sum
+    sql: tip
+    format: currency
+  - name: tip_rate
+    label: Tip rate (card payments)
+    description: Tips as a share of fares, on credit card trips (cash tips aren't recorded)
+    type: number
+    sql: "SUM(CASE WHEN payment = 'Credit card' THEN tip END) / NULLIF(SUM(CASE WHEN payment = 'Credit card' THEN fare END), 0)"
+    format: percent
+  - name: avg_fare
+    label: Avg fare
+    type: avg
+    sql: fare
+    format: currency
+  - name: avg_distance
+    label: Avg distance (miles)
+    type: avg
+    sql: distance_mi
+  - name: avg_duration
+    label: Avg duration (minutes)
+    type: avg
+    sql: duration_min
+    higher_is_better: false
+  - name: revenue_per_mile
+    label: Revenue per mile
+    type: number
+    sql: SUM(total) / NULLIF(SUM(distance_mi), 0)
+    format: currency
+  - name: congestion_fees
+    label: Congestion pricing fees
+    description: Manhattan congestion relief zone fee (since January 2025)
+    type: sum
+    sql: cbd_congestion_fee
+    format: currency
+
+hierarchies:
+  pickup_location: [pickup_borough, pickup_zone]
+  dropoff_location: [dropoff_borough, dropoff_zone]

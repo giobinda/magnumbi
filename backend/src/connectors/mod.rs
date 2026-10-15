@@ -18,7 +18,7 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::compiler::Dialect;
-use crate::connections::{ConnectionConfig, Stored, check_name, seal_context};
+use crate::connections::{ConnectionConfig, Stored, TableSource, check_name, seal_context};
 use crate::crypto::SecretKey;
 use crate::materialize::ColType;
 use crate::netguard::NetGuard;
@@ -117,8 +117,11 @@ impl Connectors {
                 Ok(Some(self.guard.check(&c.host, c.port).await.map_err(refuse)?.ip()))
             }
             ConnectionConfig::Duckdb(c) => {
-                for location in c.tables.values().filter(|l| l.starts_with("https://")) {
-                    self.guard.check_url(location, 443).await.map_err(refuse)?;
+                for location in c.tables.values() {
+                    let path = TableSource::parse(location).map_err(ConnError::Invalid)?.path;
+                    if path.starts_with("https://") {
+                        self.guard.check_url(path, 443).await.map_err(refuse)?;
+                    }
                 }
                 if let Some(endpoint) = &c.s3_endpoint {
                     self.guard.check_url(endpoint, 443).await.map_err(refuse)?;
@@ -354,10 +357,11 @@ mod tests {
         assert!(reg.get(&store, &org, "w").await.is_err());
 
         // object storage locations too
-        let duck: ConnectionConfig =
-            serde_json::from_value(json!({"type": "duckdb", "tables": {"t": "https://127.0.0.1:8011/x.parquet"}}))
-                .unwrap();
-        assert!(reg.save(&store, &org, "d", duck, None, None).await.is_err());
+        for location in ["https://127.0.0.1:8011/x.parquet", "iceberg:https://127.0.0.1:8011/lake/sales"] {
+            let duck: ConnectionConfig =
+                serde_json::from_value(json!({"type": "duckdb", "tables": {"t": location}})).unwrap();
+            assert!(reg.save(&store, &org, "d", duck, None, None).await.is_err(), "{location}");
+        }
 
         // the platform workspace is the system owners': exempt
         assert!(

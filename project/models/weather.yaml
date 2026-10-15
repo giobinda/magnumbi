@@ -1,0 +1,80 @@
+# Semantic model: hourly weather in each NYC taxi borough (Open-Meteo, ERA5 reanalysis; CC BY 4.0).
+# Data: `make nyc-taxi` writes nyc_taxi/weather/hourly.parquet; the demo keeps it in PostgreSQL (another
+# engine than the trips' DuckDB) as weather.hourly, read through the organisation's PostgreSQL
+# connection `meteo` (schema: weather). Joined with `taxi` in the blend taxi_weather (project/blends).
+name: weather
+label: NYC weather (hourly)
+description: Hourly weather per borough of the taxi zones (Manhattan, Brooklyn, Queens, Bronx, Staten Island, EWR), New York local time
+connection: meteo
+table: hourly
+cache: 1d
+
+dimensions:
+  - name: observed_at
+    label: Hour
+    type: datetime
+  - name: observed_on
+    label: Day
+    type: date
+  - name: borough
+    label: Borough
+  - name: condition
+    label: Condition
+  - name: weather
+    label: Weather
+  - name: temperature_c
+    label: Temperature (°C)
+    type: number
+  - name: feels_like_c
+    label: Feels like (°C)
+    type: number
+  - name: humidity_pct
+    label: Humidity (%)
+    type: number
+  - name: precipitation_mm
+    label: Precipitation (mm)
+    type: number
+  - name: snowfall_cm
+    label: Snowfall (cm)
+    type: number
+  - name: cloud_cover_pct
+    label: Cloud cover (%)
+    type: number
+  - name: wind_speed_kmh
+    label: Wind speed (km/h)
+    type: number
+
+measures:
+  - name: hours
+    label: Hours
+    type: count
+  - name: avg_temperature
+    label: Avg temperature (°C)
+    type: avg
+    sql: temperature_c
+  - name: max_temperature
+    label: Max temperature (°C)
+    type: max
+    sql: temperature_c
+  - name: min_temperature
+    label: Min temperature (°C)
+    type: min
+    sql: temperature_c
+  - name: precipitation_per_hour
+    label: Precipitation per hour (mm)
+    type: avg
+    sql: precipitation_mm
+  - name: wet_hours
+    label: Share of hours with precipitation
+    type: number
+    sql: AVG(CASE WHEN precipitation_mm >= 0.1 THEN 1.0 ELSE 0.0 END)
+    format: percent
+  - name: snow_hours
+    label: Share of hours with snowfall
+    type: number
+    sql: AVG(CASE WHEN snowfall_cm > 0 THEN 1.0 ELSE 0.0 END)
+    format: percent
+  - name: max_gust
+    label: Max wind gust (km/h)
+    type: max
+    sql: wind_gusts_kmh

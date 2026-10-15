@@ -6,3 +6,4 @@ frontend/dist/
 .env.local
 project/access.yaml
 data/
+testcreds.txt

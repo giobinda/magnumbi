@@ -294,3 +294,10 @@ input.wide { width: 100%; }
 .connection-form label.small { display: flex; flex-direction: column; gap: 4px; }
 .connection-form label.check { flex-direction: row; align-items: center; }
 .connection-form textarea { width: 100%; font-size: 12px; }
+.blend-form .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.blend-form fieldset.join { border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 10px; display: flex; flex-direction: column; gap: 6px; }
+.blend-form fieldset.join legend { font-size: 12px; color: var(--text-muted); padding: 0 4px; }
+.blend-form .row.key { flex-wrap: wrap; align-items: center; gap: 6px; }
+.blend-form .row.key select { flex: 1 1 140px; min-width: 0; }
+.nowrap { white-space: nowrap; }
+@media (max-width: 600px) { .blend-form .grid2 { grid-template-columns: 1fr; } }

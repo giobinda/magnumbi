@@ -98,12 +98,11 @@ impl Connector for PgConnector {
             setup.push_str(&format!("; SET LOCAL search_path TO {}", ident(schema)));
         }
         tx.batch_execute(&setup).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
-        let rows = tx.query(sql, &[]).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
+        // prepared first: the column types are known even without rows
+        let stmt = tx.prepare(sql).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
+        let rows = tx.query(&stmt, &[]).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
         tx.commit().await.map_err(|e| ConnectorError::Query(e.to_string()))?;
-        let types = match rows.first() {
-            Some(r) => r.columns().iter().map(|c| col_type(c.type_())).collect(),
-            None => vec![],
-        };
+        let types = stmt.columns().iter().map(|c| col_type(c.type_())).collect();
         let rows = rows.iter().map(row_json).collect();
         Ok(QueryResult { rows, types, duration_ms: started.elapsed().as_millis() as u64 })
     }
@@ -257,6 +256,15 @@ mod pg_tests {
         assert!(c.test().await.unwrap().contains("PostgreSQL"));
         // read-only: no writes, whatever the SQL says
         assert!(c.run("DELETE FROM sales", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn empty_results_still_have_column_types() {
+        let Some((cfg, pw)) = server().await else { return };
+        let c = PgConnector::new(&cfg, Some(pw), "Postgres", None).unwrap();
+        let r = c.run("SELECT region, amount FROM sales WHERE region = 'nowhere'", &[]).await.unwrap();
+        assert!(r.rows.is_empty());
+        assert_eq!(r.types, [ColType::Text, ColType::Numeric], "a blend writes even empty parts as tables");
     }
 
     #[tokio::test]

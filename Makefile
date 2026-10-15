@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed user dev-backend dev-frontend build serve check test test-db lint
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed nyc-taxi user dev-backend dev-frontend build serve check test test-db lint
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -35,6 +35,10 @@ migrate: db-up      ## apply migrations (the server also does this at startup)
 seed: db-up         ## (re)create the sample_sales demo table
 	$(RUN) seed-sample
 
+nyc-taxi:           ## demo data: 5 years of NYC taxi trips (3.3 GB download) and borough weather for an organisation: make nyc-taxi ORG=globex (needs uv)
+	uv run devtools/nyc_taxi.py data/duckdb/$(or $(ORG),globex)/nyc_taxi 2021-08 2026-07
+	uv run devtools/nyc_weather.py data/duckdb/$(or $(ORG),globex)/nyc_taxi 2021-08-01 2026-07-31
+
 user: db-up         ## create an account / set its password: make user EMAIL=you@example.com
 	$(RUN) user set-password $(EMAIL)
 
@@ -58,8 +62,8 @@ test:               ## backend unit tests + frontend typecheck
 	cargo test
 	cd frontend && npx tsc -b
 
-test-db: db-up       ## also the tests that need ScramDB (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
-	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) cargo test
+test-db: db-up       ## also the tests that need ScramDB, DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
+	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) MAGNUM_TEST_DUCKDB_EXTENSIONS=$(CURDIR)/data/duckdb/_extensions cargo test
 
 lint:
 	cargo clippy --all-targets

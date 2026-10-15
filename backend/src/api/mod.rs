@@ -2,6 +2,7 @@
 
 mod admin;
 mod auth;
+mod blends;
 mod connections;
 mod dashboards;
 mod models;
@@ -23,13 +24,15 @@ use tower_http::trace::TraceLayer;
 use crate::access::{model_available, row_filters_for};
 use crate::auth::{Caller, require_session};
 use crate::cache;
-use crate::compiler::{Compiled, Dialect, compile_query, expand};
+use crate::compiler::{Column, Compiled, Dialect, compile_query, expand};
 use crate::connectors::ConnectorError;
 use crate::error::{ApiError, ApiResult};
+use crate::materialize::ColType;
 use crate::period::now_rounded;
 use crate::schema::{Model, Query};
 use crate::security::{MAX_BODY_BYTES, hardening};
 use crate::state::{AppState, Shared};
+use crate::store::Store;
 
 pub fn router(state: Shared) -> Router {
     let open = Router::new()
@@ -43,6 +46,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/auth/google/callback", get(auth::google_callback));
     let protected = Router::new()
         .route("/api/models", get(models::list))
+        .route("/api/blends", get(blends::list))
+        .route("/api/blends/{name}", axum::routing::put(blends::save).delete(blends::delete))
         .route("/api/models/{name}", get(models::get_model))
         .route("/api/query", post(models::query))
         .route("/api/query/sql", post(models::compile_only))
@@ -173,9 +178,110 @@ pub struct Source<'a> {
     pub dashboard: Option<&'a str>,
 }
 
-/// Compile and run a query: from the organisation's cache when the model allows (`cache:`),
-/// else on the model's connection (then cached in the background). Every query is a usage event.
+/// A query's result, before it's sent.
+pub struct Outcome {
+    pub columns: Vec<Column>,
+    pub rows: Vec<Vec<Value>>,
+    pub sql: String,
+    pub stats: Value,
+    pub period: Option<Value>,
+}
+
+impl Outcome {
+    fn json(self, caller: &Caller) -> Value {
+        json!({
+            "columns": self.columns,
+            "rows": self.rows,
+            "sql": caller.can("view_sql").then_some(&self.sql),
+            "stats": self.stats,
+            "period": self.period,
+        })
+    }
+}
+
+/// Compile and run a query (on a model or a blend). Every query is a usage event.
 pub async fn execute(state: &AppState, caller: &Caller, q: &Query, source: Source<'_>) -> ApiResult<Value> {
+    if let Some(b) = caller.project.blends.get(&q.model) {
+        model_of(caller, &q.model)?; // available to this person?
+        return Ok(blends::execute(state, caller, b, q, source).await?.json(caller));
+    }
+    Ok(run_model(state, caller, q, source).await?.json(caller))
+}
+
+/// The organisation's ScramDB when results may be cached (`ttl` > 0; none for the platform
+/// workspace).
+async fn cache_store(state: &AppState, caller: &Caller, ttl: u64) -> Option<Store> {
+    match (ttl > 0, caller.org()) {
+        (true, org) if !org.is_empty() => state.orgs.store(org).await.ok(),
+        _ => None,
+    }
+}
+
+/// A cached result, unless the person (a builder) asked for fresh data.
+async fn cached(caller: &Caller, store: &Option<Store>, key: &str) -> Option<cache::Hit> {
+    let store = store.as_ref()?;
+    if caller.refresh && caller.can("edit") {
+        return None;
+    }
+    match cache::get(store, key).await {
+        Ok(hit) => hit,
+        Err(e) => {
+            tracing::warn!(org = caller.org(), "query cache unavailable: {e:#}");
+            None
+        }
+    }
+}
+
+/// Fill the cache without making the request wait.
+fn cache_later(
+    store: Option<Store>,
+    key: String,
+    put: (String, String, String, u64),
+    result: (Vec<String>, Vec<ColType>, Vec<Vec<Value>>),
+) {
+    let Some(store) = store else { return };
+    let (org, model, connection, ttl) = put;
+    tokio::spawn(async move {
+        let (names, types, rows) = result;
+        let put = cache::Put {
+            key: &key,
+            org: &org,
+            model: &model,
+            connection: &connection,
+            ttl_seconds: ttl,
+            names: &names,
+            types: &types,
+            rows: &rows,
+        };
+        if let Err(e) = cache::put(&store, put).await {
+            tracing::warn!(org, model, "result not cached: {e:#}");
+        }
+    });
+}
+
+/// A failed query, recorded; database errors can quote SQL, tables and values: details for
+/// builders only.
+fn query_failed(
+    state: &AppState,
+    caller: &Caller,
+    e: &ConnectorError,
+    event: crate::usage::Event,
+    what: &str,
+) -> ApiError {
+    let reference = crate::store::random_token(4);
+    tracing::warn!(reference, what, "query failed: {e}");
+    state.usage.record(crate::usage::Event { ok: false, detail: Some(json!({"ref": reference})), ..event });
+    let detail = match (e, caller.can("view_sql")) {
+        (ConnectorError::Unavailable(m), _) => format!("{m} (ref {reference})"),
+        (ConnectorError::Query(m), true) => format!("{m} (ref {reference})"),
+        _ => format!("the query failed (ref {reference}); a system owner can look it up in the logs"),
+    };
+    ApiError::Status(StatusCode::BAD_GATEWAY, detail)
+}
+
+/// Compile and run a query on a model: from the organisation's cache when the model allows
+/// (`cache:`), else on the model's connection (then cached in the background).
+pub async fn run_model(state: &AppState, caller: &Caller, q: &Query, source: Source<'_>) -> ApiResult<Outcome> {
     let m = model_of(caller, &q.model)?;
     let (dialect, connector) = connection_for(state, caller, m).await?;
     let compiled = compile_for(caller, q, dialect)?;
@@ -186,90 +292,41 @@ pub async fn execute(state: &AppState, caller: &Caller, q: &Query, source: Sourc
         connection: Some(m.connection.clone()),
         ..caller.event("query")
     };
-    let response = |rows: Vec<Vec<Value>>, stats: Value| {
-        json!({
-            "columns": compiled.columns,
-            "rows": rows,
-            "sql": caller.can("view_sql").then_some(&compiled.sql),
-            "stats": stats,
-            "period": compiled.period,
-        })
-    };
-
-    // the cache lives in the organisation's own ScramDB (none for the platform workspace)
+    let Compiled { sql, columns, period } = compiled;
     let ttl = m.cache.unwrap_or(0);
-    let cache_store = match (ttl > 0, caller.org()) {
-        (true, org) if !org.is_empty() => state.orgs.store(org).await.ok(),
-        _ => None,
-    };
-    let key = cache::key(caller.org(), &m.connection, &compiled.sql);
-    if let Some(store) = &cache_store
-        && !(caller.refresh && caller.can("edit"))
-    {
-        match cache::get(store, &key).await {
-            Ok(Some(hit)) => {
-                state.usage.record(crate::usage::Event {
-                    row_count: Some(hit.rows.len() as i64),
-                    duration_ms: Some(0),
-                    cache_hit: Some(true),
-                    ..event()
-                });
-                let stats = json!({"duration_ms": 0, "cache_hit": true, "cached_at": hit.created_at.to_rfc3339(),
-                                       "cache_ttl_s": ttl});
-                return Ok(response(hit.rows, stats));
-            }
-            Ok(None) => {}
-            Err(e) => tracing::warn!(org = caller.org(), "query cache unavailable: {e:#}"),
-        }
+    let store = cache_store(state, caller, ttl).await;
+    let key = cache::key(caller.org(), &m.connection, &sql);
+    if let Some(hit) = cached(caller, &store, &key).await {
+        state.usage.record(crate::usage::Event {
+            row_count: Some(hit.rows.len() as i64),
+            duration_ms: Some(0),
+            cache_hit: Some(true),
+            ..event()
+        });
+        let stats =
+            json!({"duration_ms": 0, "cache_hit": true, "cached_at": hit.created_at.to_rfc3339(), "cache_ttl_s": ttl});
+        return Ok(Outcome { columns, rows: hit.rows, sql, stats, period });
     }
 
-    let names: Vec<String> = compiled.columns.iter().map(|c| c.name.clone()).collect();
-    let result = match connector.run(&compiled.sql, &names).await {
-        Ok(r) => r,
-        Err(e) => {
-            // database errors can quote SQL, tables and values: details for builders only
-            let reference = crate::store::random_token(4);
-            tracing::warn!(reference, model = q.model, "query failed: {e}");
-            state.usage.record(crate::usage::Event { ok: false, detail: Some(json!({"ref": reference})), ..event() });
-            let detail = match (&e, caller.can("view_sql")) {
-                (ConnectorError::Unavailable(m), _) => format!("{m} (ref {reference})"),
-                (ConnectorError::Query(m), true) => format!("{m} (ref {reference})"),
-                _ => format!("the query failed (ref {reference}); a system owner can look it up in the logs"),
-            };
-            return Err(ApiError::Status(StatusCode::BAD_GATEWAY, detail));
-        }
-    };
+    let names: Vec<String> = columns.iter().map(|c| c.name.clone()).collect();
+    let result = connector.run(&sql, &names).await.map_err(|e| query_failed(state, caller, &e, event(), &q.model))?;
     state.usage.record(crate::usage::Event {
         row_count: Some(result.rows.len() as i64),
         duration_ms: Some(result.duration_ms as i64),
         cache_hit: Some(false),
         ..event()
     });
-    if let Some(store) = cache_store {
-        // fill the cache without making this request wait
-        let (org, model, connection) = (caller.org().to_string(), q.model.clone(), m.connection.clone());
-        let (rows, types) = (result.rows.clone(), result.types.clone());
-        tokio::spawn(async move {
-            let put = cache::Put {
-                key: &key,
-                org: &org,
-                model: &model,
-                connection: &connection,
-                ttl_seconds: ttl,
-                names: &names,
-                types: &types,
-                rows: &rows,
-            };
-            if let Err(e) = cache::put(&store, put).await {
-                tracing::warn!(org, model, "result not cached: {e:#}");
-            }
-        });
-    }
+    cache_later(
+        store,
+        key,
+        (caller.org().to_string(), q.model.clone(), m.connection.clone(), ttl),
+        (names, result.types.clone(), result.rows.clone()),
+    );
     let mut stats = json!({"duration_ms": result.duration_ms, "cache_hit": false});
     if ttl > 0 {
         stats["cache_ttl_s"] = json!(ttl);
     }
-    Ok(response(result.rows, stats))
+    Ok(Outcome { columns, rows: result.rows, sql, stats, period })
 }
 
 #[cfg(test)]
@@ -290,6 +347,11 @@ pub mod tests {
     /// The real router and state on a test ScramDB (MAGNUM_TEST_DATABASE_URL, e.g. the dev
     /// primary), with a signed-in system owner. None (test skipped) without that variable.
     pub async fn app() -> Option<(axum::Router, Arc<AppState>, String)> {
+        app_with(concat!(env!("CARGO_MANIFEST_DIR"), "/../project")).await
+    }
+
+    /// `app` on another project directory.
+    pub async fn app_with(project: &str) -> Option<(axum::Router, Arc<AppState>, String)> {
         let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
         let key = crate::crypto::SecretKey::generate();
         let dir = std::env::temp_dir().join(format!("magnum-api-{}", uuid::Uuid::new_v4().simple()));
@@ -297,7 +359,7 @@ pub mod tests {
             ("MAGNUM_DATABASE_URL", url.clone()),
             ("MAGNUM_SECRET_KEY", key),
             ("MAGNUM_SYSTEM_OWNERS", OWNER.to_string()),
-            ("MAGNUM_PROJECT_DIR", concat!(env!("CARGO_MANIFEST_DIR"), "/../project").to_string()),
+            ("MAGNUM_PROJECT_DIR", project.to_string()),
             ("MAGNUM_DUCKDB_DIR", dir.display().to_string()),
             ("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", "0".to_string()),
         ];
@@ -322,6 +384,7 @@ pub mod tests {
             limiter: crate::auth::password::LoginLimiter::default(),
             ip_limiter: crate::auth::password::LoginLimiter::new(20),
             hashing: tokio::sync::Semaphore::new(crate::state::hashing_permits()),
+            blends: crate::state::OrgBlends::default(),
             config,
         });
         Some((super::router(state.clone()), state, format!("magnum_session={session}")))

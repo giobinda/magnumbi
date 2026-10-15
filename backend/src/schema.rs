@@ -10,7 +10,7 @@ use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::Value;
 
 pub static NAME_RE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[A-Za-z_][A-Za-z0-9_]*$").unwrap());
-pub const TIME_GRAINS: [&str; 5] = ["day", "week", "month", "quarter", "year"];
+pub const TIME_GRAINS: [&str; 6] = ["hour", "day", "week", "month", "quarter", "year"];
 pub const TEMPORAL: [&str; 3] = ["date", "time", "datetime"];
 /// An ad-hoc aggregation of a column, written where a measure goes: "sum(sale_price)".
 pub static ADHOC_MEASURE: LazyLock<Regex> =
@@ -256,7 +256,7 @@ pub fn parse_duration(v: &serde_yaml::Value) -> Result<Option<u64>, String> {
     Ok(Some(seconds))
 }
 
-fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
+pub fn duration<'de, D: Deserializer<'de>>(d: D) -> Result<Option<u64>, D::Error> {
     let v = serde_yaml::Value::deserialize(d)?;
     parse_duration(&v).map_err(serde::de::Error::custom)
 }
@@ -406,6 +406,9 @@ fn default_limit() -> i64 {
     1000
 }
 
+/// The most rows a person's query may ask for.
+pub const MAX_ROWS: i64 = 50_000;
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Query {
@@ -432,11 +435,16 @@ pub struct Query {
 
 impl Query {
     pub fn validate(&self) -> Result<(), String> {
+        self.validate_up_to(MAX_ROWS)
+    }
+
+    /// `max_rows`: MAX_ROWS for people's queries; more for internal ones (blend sources).
+    pub fn validate_up_to(&self, max_rows: i64) -> Result<(), String> {
         if self.dimensions.is_empty() && self.measures.is_empty() {
             return Err("a query needs at least one dimension or measure".into());
         }
-        if !(1..=50_000).contains(&self.limit) {
-            return Err("limit: between 1 and 50000".into());
+        if !(1..=max_rows).contains(&self.limit) {
+            return Err(format!("limit: between 1 and {max_rows}"));
         }
         if !self.formulas.is_empty() {
             return Err("formulas aren't supported in Magnum BI yet; use model measures or Σ aggregations".into());

@@ -41,6 +41,10 @@ the planned steps stay cheap.
   secrets sealed per organisation and connection; models only name a connection. DuckDB runs in
   a per-query sandbox confined to the organisation's directory and object storage.
 
+- Blends: an organisation's own blends are kept in its ScramDB; every blend query joins its parts
+  on the organisation's own ScramDB, each part run with that model's data restrictions (a
+  blend never has restrictions of its own, so it can't widen access).
+
 ## Planned (not built yet)
 
 - Organisation-specific models (today models are platform YAML shared by all organisations).
@@ -53,6 +57,8 @@ the planned steps stay cheap.
   in the primary; per-organisation sign-in policy (own OIDC/SAML, verified domains, MFA).
 - Cells: a Magnum BI server per organisation (or per pool), the primary as control plane.
 
-ScramDB notes (1.0): roles and GRANT/REVOKE are enforced; the default container image runs
+ScramDB notes (1.0): `SUM` of an unconstrained `NUMERIC` after a join loses its scale
+(materialized columns are `NUMERIC(38, 10)`); `COPY ... FROM STDIN` only finds tables in the
+default schema (blend work tables live there); roles and GRANT/REVOKE are enforced; the default container image runs
 with `--pg-no-auth` (no authentication at all); TLS and encryption at rest are configured in
 `scramdb-config.toml` (still to verify).

@@ -22,13 +22,16 @@ async fn connection_types(state: &Shared, caller: &crate::auth::Caller) -> ApiRe
 
 /// `connection_type`: null when this organisation has no connection of that name yet.
 fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, &'static str>) -> Value {
-    let conn = types.get(&m.connection).copied();
+    let blend = caller.project.blends.get(&m.name);
+    let conn = if blend.is_some() { Some("blend") } else { types.get(&m.connection).copied() };
     let dims: Vec<Value> = m
         .dimensions
         .iter()
         .filter(|d| !d.hidden)
         .map(|d| {
-            let aggregation = d.aggregation.map(|a| a.as_str()).or((d.kind == "number").then_some("sum"));
+            // Σ aggregations of columns aren't available on blends (yet)
+            let aggregation =
+                d.aggregation.map(|a| a.as_str()).or((d.kind == "number").then_some("sum")).filter(|_| blend.is_none());
             json!({"name": d.name, "label": d.label, "description": d.description, "type": d.kind,
                    "hidden": d.hidden, "aggregation": aggregation})
         })
@@ -52,6 +55,7 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
         "dimensions": dims,
         "measures": measures,
         "hierarchies": m.hierarchies,
+        "blend": blend.map(|b| json!({"base": b.base, "joins": b.joins})),
     })
 }
 
@@ -87,7 +91,11 @@ pub async fn compile_only(
 ) -> ApiResult<Json<Value>> {
     caller.require("explore")?;
     caller.require("view_sql")?;
-    let (dialect, _) = connection_for(&state, &caller, model_of(&caller, &q.model)?).await?;
+    let m = model_of(&caller, &q.model)?;
+    if let Some(b) = caller.project.blends.get(&q.model) {
+        return Ok(Json(json!({"sql": super::blends::preview(&state, &caller, b, &q).await?})));
+    }
+    let (dialect, _) = connection_for(&state, &caller, m).await?;
     Ok(Json(json!({"sql": compile_for(&caller, &q, dialect)?.sql})))
 }
 
