@@ -29,7 +29,18 @@ pub struct AppState {
     pub access: AccessCache,
     pub connectors: Connectors,
     pub google: Option<Google>,
+    /// failed sign-ins per email
     pub limiter: LoginLimiter,
+    /// failed sign-ins per client address (password spraying across many accounts)
+    pub ip_limiter: LoginLimiter,
+    /// password hashing is deliberately slow: at most this many at once
+    pub hashing: tokio::sync::Semaphore,
+}
+
+/// Password hashes allowed at once: half the CPUs (at least 2), so sign-in floods can't starve
+/// everything else.
+pub fn hashing_permits() -> usize {
+    std::thread::available_parallelism().map_or(2, |n| (n.get() / 2).max(2))
 }
 
 /// Access settings change from any replica: re-read them from ScramDB every few seconds.

@@ -10,6 +10,7 @@ import DashboardPage from './pages/DashboardPage'
 import ExplorePage from './pages/ExplorePage'
 import Home from './pages/Home'
 import UsagePage from './pages/UsagePage'
+import ConnectionsPage from './pages/ConnectionsPage'
 
 const ROLE_LABELS: Record<string, string> = { viewer: 'Viewer', user: 'User', power_user: 'Power user', org_admin: 'Org admin', system_owner: 'System owner' }
 
@@ -33,6 +34,7 @@ function SignedIn() {
                 <NavLink to="/" end>Dashboards</NavLink>
                 <Guarded perm="explore"><NavLink to="/explore">Explore</NavLink></Guarded>
                 <MembersLink />
+                <Guarded perm="manage_members"><NavLink to="/connections">Connections</NavLink></Guarded>
                 <Guarded perm="manage_members"><NavLink to="/usage">Usage</NavLink></Guarded>
                 <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
                 <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
@@ -40,6 +42,7 @@ function SignedIn() {
               <Routes>
                 <Route path="/" element={<Home />} />
                 <Route path="/explore" element={<Guarded perm="explore" page><ExplorePage /></Guarded>} />
+                <Route path="/connections" element={<Guarded perm="manage_members" page><ConnectionsPage /></Guarded>} />
                 <Route path="/usage" element={<Guarded perm="manage_members" page><UsagePage /></Guarded>} />
                 <Route path="/members" element={<Guarded perm="manage_members" page><MembersPage /></Guarded>} />
                 <Route path="/organisations" element={<Guarded perm="manage_orgs" page><OrganisationsPage /></Guarded>} />

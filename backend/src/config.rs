@@ -39,6 +39,18 @@ pub struct Config {
     /// seals each organisation's ScramDB connection string (crypto.rs)
     pub secret_key: Option<crate::crypto::SecretKey>,
     pub usage_retention_days: i64,
+    /// DuckDB connections: one directory per organisation (and _extensions)
+    pub duckdb_dir: PathBuf,
+    /// download DuckDB's httpfs extension when an organisation first reads object storage
+    pub duckdb_install_extensions: bool,
+    /// organisations' connections may reach private networks (development; never in production
+    /// unless MAGNUM_ALLOW_PRIVATE_CONNECTIONS=1)
+    pub allow_private_connections: bool,
+    /// private hosts organisations' connections may reach anyway (e.g. a shared warehouse)
+    pub connection_allowed_hosts: Vec<String>,
+    /// behind a reverse proxy: the header carrying the client address (e.g. x-forwarded-for,
+    /// first entry); without it, the TCP peer is the client
+    pub client_ip_header: Option<String>,
 }
 
 impl Config {
@@ -73,6 +85,8 @@ impl Config {
         if !["lax", "strict", "none"].contains(&samesite.as_str()) {
             bail!("MAGNUM_COOKIE_SAMESITE: lax, strict or none");
         }
+        let deployed =
+            matches!(env("MAGNUM_ENV").unwrap_or_default().to_lowercase().as_str(), "production" | "staging");
         let config = Config {
             database_url: env("MAGNUM_DATABASE_URL")
                 .unwrap_or_else(|| "postgresql://scramdb@127.0.0.1:5432/scramdb".into()),
@@ -81,7 +95,7 @@ impl Config {
             host: env("MAGNUM_HOST").unwrap_or_else(|| "127.0.0.1".into()),
             port: env("MAGNUM_PORT").map(|p| p.parse()).transpose()?.unwrap_or(8000),
             public_url: env("MAGNUM_PUBLIC_URL").map(|u| u.trim_end_matches('/').to_string()),
-            deployed: matches!(env("MAGNUM_ENV").unwrap_or_default().to_lowercase().as_str(), "production" | "staging"),
+            deployed,
             cookie_samesite: samesite,
             trusted_origins: list("MAGNUM_TRUSTED_ORIGINS"),
             frame_ancestors: env("MAGNUM_FRAME_ANCESTORS").unwrap_or_else(|| "'self'".into()),
@@ -92,6 +106,11 @@ impl Config {
             session_hours: env("MAGNUM_SESSION_HOURS").map(|h| h.parse()).transpose()?.unwrap_or(12),
             secret_key: env("MAGNUM_SECRET_KEY").map(|k| crate::crypto::SecretKey::parse(&k)).transpose()?,
             usage_retention_days: env("MAGNUM_USAGE_RETENTION_DAYS").map(|d| d.parse()).transpose()?.unwrap_or(400),
+            duckdb_dir: env("MAGNUM_DUCKDB_DIR").unwrap_or_else(|| "data/duckdb".into()).into(),
+            duckdb_install_extensions: flag("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", true),
+            allow_private_connections: flag("MAGNUM_ALLOW_PRIVATE_CONNECTIONS", !deployed),
+            connection_allowed_hosts: list("MAGNUM_CONNECTION_ALLOWED_HOSTS"),
+            client_ip_header: env("MAGNUM_CLIENT_IP_HEADER").map(|h| h.to_lowercase()),
         };
         if config.usage_retention_days < 1 {
             bail!("MAGNUM_USAGE_RETENTION_DAYS: at least 1");
@@ -104,6 +123,18 @@ impl Config {
 
     pub fn is_https(&self) -> bool {
         self.public_url.as_deref().is_some_and(|u| u.starts_with("https://"))
+    }
+
+    /// Where organisations' connections may connect: never the primary database.
+    pub fn connection_guard(&self) -> crate::netguard::NetGuard {
+        let primary = url::Url::parse(&self.database_url)
+            .ok()
+            .and_then(|u| Some(format!("{}:{}", u.host_str()?, u.port().unwrap_or(5432))));
+        crate::netguard::NetGuard {
+            allow_private: self.allow_private_connections,
+            allowed_hosts: self.connection_allowed_hosts.clone(),
+            internal: primary.into_iter().collect(),
+        }
     }
 
     /// Problems that make an instance unsafe when shared. Fatal with MAGNUM_ENV=production.
@@ -127,5 +158,37 @@ impl Config {
             p.push("MAGNUM_COOKIE_SAMESITE=none needs https".into());
         }
         p
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn config(vars: &[(&str, &str)]) -> Config {
+        Config::from_lookup(|k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.to_string())).unwrap()
+    }
+
+    #[test]
+    fn connection_guard_is_strict_in_production() {
+        let prod = config(&[
+            ("MAGNUM_ENV", "production"),
+            ("MAGNUM_DATABASE_URL", "postgresql://u:pw@db.internal:6000/magnum"),
+        ]);
+        let g = prod.connection_guard();
+        assert!(!g.allow_private);
+        assert_eq!(g.internal, ["db.internal:6000"], "the primary database is never a connection target");
+
+        let dev = config(&[]);
+        assert!(dev.connection_guard().allow_private, "development: local databases are fine");
+
+        let allowed = config(&[
+            ("MAGNUM_ENV", "production"),
+            ("MAGNUM_ALLOW_PRIVATE_CONNECTIONS", "1"),
+            ("MAGNUM_CONNECTION_ALLOWED_HOSTS", "Warehouse.Corp, 10.0.0.5"),
+        ]);
+        let g = allowed.connection_guard();
+        assert!(g.allow_private);
+        assert_eq!(g.allowed_hosts, ["warehouse.corp", "10.0.0.5"]);
     }
 }

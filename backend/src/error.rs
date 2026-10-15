@@ -101,3 +101,13 @@ impl From<crate::orgdb::OrgDbError> for ApiError {
         }
     }
 }
+
+impl From<crate::connectors::ConnError> for ApiError {
+    fn from(e: crate::connectors::ConnError) -> ApiError {
+        use crate::connectors::ConnError;
+        match e {
+            ConnError::Missing(_) | ConnError::Invalid(_) => ApiError::bad_request(e.to_string()),
+            ConnError::Internal(e) => e.into(),
+        }
+    }
+}

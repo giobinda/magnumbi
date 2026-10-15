@@ -22,12 +22,14 @@ chrono = { version = "0.4", features = ["serde"] }
 cookie = "0.18"
 clap = { version = "4", features = ["derive", "env"] }
 deadpool-postgres = "0.14"
+duckdb = { version = "1.10506", features = ["bundled", "parquet", "json"] }
 jsonwebtoken = "9"
 rand = "0.8"
 regex = "1"
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 rpassword = "7"
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+rustls = { version = "0.23", default-features = false, features = ["ring", "std", "tls12"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = { version = "1", features = ["preserve_order"] }
 serde_yaml = "0.9"
@@ -36,6 +38,7 @@ sqlparser = { version = "0.55", features = ["visitor"] }
 subtle = "2"
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
+tokio-postgres-rustls = { version = "0.14", default-features = false, features = ["ring"] }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1"] }
 tower = "0.5"
 tower-http = { version = "0.6", features = ["fs", "trace"] }
@@ -43,6 +46,7 @@ tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 url = "2"
 uuid = { version = "1", features = ["v4", "v7"] }
+webpki-roots = "1"
 
 [dev-dependencies]
 tower = { version = "0.5", features = ["util"] }

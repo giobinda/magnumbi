@@ -21,10 +21,14 @@ pub type Migrations = &'static [(&'static str, &'static str)];
 pub const PRIMARY: Migrations = &[
     ("0001_initial", include_str!("../migrations/primary/0001_initial.sql")),
     ("0002_orgs_usage", include_str!("../migrations/primary/0002_orgs_usage.sql")),
+    ("0003_connections", include_str!("../migrations/primary/0003_connections.sql")),
 ];
 /// Versions are prefixed, so an instance serving as both primary and organisation database keeps
 /// the two histories apart.
-pub const ORG: Migrations = &[("org/0001_initial", include_str!("../migrations/org/0001_initial.sql"))];
+pub const ORG: Migrations = &[
+    ("org/0001_initial", include_str!("../migrations/org/0001_initial.sql")),
+    ("org/0002_connections", include_str!("../migrations/org/0002_connections.sql")),
+];
 /// pg_advisory_lock key serializing migrations across replicas (ScramDB: literal keys only)
 const MIGRATION_LOCK: i64 = 727_001;
 

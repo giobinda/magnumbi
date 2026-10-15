@@ -1,7 +1,10 @@
 //! Sign-in endpoints: who am I, password sign-in, Google sign-in, sign-out, change password.
 
 use axum::Json;
-use axum::extract::{Query as UrlQuery, State};
+use std::net::SocketAddr;
+
+use axum::Extension;
+use axum::extract::{ConnectInfo, Query as UrlQuery, State};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Redirect, Response};
 use axum_extra::extract::CookieJar;
@@ -112,27 +115,70 @@ pub struct LoginBody {
     password: String,
 }
 
-pub async fn login(State(state): State<Shared>, jar: CookieJar, Body(body): Body<LoginBody>) -> ApiResult<Response> {
+/// The client's address: the TCP peer, or (behind a proxy) the configured header's first entry.
+fn client_ip(state: &AppState, headers: &HeaderMap, peer: Option<Extension<ConnectInfo<SocketAddr>>>) -> String {
+    let forwarded = state.config.client_ip_header.as_deref().and_then(|h| header(headers, h));
+    match forwarded.and_then(|v| v.split(',').next()).map(str::trim).filter(|v| !v.is_empty()) {
+        Some(ip) => ip.chars().take(64).collect(),
+        None => peer.map_or_else(|| "unknown".into(), |Extension(ConnectInfo(a))| a.ip().to_string()),
+    }
+}
+
+/// Run slow password hashing off the async threads, a few at a time (sign-in floods can't take
+/// every CPU).
+async fn hashing<T: Send + 'static>(state: &AppState, f: impl FnOnce() -> T + Send + 'static) -> ApiResult<T> {
+    let busy = || ApiError::Status(StatusCode::SERVICE_UNAVAILABLE, "busy signing people in; try again shortly".into());
+    let _permit = tokio::time::timeout(Duration::seconds(5).to_std().expect("5 s"), state.hashing.acquire())
+        .await
+        .map_err(|_| busy())?
+        .map_err(|_| busy())?;
+    Ok(tokio::task::spawn_blocking(f).await.map_err(anyhow::Error::from)?)
+}
+
+fn sign_in_failed(state: &AppState, email: &str, ip: &str, reason: &str) {
+    tracing::warn!(reason, ip, "sign-in failed");
+    state.usage.record(crate::usage::Event {
+        user_email: Some(email.chars().take(254).collect()),
+        ok: false,
+        detail: Some(json!({"reason": reason, "ip": ip})),
+        ..crate::usage::Event::new("sign_in_failed")
+    });
+}
+
+pub async fn login(
+    State(state): State<Shared>,
+    jar: CookieJar,
+    headers: HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+    Body(body): Body<LoginBody>,
+) -> ApiResult<Response> {
     if !state.config.password_login {
         return Err(ApiError::not_found("password sign-in is switched off here"));
     }
+    let wrong = || ApiError::Status(StatusCode::UNAUTHORIZED, "wrong email or password".into());
     let email = body.email.trim().to_lowercase();
     if email.len() > 320 || body.password.len() > 4 * password::MAX_LENGTH {
-        return Err(ApiError::Status(StatusCode::UNAUTHORIZED, "wrong email or password".into()));
+        return Err(wrong());
     }
-    if let Some(wait) = state.limiter.locked(&email) {
-        let detail = format!("too many failed attempts; try again in {} minutes", wait.div_ceil(60));
-        return Err(ApiError::Status(StatusCode::TOO_MANY_REQUESTS, detail));
+    let ip = client_ip(&state, &headers, peer);
+    let address_key = format!("ip:{ip}");
+    for (limiter, key, reason) in
+        [(&state.ip_limiter, &address_key, "address_locked"), (&state.limiter, &email, "account_locked")]
+    {
+        if let Some(wait) = limiter.locked(key) {
+            sign_in_failed(&state, &email, &ip, reason);
+            let detail = format!("too many failed attempts; try again in {} minutes", wait.div_ceil(60));
+            return Err(ApiError::Status(StatusCode::TOO_MANY_REQUESTS, detail));
+        }
     }
     let user = state.store.user(&email).await?;
     let stored = user.as_ref().filter(|u| !u.disabled).and_then(|u| u.password_hash.clone());
     let pw = body.password;
-    let ok = tokio::task::spawn_blocking(move || password::verify(&pw, stored.as_deref()))
-        .await
-        .map_err(anyhow::Error::from)?;
-    if !ok {
+    if !hashing(&state, move || password::verify(&pw, stored.as_deref())).await? {
         state.limiter.failed(&email);
-        return Err(ApiError::Status(StatusCode::UNAUTHORIZED, "wrong email or password".into()));
+        state.ip_limiter.failed(&address_key);
+        sign_in_failed(&state, &email, &ip, "wrong_password");
+        return Err(wrong());
     }
     state.limiter.succeeded(&email);
     let user = user.expect("verified against a stored hash");
@@ -175,9 +221,7 @@ pub async fn change_password(
     // a password, once set, is needed to change it (a Google sign-in may set the first one)
     if let Some(stored) = user.password_hash.clone() {
         let current = body.current.clone().unwrap_or_default();
-        let ok = tokio::task::spawn_blocking(move || password::verify(&current, Some(&stored)))
-            .await
-            .map_err(anyhow::Error::from)?;
+        let ok = hashing(&state, move || password::verify(&current, Some(&stored))).await?;
         if !ok {
             state.limiter.failed(&user.email);
             return Err(ApiError::bad_request("your current password isn't right"));
@@ -188,7 +232,7 @@ pub async fn change_password(
         return Err(ApiError::bad_request("choose a password different from the current one"));
     }
     let new = body.new;
-    let hash = tokio::task::spawn_blocking(move || password::hash(&new)).await.map_err(anyhow::Error::from)??;
+    let hash = hashing(&state, move || password::hash(&new)).await??;
     // keeps the organisation binding: an admin-created account stays inside its organisation
     state.store.set_password(&user.email, None, &hash, user.owner_org.as_deref(), false).await?;
     // every session ended, this one too: start a fresh one

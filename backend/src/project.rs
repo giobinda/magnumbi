@@ -2,12 +2,14 @@
 //!
 //! ```text
 //! project/
-//!   connections.yaml   named connections (env vars allowed: ${VAR} / ${VAR:-default})
 //!   models/*.yaml      semantic models (one per file)
 //!   themes/*.yaml      extra themes (optional)
 //!   dashboards/*.yaml  dashboards seeded into ScramDB on first start (file stem = id)
 //!   access.yaml        optional: initial organisations and members, adopted on first start
 //! ```
+//!
+//! Data connections aren't project files: each organisation has its own (connections.rs), and a
+//! model only names the connection it reads from.
 //!
 //! Files are re-read when they change on disk, so editing YAML (or pulling from git) is picked up
 //! without a restart.
@@ -22,7 +24,7 @@ use serde_json::Value;
 
 use crate::compiler::{Dialect, compile_query, expand};
 use crate::period::now_rounded;
-use crate::schema::{Connection, Dashboard, Drill, Model, Query, is_temporal};
+use crate::schema::{Dashboard, Drill, Model, Query, is_temporal};
 use crate::themes::{Theme, builtin};
 
 pub const MAX_YAML_BYTES: usize = 512 * 1024;
@@ -50,7 +52,6 @@ pub fn load_yaml<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String
 /// What the project files define, as one consistent snapshot.
 #[derive(Debug, Default)]
 pub struct ProjectState {
-    pub connections: BTreeMap<String, Connection>,
     pub models: BTreeMap<String, Model>,
     /// extension model -> the model it extends
     pub bases: BTreeMap<String, String>,
@@ -60,15 +61,15 @@ pub struct ProjectState {
 }
 
 impl ProjectState {
-    pub fn dialect(&self, model: &Model) -> Dialect {
-        match self.connections.get(&model.connection) {
-            Some(Connection::Scramdb(_)) | None => Dialect::Postgres,
-        }
-    }
-
-    /// Semantic checks of a dashboard against the models (`available`: the organisation's).
+    /// Semantic checks of a dashboard against the models (`available`: the organisation's) and
+    /// the organisation's connections (`dialect_of`: connection name -> its SQL dialect).
     /// Warnings, not errors, so a dashboard stays editable while a model it uses is broken.
-    pub fn validate_dashboard(&self, d: &Dashboard, available: &BTreeSet<String>) -> Vec<String> {
+    pub fn validate_dashboard(
+        &self,
+        d: &Dashboard,
+        available: &BTreeSet<String>,
+        dialect_of: &dyn Fn(&str) -> Option<Dialect>,
+    ) -> Vec<String> {
         let mut warnings = vec![];
         for t in &d.tiles {
             let check = || -> Result<(), String> {
@@ -77,8 +78,10 @@ impl ProjectState {
                 }
                 let m = &self.models[&t.query.model];
                 let q = with_dashboard_period(d, t.query.clone(), &t.options);
-                let (m2, q2) = expand(m, &q).map_err(|e| e.0)?;
-                compile_query(&m2, &q2, self.dialect(m), now_rounded(), &[]).map_err(|e| e.0)?;
+                let dialect = dialect_of(&m.connection)
+                    .ok_or_else(|| format!("this organisation has no connection named {:?}", m.connection))?;
+                let (m2, q2) = expand(m, &q, dialect).map_err(|e| e.0)?;
+                compile_query(&m2, &q2, dialect, now_rounded(), &[]).map_err(|e| e.0)?;
                 if let Some(Drill::Hierarchy(h)) = &t.drill
                     && !m.hierarchies.contains_key(h)
                 {
@@ -187,8 +190,7 @@ impl Project {
     }
 
     fn signature(&self) -> Signature {
-        let mut files = vec![self.root.join("connections.yaml")];
-        files.extend(self.yaml_files("models"));
+        let mut files = self.yaml_files("models");
         files.extend(self.yaml_files("themes"));
         files
             .into_iter()
@@ -218,31 +220,6 @@ impl Project {
 
     fn load(&self) -> ProjectState {
         let mut errors = BTreeMap::new();
-        let mut connections = BTreeMap::new();
-        let cpath = self.root.join("connections.yaml");
-        match std::fs::read_to_string(&cpath) {
-            Err(e) => {
-                errors.insert("connections.yaml".into(), format!("can't read {}: {e}", cpath.display()));
-            }
-            Ok(text) => match load_yaml::<BTreeMap<String, BTreeMap<String, serde_yaml::Value>>>(&expand_env(&text)) {
-                Err(e) => {
-                    errors.insert("connections.yaml".into(), e);
-                }
-                Ok(mut doc) => {
-                    for (name, cfg) in doc.remove("connections").unwrap_or_default() {
-                        match serde_yaml::from_value::<Connection>(cfg) {
-                            Ok(c) => {
-                                connections.insert(name, c);
-                            }
-                            Err(e) => {
-                                errors.insert(format!("connections.yaml#{name}"), e.to_string());
-                            }
-                        }
-                    }
-                }
-            },
-        }
-
         let mut models: BTreeMap<String, Model> = BTreeMap::new();
         let mut extensions: Vec<(String, Model)> = vec![];
         for path in self.yaml_files("models") {
@@ -252,9 +229,6 @@ impl Project {
                 m.validate()?;
                 if models.contains_key(&m.name) || extensions.iter().any(|(_, x)| x.name == m.name) {
                     return Err(format!("duplicate model name {:?}", m.name));
-                }
-                if m.extends.is_none() && !connections.contains_key(&m.connection) {
-                    return Err(format!("unknown connection {:?}", m.connection));
                 }
                 Ok(m)
             });
@@ -302,7 +276,7 @@ impl Project {
                 }
             }
         }
-        ProjectState { connections, models, bases, themes, errors }
+        ProjectState { models, bases, themes, errors }
     }
 }
 
@@ -366,7 +340,13 @@ mod tests {
         let all: BTreeSet<String> = s.models.keys().cloned().collect();
         for path in Project::new(&root).yaml_files("dashboards") {
             let d = parse_dashboard(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            assert_eq!(s.validate_dashboard(&d, &all), Vec::<String>::new(), "{}", path.display());
+            let warehouse = |c: &str| (c == "warehouse").then_some(Dialect::Postgres);
+            assert_eq!(s.validate_dashboard(&d, &all, &warehouse), Vec::<String>::new(), "{}", path.display());
+            // an organisation without the model's connection gets told
+            let none = |_: &str| None;
+            assert!(
+                s.validate_dashboard(&d, &all, &none).iter().any(|w| w.contains("no connection named \"warehouse\""))
+            );
             // the compact YAML round-trips
             let again = parse_dashboard(&dump_dashboard(&d)).unwrap();
             assert_eq!(serde_json::to_value(&again).unwrap(), serde_json::to_value(&d).unwrap());
@@ -375,26 +355,23 @@ mod tests {
 
     #[test]
     fn extends_and_errors() {
+        // connections aren't project files: a model only names one, resolved per organisation
         let dir = tmp_project(&[
-            (
-                "connections.yaml",
-                "connections:\n  db: {type: scramdb, dsn: \"${MAGNUM_TEST_UNSET_DSN:-}\"}\n  old: {type: bigquery}\n",
-            ),
             (
                 "models/a.yaml",
                 "name: a\nconnection: db\ntable: t\ndimensions: [{name: x}]\nmeasures: [{name: n, type: count}]\n",
             ),
             ("models/b.yaml", "name: b\nextends: a\nmeasures: [{name: s, type: sum, sql: x}]\n"),
             ("models/c.yaml", "name: c\nextends: a\ndimensions: [{name: x}]\n"),
-            ("models/d.yaml", "name: d\nconnection: nowhere\ntable: t\n"),
+            ("models/d.yaml", "name: d\nconnection: anywhere\ntable: t\n"),
+            ("models/e.yaml", "name: e\ntable: t\n"),
         ]);
         let s = Project::new(&dir).current();
-        assert!(s.errors.contains_key("connections.yaml#old"), "only scramdb connections for now");
-        assert!(matches!(&s.connections["db"], Connection::Scramdb(c) if c.dsn.is_none()));
+        assert!(s.models.contains_key("d"), "{:?}", s.errors);
+        assert!(s.errors["models/e.yaml"].contains("`connection` is required"));
         assert_eq!(s.models["b"].measures.len(), 2);
         assert_eq!(s.bases["b"], "a");
         assert!(s.errors["models/c.yaml"].contains("redefines"));
-        assert!(s.errors["models/d.yaml"].contains("unknown connection"));
         std::fs::remove_dir_all(dir).ok();
     }
 }

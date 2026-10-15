@@ -35,10 +35,15 @@ the planned steps stay cheap.
 9. **Assume a separate server per organisation later**: no in-process state shared across
    organisations that couldn't be rebuilt from the primary plus that organisation's database.
 
+## Built
+
+- Organisation-owned data connections (connections.rs): stored in the organisation's ScramDB,
+  secrets sealed per organisation and connection; models only name a connection. DuckDB runs in
+  a per-query sandbox confined to the organisation's directory and object storage.
+
 ## Planned (not built yet)
 
-- Organisation-owned data connections and models (in the org DB, sealed per org); refuse the
-  platform default data connection in production.
+- Organisation-specific models (today models are platform YAML shared by all organisations).
 - A data key per organisation (envelope encryption, KMS-ready); crypto-shredding on offboarding.
 - Separate migration and runtime roles on org instances; refuse `--pg-no-auth`, non-TLS and
   shared instances in production.

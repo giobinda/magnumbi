@@ -290,3 +290,7 @@ input.wide { width: 100%; }
 .usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 24px; }
 .org-db { display: flex; flex-direction: column; gap: 6px; }
 .org-db code { font-size: 12px; overflow-wrap: anywhere; }
+.connection-form { margin-top: 16px; }
+.connection-form label.small { display: flex; flex-direction: column; gap: 4px; }
+.connection-form label.check { flex-direction: row; align-items: center; }
+.connection-form textarea { width: 100%; font-size: 12px; }
