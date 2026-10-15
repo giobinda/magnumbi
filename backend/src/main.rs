@@ -4,11 +4,15 @@
 mod access;
 mod api;
 mod auth;
+mod cache;
 mod compiler;
 mod config;
 mod connectors;
+mod crypto;
 mod db;
 mod error;
+mod materialize;
+mod orgdb;
 mod period;
 mod project;
 mod sample;
@@ -18,6 +22,7 @@ mod state;
 mod store;
 mod themes;
 mod tile_query;
+mod usage;
 
 use std::io::{BufRead, IsTerminal};
 use std::sync::Arc;
@@ -40,8 +45,10 @@ struct Cli {
 enum Command {
     /// Run the server (the default)
     Serve,
-    /// Apply database migrations to ScramDB and exit
+    /// Apply the primary database's migrations and exit (organisation databases migrate when used)
     Migrate,
+    /// Print a new random MAGNUM_SECRET_KEY
+    GenKey,
     /// (Re)create the `sample_sales` demo table in Magnum BI's database
     SeedSample {
         #[arg(long, default_value_t = 50_000)]
@@ -54,6 +61,18 @@ enum Command {
         #[command(subcommand)]
         command: UserCommand,
     },
+    /// Manage organisations' own ScramDB instances
+    Org {
+        #[command(subcommand)]
+        command: OrgCommand,
+    },
+}
+
+#[derive(Subcommand)]
+enum OrgCommand {
+    /// Point an organisation at its ScramDB (connection string read from stdin; needs
+    /// MAGNUM_SECRET_KEY). Tests and migrates it, and moves the organisation's dashboards there.
+    SetDatabase { org: String },
 }
 
 #[derive(Subcommand)]
@@ -87,7 +106,7 @@ async fn main() -> Result<()> {
         Command::Serve => serve(config).await,
         Command::Migrate => {
             let pool = db::make_pool(&config.database_url, 2)?;
-            let n = db::migrate(&pool).await?;
+            let n = db::migrate(&pool, db::PRIMARY).await?;
             println!("{n} migration(s) applied to {}", db::redact(&config.database_url));
             Ok(())
         }
@@ -97,7 +116,29 @@ async fn main() -> Result<()> {
             println!("{n} rows in {} ({})", sample::TABLE, db::redact(&config.database_url));
             Ok(())
         }
+        Command::GenKey => {
+            println!("{}", crypto::SecretKey::generate());
+            Ok(())
+        }
         Command::Check => check(&config),
+        Command::Org { command: OrgCommand::SetDatabase { org } } => {
+            let pool = db::make_pool(&config.database_url, 2)?;
+            db::migrate(&pool, db::PRIMARY).await?;
+            let store = Store::new(pool);
+            let known = match store.setting("platform").await? {
+                Some(p) => serde_json::from_value::<access::Platform>(p)?.organisations.contains_key(&org),
+                None => false,
+            };
+            if !known {
+                bail!("no organisation {org:?}: create it on the Organisations page first");
+            }
+            let mut dsn = String::new();
+            std::io::stdin().lock().read_line(&mut dsn)?;
+            let orgs = orgdb::OrgDbs::new(store, config.secret_key.clone());
+            let (display, version, moved) = orgs.register(&org, dsn.trim(), Some("cli")).await?;
+            println!("{org}: {display} ({version}); {moved} dashboard(s) moved");
+            Ok(())
+        }
         Command::User { command } => user(&config, command).await,
     }
 }
@@ -144,7 +185,7 @@ fn read_password(stdin: bool) -> Result<String> {
 
 async fn user(config: &Config, command: UserCommand) -> Result<()> {
     let pool = db::make_pool(&config.database_url, 2)?;
-    db::migrate(&pool).await?;
+    db::migrate(&pool, db::PRIMARY).await?;
     let store = Store::new(pool);
     match command {
         UserCommand::SetPassword { email, name, stdin } => {
@@ -188,7 +229,9 @@ async fn serve(config: Config) -> Result<()> {
     }
     let pool = db::make_pool(&config.database_url, 16)?;
     if config.auto_migrate {
-        db::migrate(&pool).await.with_context(|| format!("ScramDB at {}", db::redact(&config.database_url)))?;
+        db::migrate(&pool, db::PRIMARY)
+            .await
+            .with_context(|| format!("ScramDB at {}", db::redact(&config.database_url)))?;
     }
     let store = Store::new(pool.clone());
     let project = project::Project::new(&config.project_dir);
@@ -218,6 +261,8 @@ async fn serve(config: Config) -> Result<()> {
     );
     let google = config.google.clone().map(auth::google::Google::new);
     let state = Arc::new(AppState {
+        orgs: orgdb::OrgDbs::new(store.clone(), config.secret_key.clone()),
+        usage: usage::Usage::start(store.clone(), config.usage_retention_days),
         store,
         project,
         access: state::AccessCache::new(),

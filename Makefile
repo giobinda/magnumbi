@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql migrate seed user dev-backend dev-frontend build serve check test lint
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed user dev-backend dev-frontend build serve check test lint
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -9,7 +9,7 @@ RUN = $(LOCAL_ENV) && $(DEV_DB) cargo run -q --
 install:            ## frontend dependencies (cargo fetches Rust crates on first build)
 	cd frontend && npm install
 
-db-up:              ## start the dev ScramDB on :55432 (Podman or Docker)
+db-up:              ## start the primary dev ScramDB on :55432 (Podman or Docker)
 	devtools/scramdb.sh up
 
 db-down:            ## stop it (data kept)
@@ -18,8 +18,16 @@ db-down:            ## stop it (data kept)
 db-reset:           ## delete the dev ScramDB and its data
 	devtools/scramdb.sh reset
 
-db-psql:            ## psql shell on the dev ScramDB
+db-psql:            ## psql shell on the primary dev ScramDB
 	devtools/scramdb.sh psql
+
+org-db: db-up       ## an organisation's own ScramDB: make org-db ORG=acme PORT=55433 (save the organisation first)
+	devtools/scramdb.sh up $(ORG) $(PORT)
+	devtools/scramdb.sh url $(ORG) | ($(LOCAL_ENV) && $(DEV_DB) cargo run -q -- org set-database $(ORG))
+
+key:                ## add a fresh MAGNUM_SECRET_KEY to .env.local (once: losing it means re-entering org databases)
+	@grep -q '^MAGNUM_SECRET_KEY=.' .env.local 2>/dev/null && echo "MAGNUM_SECRET_KEY is already set in .env.local" || \
+	  (echo "MAGNUM_SECRET_KEY=$$(cargo run -q -- gen-key)" >> .env.local && echo "MAGNUM_SECRET_KEY added to .env.local")
 
 migrate: db-up      ## apply migrations (the server also does this at startup)
 	$(RUN) migrate

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { api, setOrg } from '../api'
 import type { Organisation, Platform, PlatformResponse, RowRule } from '../api'
+import type { FormEvent } from 'react'
 import { useAuth } from '../auth'
 import Restrictions from '../components/Restrictions'
 import { useModels } from '../hooks'
@@ -62,7 +63,8 @@ export default function OrganisationsPage() {
     <div className="page narrow">
       <h1>Organisations</h1>
       <p className="muted">Each organisation is an independent company: its members, dashboards and data never mix with
-        another's. Here you decide what each one may use. Its Org admins manage its people.</p>
+        another's. Here you decide what each one may use. Its Org admins manage its people. Each organisation has
+        its own ScramDB instance for its dashboards and query cache.</p>
 
       <h2 className="section">System owners</h2>
       <div className="card person">
@@ -88,6 +90,10 @@ export default function OrganisationsPage() {
                 <button className="icon" title="Remove organisation (its members lose access)"
                   onClick={() => confirm(`Remove ${r.name || r.id}? Its members lose access.`) && setRows(rows.filter((_, j) => j !== i))}>✕</button>
               </div>
+              {!r.isNew && (
+                <OrgDatabase org={r.id} current={data.databases[r.id]} keySet={data.secret_key}
+                  onSaved={display => setData(d => (d ? { ...d, databases: { ...d.databases, [r.id]: { display, updated_at: new Date().toISOString(), updated_by: auth?.user?.email ?? null } } } : d))} />
+              )}
               <label className="small">Email domains (anyone from these joins automatically)
                 <input value={r.domains.join(', ')} placeholder="acme.com" onChange={e => set({ domains: splitList(e.target.value) })} />
               </label>
@@ -112,6 +118,48 @@ export default function OrganisationsPage() {
       {errors.length > 0 && <div className="warn">{errors.map(e => <div key={e}>{e}</div>)}</div>}
       {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
       <div className="row"><button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
+    </div>
+  )
+}
+
+/** Where an organisation's own ScramDB is: its dashboards and query cache live there. */
+function OrgDatabase({ org, current, keySet, onSaved }: {
+  org: string; current?: { display: string }; keySet: boolean; onSaved: (display: string) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const [dsn, setDsn] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [msg, setMsg] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
+  const save = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setMsg(null)
+    try {
+      const r = await api.setOrgDatabase(org, dsn)
+      setDsn(''); setEditing(false); onSaved(r.display)
+      setMsg({ kind: 'ok', text: `Connected (${r.version.split(' on ')[0]}).${r.dashboards_moved ? ` ${r.dashboards_moved} dashboard(s) moved there.` : ''}` })
+    } catch (x) { setMsg({ kind: 'error', text: (x as Error).message }) }
+    setBusy(false)
+  }
+  return (
+    <div className="small org-db">
+      <div className="access-row">
+        <b>Database</b>
+        {current ? <code className="mono">{current.display}</code>
+          : <span className="warn-text">not set: its members can't open dashboards yet</span>}
+        {!editing && <button className="link" disabled={!keySet} onClick={() => setEditing(true)}>{current ? 'Change…' : 'Set…'}</button>}
+      </div>
+      {!keySet && <div className="warn-text">Set MAGNUM_SECRET_KEY on the server first (<code>magnum-bi gen-key</code>): connection strings are stored encrypted.</div>}
+      {editing && (
+        <form className="access-row" onSubmit={save}>
+          <input className="wide" type="password" autoComplete="off" spellCheck={false} value={dsn} onChange={e => setDsn(e.target.value)}
+            placeholder="postgresql://user:password@host:5432/scramdb" />
+          <button className="primary" disabled={busy || !dsn.trim()}>{busy ? 'Testing…' : 'Test & save'}</button>
+          <button type="button" className="link" onClick={() => { setEditing(false); setDsn('') }}>Cancel</button>
+        </form>
+      )}
+      {editing && <p className="muted">Magnum BI connects, prepares the database, and moves the organisation's existing dashboards
+        there when it has none yet. The connection string is stored encrypted and never shown again.</p>}
+      {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
     </div>
   )
 }

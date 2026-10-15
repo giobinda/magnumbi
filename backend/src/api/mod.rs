@@ -21,6 +21,7 @@ use tower_http::trace::TraceLayer;
 
 use crate::access::{model_available, row_filters_for};
 use crate::auth::{Caller, require_session};
+use crate::cache;
 use crate::compiler::{Compiled, compile_query, expand};
 use crate::connectors::ConnectorError;
 use crate::error::{ApiError, ApiResult};
@@ -55,6 +56,9 @@ pub fn router(state: Shared) -> Router {
         .route("/api/members/password", post(admin::reset_password))
         .route("/api/platform", get(admin::get_platform).put(admin::put_platform))
         .route("/api/platform/dashboards/{id}/publish", post(admin::publish))
+        .route("/api/platform/organisations/{org}/database", axum::routing::put(admin::set_org_database))
+        .route("/api/usage", get(admin::usage_summary))
+        .route("/api/cache", get(admin::cache_stats).delete(admin::clear_cache))
         .route_layer(from_fn_with_state(state.clone(), require_session));
     Router::new()
         .merge(open)
@@ -142,7 +146,16 @@ pub fn compile_for(caller: &Caller, q: &Query) -> ApiResult<Compiled> {
     Ok(compile_query(&m2, &q2, caller.project.dialect(m), now_rounded(), &mandatory)?)
 }
 
-pub async fn execute(state: &AppState, caller: &Caller, q: &Query) -> ApiResult<Value> {
+/// Where a query comes from, for usage metrics.
+pub struct Source<'a> {
+    /// explore | tile | filter_values
+    pub kind: &'static str,
+    pub dashboard: Option<&'a str>,
+}
+
+/// Compile and run a query: from the organisation's cache when the model allows (`cache:`),
+/// else on the model's connection (then cached in the background). Every query is a usage event.
+pub async fn execute(state: &AppState, caller: &Caller, q: &Query, source: Source<'_>) -> ApiResult<Value> {
     let m = model_of(caller, &q.model)?;
     let compiled = compile_for(caller, q)?;
     let conn = caller
@@ -150,6 +163,50 @@ pub async fn execute(state: &AppState, caller: &Caller, q: &Query) -> ApiResult<
         .connections
         .get(&m.connection)
         .ok_or_else(|| ApiError::bad_request(format!("unknown connection {:?}", m.connection)))?;
+    let event = || crate::usage::Event {
+        source: Some(source.kind),
+        dashboard_id: source.dashboard.map(String::from),
+        model: Some(q.model.clone()),
+        connection: Some(m.connection.clone()),
+        ..caller.event("query")
+    };
+    let response = |rows: Vec<Vec<Value>>, stats: Value| {
+        json!({
+            "columns": compiled.columns,
+            "rows": rows,
+            "sql": caller.can("view_sql").then_some(&compiled.sql),
+            "stats": stats,
+            "period": compiled.period,
+        })
+    };
+
+    // the cache lives in the organisation's own ScramDB (none for the platform workspace)
+    let ttl = m.cache.unwrap_or(0);
+    let cache_store = match (ttl > 0, caller.org()) {
+        (true, org) if !org.is_empty() => state.orgs.store(org).await.ok(),
+        _ => None,
+    };
+    let key = cache::key(caller.org(), &m.connection, &compiled.sql);
+    if let Some(store) = &cache_store
+        && !(caller.refresh && caller.can("edit"))
+    {
+        match cache::get(store, &key).await {
+            Ok(Some(hit)) => {
+                state.usage.record(crate::usage::Event {
+                    row_count: Some(hit.rows.len() as i64),
+                    duration_ms: Some(0),
+                    cache_hit: Some(true),
+                    ..event()
+                });
+                let stats = json!({"duration_ms": 0, "cache_hit": true, "cached_at": hit.created_at.to_rfc3339(),
+                                       "cache_ttl_s": ttl});
+                return Ok(response(hit.rows, stats));
+            }
+            Ok(None) => {}
+            Err(e) => tracing::warn!(org = caller.org(), "query cache unavailable: {e:#}"),
+        }
+    }
+
     let connector = state.connectors.get(&m.connection, conn)?;
     let names: Vec<String> = compiled.columns.iter().map(|c| c.name.clone()).collect();
     let result = match connector.run(&compiled.sql, &names).await {
@@ -158,6 +215,7 @@ pub async fn execute(state: &AppState, caller: &Caller, q: &Query) -> ApiResult<
             // database errors can quote SQL, tables and values: details for builders only
             let reference = crate::store::random_token(4);
             tracing::warn!(reference, model = q.model, "query failed: {e}");
+            state.usage.record(crate::usage::Event { ok: false, detail: Some(json!({"ref": reference})), ..event() });
             let detail = match (&e, caller.can("view_sql")) {
                 (ConnectorError::Unavailable(m), _) => format!("{m} (ref {reference})"),
                 (ConnectorError::Query(m), true) => format!("{m} (ref {reference})"),
@@ -166,11 +224,35 @@ pub async fn execute(state: &AppState, caller: &Caller, q: &Query) -> ApiResult<
             return Err(ApiError::Status(StatusCode::BAD_GATEWAY, detail));
         }
     };
-    Ok(json!({
-        "columns": compiled.columns,
-        "rows": result.rows,
-        "sql": caller.can("view_sql").then_some(compiled.sql),
-        "stats": {"duration_ms": result.duration_ms},
-        "period": compiled.period,
-    }))
+    state.usage.record(crate::usage::Event {
+        row_count: Some(result.rows.len() as i64),
+        duration_ms: Some(result.duration_ms as i64),
+        cache_hit: Some(false),
+        ..event()
+    });
+    if let Some(store) = cache_store {
+        // fill the cache without making this request wait
+        let (org, model, connection) = (caller.org().to_string(), q.model.clone(), m.connection.clone());
+        let (rows, types) = (result.rows.clone(), result.types.clone());
+        tokio::spawn(async move {
+            let put = cache::Put {
+                key: &key,
+                org: &org,
+                model: &model,
+                connection: &connection,
+                ttl_seconds: ttl,
+                names: &names,
+                types: &types,
+                rows: &rows,
+            };
+            if let Err(e) = cache::put(&store, put).await {
+                tracing::warn!(org, model, "result not cached: {e:#}");
+            }
+        });
+    }
+    let mut stats = json!({"duration_ms": result.duration_ms, "cache_hit": false});
+    if ttl > 0 {
+        stats["cache_ttl_s"] = json!(ttl);
+    }
+    Ok(response(result.rows, stats))
 }

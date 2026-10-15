@@ -36,6 +36,9 @@ pub struct Config {
     pub bootstrap_owners: Vec<String>,
     pub auto_migrate: bool,
     pub session_hours: i64,
+    /// seals each organisation's ScramDB connection string (crypto.rs)
+    pub secret_key: Option<crate::crypto::SecretKey>,
+    pub usage_retention_days: i64,
 }
 
 impl Config {
@@ -87,7 +90,12 @@ impl Config {
             bootstrap_owners: list("MAGNUM_SYSTEM_OWNERS"),
             auto_migrate: flag("MAGNUM_DB_AUTO_MIGRATE", true),
             session_hours: env("MAGNUM_SESSION_HOURS").map(|h| h.parse()).transpose()?.unwrap_or(12),
+            secret_key: env("MAGNUM_SECRET_KEY").map(|k| crate::crypto::SecretKey::parse(&k)).transpose()?,
+            usage_retention_days: env("MAGNUM_USAGE_RETENTION_DAYS").map(|d| d.parse()).transpose()?.unwrap_or(400),
         };
+        if config.usage_retention_days < 1 {
+            bail!("MAGNUM_USAGE_RETENTION_DAYS: at least 1");
+        }
         if !(1..=24 * 30).contains(&config.session_hours) {
             bail!("MAGNUM_SESSION_HOURS: between 1 and 720");
         }
@@ -107,6 +115,12 @@ impl Config {
         if !self.is_https() {
             p.push(
                 "MAGNUM_PUBLIC_URL must be the public https address (cookies, OAuth callbacks, origin checks)".into(),
+            );
+        }
+        if self.secret_key.is_none() {
+            p.push(
+                "MAGNUM_SECRET_KEY is not set (organisation databases need it; create one with `magnum-bi gen-key`)"
+                    .into(),
             );
         }
         if self.cookie_samesite == "none" && !self.is_https() {

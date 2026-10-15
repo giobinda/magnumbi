@@ -13,11 +13,15 @@ use async_trait::async_trait;
 use serde_json::Value;
 
 use crate::db::DbPool;
+use crate::materialize::ColType;
 use crate::schema::Connection;
 
 #[derive(Debug, Clone, Default)]
 pub struct QueryResult {
     pub rows: Vec<Vec<Value>>,
+    /// each column's type, in a connector-neutral form: what materialising the result into
+    /// ScramDB (cache, federation) needs
+    pub types: Vec<ColType>,
     pub duration_ms: u64,
 }
 

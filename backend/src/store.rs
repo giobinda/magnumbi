@@ -349,6 +349,63 @@ impl Store {
             .collect())
     }
 
+    /// Every dashboard of an organisation (moving them to its own database).
+    pub async fn all_dashboards(&self, org: &str) -> Result<Vec<(String, String)>> {
+        let c = self.pool.get().await?;
+        let rows = c.query("SELECT id, yaml FROM dashboards WHERE org = $1 ORDER BY id", &[&org]).await?;
+        Ok(rows.iter().map(|r| (r.get(0), r.get(1))).collect())
+    }
+
+    /// Forget an organisation's dashboards here (after they moved to its own database).
+    pub async fn drop_org_dashboards(&self, org: &str) -> Result<u64> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM dashboards WHERE org = $1", &[&org]).await?)
+    }
+
+    // ------------------------------------------------------------------ organisation databases
+
+    /// (sealed connection string, redacted display) of an organisation's own ScramDB.
+    pub async fn org_database(&self, org: &str) -> Result<Option<(String, String)>> {
+        let c = self.pool.get().await?;
+        let row = c.query_opt("SELECT dsn_sealed, dsn_display FROM org_databases WHERE org = $1", &[&org]).await?;
+        Ok(row.map(|r| (r.get(0), r.get(1))))
+    }
+
+    pub async fn put_org_database(&self, org: &str, sealed: &str, display: &str, by: Option<&str>) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO org_databases (org, dsn_sealed, dsn_display, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org) DO UPDATE SET dsn_sealed = EXCLUDED.dsn_sealed, dsn_display = EXCLUDED.dsn_display,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &sealed, &display, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_org_database(&self, org: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute("DELETE FROM org_databases WHERE org = $1", &[&org]).await?;
+        Ok(())
+    }
+
+    /// org -> {display, updated_at, updated_by}, for the Organisations page.
+    pub async fn org_databases(&self) -> Result<BTreeMap<String, Value>> {
+        let c = self.pool.get().await?;
+        let rows = c.query("SELECT org, dsn_display, updated_at, updated_by FROM org_databases", &[]).await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let at: DateTime<Utc> = r.get(2);
+                (
+                    r.get::<_, String>(0),
+                    json!({"display": r.get::<_, String>(1), "updated_at": at.to_rfc3339(),
+                           "updated_by": r.get::<_, Option<String>>(3)}),
+                )
+            })
+            .collect())
+    }
+
     // ------------------------------------------------------------------ settings
 
     pub async fn setting(&self, key: &str) -> Result<Option<Value>> {

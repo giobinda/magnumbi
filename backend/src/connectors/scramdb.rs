@@ -13,6 +13,7 @@ use tokio_postgres::types::Type;
 
 use super::{Connector, ConnectorError, QueryResult};
 use crate::db::{DbPool, make_pool};
+use crate::materialize::ColType;
 use crate::schema::ScramDbConnection;
 
 pub struct ScramDbConnector {
@@ -47,8 +48,12 @@ impl Connector for ScramDbConnector {
             .map_err(|e| ConnectorError::Query(e.to_string()))?;
         let rows = tx.query(sql, &[]).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
         tx.commit().await.map_err(|e| ConnectorError::Query(e.to_string()))?;
+        let types = match rows.first() {
+            Some(r) => r.columns().iter().map(|c| col_type(c.type_())).collect(),
+            None => vec![],
+        };
         let rows = rows.iter().map(row_json).collect();
-        Ok(QueryResult { rows, duration_ms: started.elapsed().as_millis() as u64 })
+        Ok(QueryResult { rows, types, duration_ms: started.elapsed().as_millis() as u64 })
     }
 }
 
@@ -73,7 +78,22 @@ fn decimal(d: Decimal) -> Value {
     num(d.to_f64())
 }
 
-fn row_json(row: &Row) -> Vec<Value> {
+/// The neutral type of a ScramDB column (anything unusual travels as text).
+pub fn col_type(t: &Type) -> ColType {
+    match *t {
+        Type::BOOL => ColType::Bool,
+        Type::INT2 | Type::INT4 | Type::INT8 => ColType::Int,
+        Type::FLOAT4 | Type::FLOAT8 => ColType::Float,
+        Type::NUMERIC => ColType::Numeric,
+        Type::DATE => ColType::Date,
+        Type::TIMESTAMP => ColType::Timestamp,
+        Type::TIMESTAMPTZ => ColType::Timestamptz,
+        Type::JSON | Type::JSONB => ColType::Json,
+        _ => ColType::Text,
+    }
+}
+
+pub fn row_json(row: &Row) -> Vec<Value> {
     (0..row.len()).map(|i| cell(row, i)).collect()
 }
 

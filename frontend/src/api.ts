@@ -44,7 +44,7 @@ export interface Column {
 }
 export interface QueryResult {
   columns: Column[]; rows: Value[][]
-  stats: { bytes_processed?: number; bytes_billed?: number; cache_hit?: boolean; duration_ms?: number }
+  stats: { duration_ms?: number; cache_hit?: boolean; cached_at?: string; cache_ttl_s?: number }
   sql: string | null  // only for roles that may see SQL
   period?: ResolvedPeriod | null
 }
@@ -98,6 +98,24 @@ export interface Platform { system_owners: string[]; organisations: Record<strin
 export interface PlatformResponse {
   platform: Platform; members: Record<string, number>; models: { name: string; label: string }[]
   errors: Record<string, string>
+  /** each organisation's own ScramDB (connection string redacted) */
+  databases: Record<string, { display: string; updated_at: string; updated_by: string | null }>
+  /** MAGNUM_SECRET_KEY is set (needed to store organisation databases) */
+  secret_key: boolean
+}
+export interface UsageSummary {
+  scope: string; days: number
+  totals: { people: number; queries: number; cache_hit_rate: number | null; failed_queries: number; avg_query_ms: number | null
+    dashboard_views: number; sign_ins: number }
+  by_day: { day: string; people: number; queries: number; dashboard_views: number }[]
+  dashboards: { org: string; dashboard_id: string | null; views: number; people: number }[]
+  people: { email: string; org: string; role: string | null; queries: number; dashboard_views: number; last_seen: string }[]
+  models: { model: string | null; queries: number; cache_hits: number; failed: number; avg_ms: number | null }[]
+  orgs: { org: string; people: number; queries: number; dashboard_views: number }[]
+}
+export interface CacheStats {
+  ttl_seconds: Record<string, number>
+  cached: Record<string, { results: number; rows: number | null; hits: number | null }>
 }
 export interface Restriction {
   model: string; model_label: string; dimension: string; label: string; values: Value[]
@@ -171,6 +189,12 @@ export const api = {
   publishTemplate: (id: string, orgs: string[], as?: string, overwrite = false) =>
     call<{ results: Record<string, string> }>(`/api/platform/dashboards/${encodeURIComponent(id)}/publish`,
       json('POST', { orgs, as: as || undefined, overwrite })),
+  setOrgDatabase: (org: string, dsn: string) =>
+    call<{ display: string; version: string; dashboards_moved: number }>(
+      `/api/platform/organisations/${encodeURIComponent(org)}/database`, json('PUT', { dsn })),
+  usage: (days: number) => call<UsageSummary>(`/api/usage?days=${days}`),
+  cacheStats: () => call<CacheStats>('/api/cache'),
+  clearCache: (model?: string) => call<{ cleared: number }>(`/api/cache${model ? `?model=${encodeURIComponent(model)}` : ''}`, { method: 'DELETE' }),
   resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(`/api/period?model=${encodeURIComponent(model)}`, json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
   me: () => call<AuthState>('/api/auth/me'),

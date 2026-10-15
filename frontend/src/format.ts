@@ -40,6 +40,3 @@ export function formatValue(v: Value, col: Column, short = false): string {
   if (isTemporal(col.type)) return formatDate(String(v), col.grain)
   return String(v)
 }
-
-export const formatBytes = (b?: number) =>
-  b === undefined ? '' : b < 1024 ** 2 ? `${(b / 1024).toFixed(0)} KB` : b < 1024 ** 3 ? `${(b / 1024 ** 2).toFixed(1)} MB` : `${(b / 1024 ** 3).toFixed(2)} GB`
