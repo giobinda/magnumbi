@@ -23,7 +23,7 @@ Open http://localhost:5173 and sign in. The **Sales overview** dashboard runs on
 To try organisations: create one on **Organisations** (e.g. `acme`), then give it its own
 ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
-for the backend tests and the frontend typecheck (`make test-db` also runs the tests that need
+for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
 **A bigger demo: NYC taxi trips.** `make nyc-taxi ORG=globex` downloads five years of New York
