@@ -11,6 +11,7 @@ name = "magnum-bi"
 path = "src/main.rs"
 
 [dependencies]
+aes-gcm = "0.10"
 anyhow = "1"
 argon2 = "0.5"
 async-trait = "0.1"

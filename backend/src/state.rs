@@ -11,14 +11,20 @@ use crate::auth::google::Google;
 use crate::auth::password::LoginLimiter;
 use crate::config::Config;
 use crate::connectors::Connectors;
+use crate::orgdb::OrgDbs;
 use crate::project::{Project, ProjectState, load_yaml};
 use crate::store::Store;
+use crate::usage::Usage;
 
 pub type Shared = Arc<AppState>;
 
 pub struct AppState {
     pub config: Config,
+    /// the primary ScramDB: identity, platform settings, members, templates, usage
     pub store: Store,
+    /// each organisation's own ScramDB: its dashboards and query cache
+    pub orgs: OrgDbs,
+    pub usage: Usage,
     pub project: Project,
     pub access: AccessCache,
     pub connectors: Connectors,

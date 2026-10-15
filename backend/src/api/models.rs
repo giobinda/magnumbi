@@ -62,7 +62,7 @@ pub async fn get_model(Auth(caller): Auth, Path(name): Path<String>) -> ApiResul
 /// Free-form query (Explore, tile editor): power users and system owners only.
 pub async fn query(State(state): State<Shared>, Auth(caller): Auth, Body(q): Body<Query>) -> ApiResult<Json<Value>> {
     caller.require("explore")?;
-    Ok(Json(execute(&state, &caller, &q).await?))
+    Ok(Json(execute(&state, &caller, &q, super::Source { kind: "explore", dashboard: None }).await?))
 }
 
 pub async fn compile_only(Auth(caller): Auth, Body(q): Body<Query>) -> ApiResult<Json<Value>> {

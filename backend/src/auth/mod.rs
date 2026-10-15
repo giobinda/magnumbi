@@ -31,6 +31,8 @@ use crate::store::SessionInfo;
 pub const COOKIE: &str = "magnum_session";
 pub const ORG_HEADER: &str = "x-magnum-org";
 pub const VIEW_AS_HEADER: &str = "x-magnum-view-as";
+/// "1": bypass the query cache (builders only), e.g. after loading new data
+pub const REFRESH_HEADER: &str = "x-magnum-refresh";
 
 pub fn session_cookie(state: &AppState, token: String) -> Cookie<'static> {
     let same_site = match state.config.cookie_samesite.as_str() {
@@ -92,6 +94,8 @@ pub struct Caller {
     pub access: Arc<AccessConfig>,
     pub access_errors: std::collections::BTreeMap<String, String>,
     pub project: Arc<ProjectState>,
+    /// asked to bypass the query cache
+    pub refresh: bool,
 }
 
 impl Caller {
@@ -102,6 +106,16 @@ impl Caller {
     /// The dashboard space of this request: its organisation, or "" (platform workspace).
     pub fn org(&self) -> &str {
         self.scope.org.as_deref().unwrap_or("")
+    }
+
+    /// A usage event about this person, in this organisation.
+    pub fn event(&self, kind: &'static str) -> crate::usage::Event {
+        crate::usage::Event {
+            org: self.org().to_string(),
+            user_email: Some(self.email().to_string()),
+            role: self.scope.role.map(|r| r.as_str().to_string()),
+            ..crate::usage::Event::new(kind)
+        }
     }
 
     pub fn can(&self, perm: &str) -> bool {
@@ -141,7 +155,8 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     let org_choice = header(&parts, ORG_HEADER).map(str::to_lowercase);
     let scope = scope_for(&access, &session, org_choice.as_deref());
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
-    let caller = Caller { session, scope, role, access, access_errors, project };
+    let refresh = header(&parts, REFRESH_HEADER) == Some("1");
+    let caller = Caller { session, scope, role, access, access_errors, project, refresh };
     parts.extensions.insert(Arc::new(caller));
     next.run(Request::from_parts(parts, body)).await
 }

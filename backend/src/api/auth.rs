@@ -43,6 +43,16 @@ async fn start_session(state: &AppState, jar: CookieJar, email: &str, method: &s
     let token = state.store.create_session(email, method, ttl).await?;
     state.store.record_login(email).await?;
     tracing::info!(method, "signed in");
+    let project = state.project.current();
+    let (access, _) = state.access.get(state, &project).await;
+    let scope = crate::access::scope_of(&access, email, None);
+    state.usage.record(crate::usage::Event {
+        org: scope.org.unwrap_or_default(),
+        user_email: Some(email.to_lowercase()),
+        role: scope.role.map(|r| r.as_str().to_string()),
+        detail: Some(json!({"method": method})),
+        ..crate::usage::Event::new("sign_in")
+    });
     Ok(jar.add(session_cookie(state, token)))
 }
 

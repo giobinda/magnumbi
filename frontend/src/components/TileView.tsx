@@ -3,7 +3,6 @@ import type { Column, Filter, ModelInfo, Period, Tile, TileRequest } from '../ap
 import { drillPath, fieldLabel } from '../api'
 import { applyDrill, nextDrill } from '../drill'
 import type { DrillStep } from '../drill'
-import { formatBytes } from '../format'
 import { windowLabel } from '../period'
 import { useQuery, useTileQuery } from '../hooks'
 import { useCan } from '../auth'
@@ -94,7 +93,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
       {data && tile.type !== 'kpi' && (
         <div className="tile-foot">
           {data.rows.length} rows · {data.stats.duration_ms ?? '–'} ms
-          {data.stats.bytes_processed !== undefined && <> · {data.stats.cache_hit ? 'cached' : formatBytes(data.stats.bytes_processed) + ' scanned'}</>}
+          {data.stats.cache_hit && <span title={data.stats.cached_at ? `Cached ${new Date(data.stats.cached_at).toLocaleString()}` : undefined}> · cached</span>}
           {data.period?.previous && <span title={`Current: ${windowLabel(data.period.current)}`}> · vs {windowLabel(data.period.previous)}</span>}
         </div>
       )}

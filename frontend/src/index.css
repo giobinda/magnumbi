@@ -283,3 +283,10 @@ input.wide { width: 100%; }
 .top-control input[type=number] { width: 64px; }
 .top-control select { max-width: 200px; }
 
+/* usage */
+.usage-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); margin: 12px 0; }
+.usage-kpis .card { align-items: center; padding: 12px; }
+.usage-chart { height: 280px; margin-bottom: 8px; }
+.usage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 0 24px; }
+.org-db { display: flex; flex-direction: column; gap: 6px; }
+.org-db code { font-size: 12px; overflow-wrap: anywhere; }

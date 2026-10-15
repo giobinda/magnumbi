@@ -10,15 +10,18 @@ Prerequisites: Rust 1.88+, Node 20+, and Podman or Docker (for the local ScramDB
 
 ```bash
 make install                                  # frontend dependencies
-make db-up                                    # ScramDB on 127.0.0.1:55432 (container)
+make db-up                                    # the primary ScramDB on 127.0.0.1:55432 (container)
 make seed                                     # the `sample_sales` demo table (≈46k rows)
 echo 'MAGNUM_SYSTEM_OWNERS=you@example.com' > .env.local
+make key                                      # MAGNUM_SECRET_KEY, for organisation databases
 make user EMAIL=you@example.com               # choose a password
 make dev-backend                              # API on :8000 (migrates ScramDB on start)
 make dev-frontend                             # UI on :5173, in another terminal
 ```
 
 Open http://localhost:5173 and sign in. The **Sales overview** dashboard runs on the sample data.
+To try organisations: create one on **Organisations** (e.g. `acme`), then give it its own
+ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
 for the backend tests and the frontend typecheck, and `make check` to validate the project files.
 
@@ -32,17 +35,22 @@ project/                    your content (git it)
   themes/*.yaml             optional extra themes
   access.yaml               optional: initial organisations/members, adopted on first start
 backend/                    Rust: the API server and CLI (crate `magnum-bi`)
-  migrations/*.sql          ScramDB schema, embedded in the binary
+  migrations/primary/       schema of the primary ScramDB } embedded in the binary,
+  migrations/org/           schema of each organisation's  } applied automatically
   src/
-    api/                    HTTP handlers (auth, models & queries, dashboards, admin)
+    api/                    HTTP handlers (auth, models & queries, dashboards, admin, usage)
     auth/                   sessions, password sign-in (Argon2id), Google sign-in (OIDC)
     connectors/             where queries run: the Connector trait, ScramDB
     access.rs               organisations, roles, row filters
     compiler.rs             semantic query → SQL
+    orgdb.rs                each organisation's own ScramDB (routing, registration)
+    cache.rs, materialize.rs  the query cache as typed tables (the future federation bridge)
+    usage.rs                usage metrics
+    crypto.rs               sealing organisations' connection strings (AES-256-GCM)
     project.rs, schema.rs   loading and validating the YAML files
-    store.rs, db.rs         Magnum BI's own state in ScramDB
+    store.rs, db.rs         tables and migrations
 frontend/                   React + Vite + ECharts + react-grid-layout
-devtools/scramdb.sh         the local ScramDB container (up/down/reset/psql)
+devtools/scramdb.sh         local ScramDB containers: the primary and one per organisation
 ```
 
 ## Architecture
@@ -58,23 +66,67 @@ flowchart TB
     CON["Connectors"]
     MW --> AUTH --> ACC --> SEM --> CON
   end
-  STATE[("ScramDB: users · sessions · dashboards + history · settings")]
-  DATA[("ScramDB: your data")]
+  PRIMARY[("Primary ScramDB<br/>users · sessions · platform settings · organisations & members<br/>platform templates · usage metrics")]
+  ORGA[("ScramDB of org A<br/>dashboards + history · query cache")]
+  ORGB[("ScramDB of org B<br/>dashboards + history · query cache")]
+  DATA[("Data sources<br/>ScramDB today; more connectors later")]
   UI -- "same origin · HttpOnly session cookie" --> MW
-  AUTH <--> STATE
+  AUTH <--> PRIMARY
+  ACC <--> PRIMARY
+  SEM <-- "cached results" --> ORGA
+  SEM <--> ORGB
   CON -- "read-only transactions" --> DATA
 ```
 
 - **One service, one URL.** The server serves the built UI and `/api`, so the browser only ever
   talks to one origin. Cookies, CSRF checks and the CSP rely on that.
-- **State in ScramDB.** Users, sessions, dashboards (with every saved version) and access
-  settings live in ScramDB, so the server is stateless and replicas are interchangeable.
-  Migrations run at startup (`MAGNUM_DB_AUTO_MIGRATE=0` to turn off; `magnum-bi migrate` runs
-  them alone). ScramDB DDL isn't transactional, so every migration statement is idempotent.
+- **A primary ScramDB** (`MAGNUM_DATABASE_URL`) is the configuration and system database:
+  identity (users, sessions), platform settings, organisations with their members, roles and row
+  filters, platform templates, and the usage metrics of the whole platform.
+- **One ScramDB instance per organisation** holds what is only that organisation's: its
+  dashboards (with every saved version) and its query cache. System owners register each
+  instance on the Organisations page; the connection string is tested, the instance migrated,
+  the organisation's existing dashboards moved there, and the string stored sealed with
+  `MAGNUM_SECRET_KEY` (AES-256-GCM, bound to the organisation). It fails closed: an organisation
+  without an instance can't open dashboards, and an unreachable instance only affects its own
+  organisation (503), never sign-in or other organisations. Members stay in the primary database
+  because sign-in must find a person's organisation before it can open that organisation's
+  database. (ScramDB doesn't reliably isolate several databases on one instance, so this is one
+  *instance* per organisation; for development, several organisations may share one, even the
+  primary: rows carry the organisation id.)
+- **Stateless server.** All state is in ScramDB, so replicas are interchangeable; each replica
+  re-reads the organisation registry every few seconds. Migrations run at startup
+  (`MAGNUM_DB_AUTO_MIGRATE=0` to turn off; `magnum-bi migrate` for the primary alone;
+  organisation databases migrate when first used). ScramDB DDL isn't transactional, so every
+  migration statement is idempotent.
 - **Data.** Queries are compiled from the models. Only declared fields can be referenced and every
   value is an escaped literal; SQL inside models (`sql:`) is trusted configuration. Queries run in
   `READ ONLY` transactions with a statement timeout. By default the `scramdb` connection reads
-  Magnum BI's own database; set `MAGNUM_DATA_DSN` to read another ScramDB.
+  the primary database (where `make seed` puts the sample); set `MAGNUM_DATA_DSN` to read
+  another ScramDB.
+
+## Query cache (and the federation bridge)
+
+A model opts in with `cache: 15m` (any duration up to 30 days; off by default, so live data
+stays live). Results are cached in the organisation's own ScramDB, keyed by organisation +
+connection + compiled SQL. The SQL already contains the person's row filters and the
+(5-minute-rounded) period window, so people share a cached result only when they'd get the
+same rows anyway. Builders can bypass it (`x-magnum-refresh: 1`); Org admins see and clear it
+on **Usage**. Up to 2,000 results per instance, least recently used dropped first.
+
+Each cached result is a **typed table** (`magnum_cache.r_…`, indexed by
+`magnum_cache.entries`), not a JSON blob. That's on purpose: it is the same mechanism a
+federated query will use. To combine sources (say BigQuery and Postgres), each source's result is
+materialised into the organisation's ScramDB through its connector, then joined there with plain
+SQL. Connectors therefore report neutral column types (`materialize::ColType`) along with rows.
+
+## Usage metrics
+
+Sign-ins, queries (source, model, rows, time, cache hit, failures), dashboard views and saves,
+and admin actions are recorded in the primary database (`usage_events`). Recording never slows
+or fails a request: events are buffered and written in batches. They are kept
+`MAGNUM_USAGE_RETENTION_DAYS` (default 400). **Usage** shows Org admins their organisation and
+system owners the whole platform (or one organisation, from inside it).
 
 ## Sign-in
 
@@ -162,7 +214,9 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 
 | variable | default | |
 |---|---|---|
-| `MAGNUM_DATABASE_URL` | `postgresql://scramdb@127.0.0.1:5432/scramdb` | Magnum BI's ScramDB |
+| `MAGNUM_DATABASE_URL` | `postgresql://scramdb@127.0.0.1:5432/scramdb` | the primary ScramDB |
+| `MAGNUM_SECRET_KEY` | | seals organisations' connection strings (`magnum-bi gen-key`); required in production |
+| `MAGNUM_USAGE_RETENTION_DAYS` | 400 | how long usage events are kept |
 | `MAGNUM_DATA_DSN` | (own database) | data for the `scramdb` connection (`connections.yaml`) |
 | `MAGNUM_SYSTEM_OWNERS` | | comma-separated emails, until organisations are first saved |
 | `MAGNUM_PUBLIC_URL` | | public https address (cookies `Secure`, OAuth callbacks, origin checks) |
@@ -190,13 +244,18 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 
 ## Roadmap
 
-Ported from the earlier Python version next, in rough order:
+Everything new follows the [organisation isolation rules](docs/org-isolation.md), so organisations
+can become fully independent (own keys, credentials, servers) without rewrites.
+
+
+Next, in rough order:
 
 - **Connectors** to other databases. The `Connector` trait (`backend/src/connectors/`), a
   `Connection` variant (`schema.rs`) and, where SQL differs, a `Dialect` (`compiler.rs`).
-- Query result caching (models already accept `cache: 15m`).
-- Formulas (a calculated-field language), shared per organisation.
+- **Federated queries** across connections, joined in the organisation's ScramDB (on top of the
+  cache's materialisation).
+- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next two).
 - Share links / QR codes, guest links for people without an account.
 - Configuration as code (`plan` / `apply` of organisations from git), automation tokens.
-- Usage insights, and ThoughtSpot liveboard import.
+- ThoughtSpot liveboard import (from the earlier Python version).
 - TLS to ScramDB (the connection is plain TCP today, so keep ScramDB on a private network).

@@ -49,13 +49,31 @@ impl IntoResponse for ApiError {
 
 impl From<anyhow::Error> for ApiError {
     fn from(e: anyhow::Error) -> ApiError {
+        if unreachable(&e) {
+            tracing::warn!("database unreachable: {e:#}");
+            return ApiError::Status(
+                StatusCode::SERVICE_UNAVAILABLE,
+                "the database is unreachable right now; try again shortly".into(),
+            );
+        }
         ApiError::Internal(e)
     }
 }
 
+/// A database that can't be reached (as opposed to a query it refused): a 503, not a bug.
+fn unreachable(e: &anyhow::Error) -> bool {
+    e.chain().any(|c| {
+        if let Some(p) = c.downcast_ref::<deadpool_postgres::PoolError>() {
+            return !matches!(p, deadpool_postgres::PoolError::Backend(pg) if pg.as_db_error().is_some());
+        }
+        c.downcast_ref::<tokio_postgres::Error>()
+            .is_some_and(|pg| pg.is_closed() || pg.as_db_error().is_none() && pg.to_string().contains("connect"))
+    })
+}
+
 impl From<deadpool_postgres::PoolError> for ApiError {
     fn from(e: deadpool_postgres::PoolError) -> ApiError {
-        ApiError::Internal(e.into())
+        anyhow::Error::from(e).into()
     }
 }
 
@@ -68,5 +86,18 @@ impl From<QueryError> for ApiError {
 impl From<AccessDenied> for ApiError {
     fn from(e: AccessDenied) -> ApiError {
         ApiError::forbidden(e.0)
+    }
+}
+
+impl From<crate::orgdb::OrgDbError> for ApiError {
+    fn from(e: crate::orgdb::OrgDbError) -> ApiError {
+        use crate::orgdb::OrgDbError;
+        match e {
+            OrgDbError::NotConfigured(_) | OrgDbError::Unavailable(_) => {
+                tracing::warn!("{e}");
+                ApiError::Status(StatusCode::SERVICE_UNAVAILABLE, e.to_string())
+            }
+            OrgDbError::Internal(e) => ApiError::Internal(e),
+        }
     }
 }
