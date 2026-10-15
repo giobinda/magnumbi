@@ -1,0 +1,222 @@
+// Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
+
+// time = TIMESTAMP (UTC instant); datetime = naive local date-time (e.g. store-local)
+export type DimType = 'string' | 'number' | 'boolean' | 'date' | 'time' | 'datetime'
+export type FilterOp =
+  | 'equals' | 'not_equals' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
+  | 'is_null' | 'not_null' | 'last_n_days'
+export type ChartType = 'kpi' | 'table' | 'bar' | 'hbar' | 'line' | 'area' | 'pie' | 'scatter'
+export type Value = string | number | boolean | null
+
+export type Aggregation = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'count_distinct'
+export const AGG_LABELS: Record<Aggregation, string> = {
+  sum: 'Sum', avg: 'Average', min: 'Min', max: 'Max', count: 'Count', count_distinct: 'Unique count',
+}
+export interface Dimension {
+  name: string; label?: string | null; description?: string | null; type: DimType
+  /** how it aggregates when used as a number (numbers: sum; identifiers: count_distinct) */
+  aggregation?: Aggregation | null
+}
+export interface TopN { dimension: string; n: number; by: string; bottom?: boolean }
+export interface Measure { name: string; label?: string | null; description?: string | null; type: string; format: 'number' | 'currency' | 'percent'; higher_is_better?: boolean }
+export interface ModelInfo {
+  name: string; label: string; description?: string | null; connection: string; connection_type: string
+  extends?: string | null  // extension models inherit their base model's data restrictions
+  dimensions: Dimension[]; measures: Measure[]; hierarchies: Record<string, string[]>
+}
+
+export interface Filter { field: string; op?: FilterOp; values?: Value[] }
+export type Preset = 'month_to_date' | 'quarter_to_date' | 'year_to_date'
+export interface PeriodRange { last_n_days?: number; preset?: Preset; from?: string; to?: string }
+export type Compare = 'previous_period' | 'previous_year' | { from: string } | null
+export interface Period { field: string; current: PeriodRange; compare?: Compare }
+export interface ResolvedPeriod { current: [string, string]; previous: [string, string] | null; offset_days: number | null }
+export interface Query {
+  model: string; dimensions?: string[]; measures?: string[]; filters?: Filter[]; sort?: string[]; limit?: number
+  period?: Period | null
+  /** keep the N best (or worst) values of a dimension, ranked by a measure */
+  top?: TopN | null
+}
+export interface Column {
+  name: string; field: string; label: string; kind: 'dimension' | 'measure'; type: string
+  format?: string | null; grain?: string | null
+  compare?: 'previous' | 'change' | null; base?: string | null; higher_is_better?: boolean | null
+}
+export interface QueryResult {
+  columns: Column[]; rows: Value[][]
+  stats: { bytes_processed?: number; bytes_billed?: number; cache_hit?: boolean; duration_ms?: number }
+  sql: string | null  // only for roles that may see SQL
+  period?: ResolvedPeriod | null
+}
+
+export interface TileLayout { x: number; y: number; w: number; h: number }
+export interface Tile {
+  id: string; title?: string | null; type: ChartType; query: Query
+  drill?: string | string[] | null; layout: TileLayout; options?: Record<string, unknown>
+}
+export interface DashboardFilter { model: string; field: string; label?: string | null; op?: FilterOp; default?: Value[] }
+export interface DashboardPeriod extends Period { model: string }
+export interface Dashboard { title: string; description?: string | null; theme?: string | null; period?: DashboardPeriod | null; filters: DashboardFilter[]; tiles: Tile[] }
+export interface DashboardResponse { id: string; dashboard: Dashboard; yaml: string | null; warnings: string[] }
+export interface DashboardSummary { id: string; title: string; description?: string | null; tiles?: number; error?: string }
+
+export type Role = 'viewer' | 'user' | 'power_user' | 'org_admin' | 'system_owner'
+export type Permission = 'view' | 'filter' | 'drill' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'manage_orgs' | 'manage_system'
+export interface AuthState {
+  required: boolean; authenticated: boolean; user: { name?: string; email?: string } | null
+  /** the sign-in methods this server offers */
+  methods: { password: boolean; google: boolean }
+  method?: 'password' | 'google'; has_password?: boolean
+  /** an admin issued a one-time password: a new one must be chosen before anything else */
+  must_change_password?: boolean
+  role?: Role; role_label?: string; actual_role?: Role; permissions?: Permission[]; view_as?: Role[]
+  restrictions?: Restriction[]
+  /** false: signed in, but not a member of any organisation */
+  member?: boolean
+  org?: OrgRef | null  // the organisation this session works in (null: platform workspace)
+  orgs?: OrgRef[]      // system owners: organisations they can switch into
+}
+export interface OrgRef { id: string; name: string }
+/** Only rows of `model` whose `dimension` is one of `values` (empty: no rows). */
+export interface RowRule { model: string; dimension: string; values: Value[] }
+export interface PersonAccess { role: Role; filters: RowRule[] }
+/** An organisation's people (Org admins manage this). */
+export interface Members { default_role: Role; default_filters: RowRule[]; users: Record<string, PersonAccess> }
+/** A sign-in account (members without one haven't been given a password nor signed in with Google) */
+export interface Account { last_login: number | null; password: boolean; google: boolean; disabled: boolean }
+export interface RoleInfo { id: Role; label: string; permissions: Permission[] }
+export interface MembersResponse {
+  org: OrgRef & { domains: string[]; filters: RowRule[]; models: string[] }
+  members: Members; roles: RoleInfo[]; errors: Record<string, string>
+  last_login: Record<string, number>  // epoch seconds; people missing here haven't signed in yet
+  accounts: Record<string, Account>
+  password_login: boolean
+}
+/** An organisation's definition (system owners only). */
+export interface Organisation { name: string; domains: string[]; models: string[]; filters: RowRule[] }
+export interface Platform { system_owners: string[]; organisations: Record<string, Organisation> }
+export interface PlatformResponse {
+  platform: Platform; members: Record<string, number>; models: { name: string; label: string }[]
+  errors: Record<string, string>
+}
+export interface Restriction {
+  model: string; model_label: string; dimension: string; label: string; values: Value[]
+  source?: 'organisation' | 'personal'
+}
+export interface TileRequest {
+  filters?: Record<string, Value[]>; period?: { current: PeriodRange; compare?: Compare } | null
+  drill?: { field: string; value: Value }[]
+}
+
+// "view as" a lower role (the server only ever lets a role go down)
+const VIEW_AS_KEY = 'magnum.viewAs'
+export const getViewAs = () => { try { return localStorage.getItem(VIEW_AS_KEY) } catch { return null } }
+export const setViewAs = (r: Role | null) => {
+  try { if (r) localStorage.setItem(VIEW_AS_KEY, r); else localStorage.removeItem(VIEW_AS_KEY) } catch { /* ignore */ }
+}
+
+// system owners: which organisation to work in (none: the platform workspace). Members are always
+// in their own organisation; the server ignores this for them.
+const ORG_KEY = 'magnum.org'
+export const getOrg = () => { try { return localStorage.getItem(ORG_KEY) } catch { return null } }
+export const setOrg = (id: string | null) => {
+  try { if (id) localStorage.setItem(ORG_KEY, id); else localStorage.removeItem(ORG_KEY) } catch { /* ignore */ }
+}
+
+/** Fired when the server says the user must (re-)sign in; the AuthGate shows the login screen. */
+export const AUTH_REQUIRED_EVENT = 'magnum:auth-required'
+
+export class ApiError extends Error {
+  status: number
+  constructor(status: number, message: string) { super(message); this.status = status }
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const viewAs = getViewAs()
+  const headers = new Headers(init?.headers)
+  if (viewAs) headers.set('x-magnum-view-as', viewAs)
+  const org = getOrg()
+  if (org) headers.set('x-magnum-org', org)
+  const r = await fetch(path, { ...init, headers })
+  if (!r.ok) {
+    let msg = r.statusText
+    try {
+      const body = await r.json()
+      // not signed in, or a new password is required: refresh the auth state
+      if ((r.status === 401 && body.login) || (r.status === 403 && body.change_password)) window.dispatchEvent(new CustomEvent(AUTH_REQUIRED_EVENT))
+      msg = typeof body.detail === 'string' ? body.detail
+        : Array.isArray(body.detail) ? body.detail.map((d: { loc: unknown[]; msg: string }) => `${d.loc.slice(1).join('.')}: ${d.msg}`).join('; ')
+        : JSON.stringify(body)
+    } catch { /* not json */ }
+    throw new ApiError(r.status, msg)
+  }
+  const ct = r.headers.get('content-type') ?? ''
+  return (ct.includes('json') ? r.json() : r.text()) as Promise<T>
+}
+
+const json = (method: string, body: unknown): RequestInit =>
+  ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) })
+
+export const api = {
+  models: () => call<{ models: ModelInfo[]; errors: Record<string, string> }>('/api/models'),
+  query: (q: Query, signal?: AbortSignal) => call<QueryResult>('/api/query', { ...json('POST', q), signal }),
+  tileQuery: (dash: string, tile: string, req: TileRequest, signal?: AbortSignal) =>
+    call<QueryResult>(`/api/dashboards/${encodeURIComponent(dash)}/tiles/${encodeURIComponent(tile)}/query`, { ...json('POST', req), signal }),
+  filterValues: (dash: string, key: string) =>
+    call<QueryResult>(`/api/dashboards/${encodeURIComponent(dash)}/filters/values?key=${encodeURIComponent(key)}`),
+  members: () => call<MembersResponse>('/api/members'),
+  saveMembers: (m: Members) => call<MembersResponse>('/api/members', json('PUT', m)),
+  platform: () => call<PlatformResponse>('/api/platform'),
+  savePlatform: (p: Platform) => call<PlatformResponse>('/api/platform', json('PUT', p)),
+  publishTemplate: (id: string, orgs: string[], as?: string, overwrite = false) =>
+    call<{ results: Record<string, string> }>(`/api/platform/dashboards/${encodeURIComponent(id)}/publish`,
+      json('POST', { orgs, as: as || undefined, overwrite })),
+  resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(`/api/period?model=${encodeURIComponent(model)}`, json('POST', p)),
+  dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
+  me: () => call<AuthState>('/api/auth/me'),
+  login: (email: string, password: string) =>
+    call<{ ok: boolean; must_change_password: boolean }>('/api/auth/login', json('POST', { email, password })),
+  changePassword: (current: string | null, next: string) =>
+    call<{ ok: boolean }>('/api/auth/password', json('POST', { current, new: next })),
+  logout: () => call<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  /** Org admins: a one-time password for a member, shown once */
+  resetMemberPassword: (email: string) => call<{ email: string; password: string }>('/api/members/password', json('POST', { email })),
+  dashboard: (id: string) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`),
+  saveDashboard: (id: string, d: Dashboard) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`, json('PUT', d)),
+  saveDashboardYaml: (id: string, text: string) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}/yaml`,
+    { method: 'PUT', headers: { 'content-type': 'text/plain' }, body: text }),
+  deleteDashboard: (id: string) => call<{ ok: boolean }>(`/api/dashboards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+}
+
+// --------------------------------------------------------------------------- helpers
+
+export const isTemporal = (t?: string | null) => t === 'date' || t === 'time' || t === 'datetime'
+
+/** Parse ISO strings; naive values (no offset) are wall-clock times, read them as UTC. */
+export const parseIso = (v: string) => new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(v) || v.length <= 10 ? v : v + 'Z')
+
+export const fieldName = (ref: string) => ref.split(':')[0]
+export const fieldGrain = (ref: string) => ref.split(':')[1] as string | undefined
+
+/** "sum(amount)": an ad-hoc aggregation of a column */
+export const ADHOC = /^(sum|avg|min|max|count|count_distinct)\(([A-Za-z_][A-Za-z0-9_]*)\)$/
+export function parseAdhoc(ref: string): { agg: Aggregation; field: string } | null {
+  const m = ADHOC.exec(ref)
+  return m ? { agg: m[1] as Aggregation, field: m[2] } : null
+}
+
+export function fieldLabel(model: ModelInfo | undefined, ref: string): string {
+  const adhoc = parseAdhoc(ref.replace(/^-/, ''))
+  if (adhoc) return `${fieldLabel(model, adhoc.field)} (${AGG_LABELS[adhoc.agg]})`
+  const [name, grain] = ref.split(':')
+  const f = model?.dimensions.find(d => d.name === name) ?? model?.measures.find(m => m.name === name)
+  const base = f?.label || (name.charAt(0).toUpperCase() + name.slice(1)).replace(/_/g, ' ')
+  return grain ? `${base} (${grain})` : base
+}
+
+/** Resolve a tile's drill path (hierarchy name or explicit list). */
+export function drillPath(tile: Tile, model?: ModelInfo): string[] {
+  if (!tile.drill) return []
+  if (Array.isArray(tile.drill)) return tile.drill
+  return model?.hierarchies[tile.drill] ?? []
+}
