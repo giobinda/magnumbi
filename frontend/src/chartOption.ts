@@ -6,6 +6,19 @@ import { formatChange, formatNumber, formatValue } from './format'
 /** Tooltips are HTML: every value from the data (or config) is escaped before it goes in. */
 export const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
 
+/** `color` moved `amount` (0..1) of the way towards `towards` (hex colours; others unchanged). */
+export function shade(color: string, towards: string, amount: number): string {
+  const rgb = (c: string) => {
+    const h = /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(c.trim())?.[1]
+    if (!h) return null
+    const full = h.length === 3 ? [...h].map(x => x + x).join('') : h
+    return [0, 2, 4].map(i => parseInt(full.slice(i, i + 2), 16))
+  }
+  const [a, b] = [rgb(color), rgb(towards)]
+  if (!a || !b) return color
+  return '#' + a.map((x, i) => Math.round(x + (b[i] - x) * amount).toString(16).padStart(2, '0')).join('')
+}
+
 export type Option = Record<string, unknown> & { __drill?: { column: Column; raw: Value[] } }
 
 function cssVar(name: string, fallback: string) {
@@ -81,10 +94,16 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
     }
   }
   const series = [...seriesMap.values()]
-  // a previous-period series reuses its measure's colour, faded (bars) or dashed (lines)
+  // a previous-period series: its measure's colour, half-way to the background (lighter on light
+  // themes, darker on dark ones), and dashed on lines
   const colorOf = new Map<string, string>()
   series.filter(s => !s.previous).forEach((s, i) => colorOf.set(s.measure.name, palette[i] ?? cssVar('--text-muted', '#888888')))
-  const seriesColor = (s: (typeof series)[number]) => (pivot ? undefined : colorOf.get(s.previous ? s.measure.base! : s.measure.name))
+  const background = cssVar('--surface', '#ffffff')
+  const seriesColor = (s: (typeof series)[number]) => {
+    if (pivot) return undefined
+    const c = colorOf.get(s.previous ? s.measure.base! : s.measure.name)
+    return c && s.previous ? shade(c, background, 0.5) : c
+  }
   const changeOf = (name: string, ci: number) => {
     const idx = cols.findIndex(c => c.base === name && c.compare === 'change')
     if (idx < 0) return undefined
@@ -155,9 +174,7 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
       smooth: type === 'line' || type === 'area' ? 0.2 : undefined,
       showSymbol: n < 40,
       barMaxWidth: 36,
-      itemStyle: type === 'bar' || horizontal
-        ? { borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0], opacity: s.previous ? 0.4 : 1 }
-        : s.previous ? { opacity: 0.6 } : undefined,
+      itemStyle: type === 'bar' || horizontal ? { borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] } : undefined,
     })),
     __drill: d0 !== undefined ? { column: cols[d0], raw: horizontal ? [...categoriesRaw].reverse() : categoriesRaw } : undefined,
   }
