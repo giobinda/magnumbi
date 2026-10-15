@@ -4,6 +4,7 @@
 //! project/
 //!   models/*.yaml      semantic models (one per file)
 //!   themes/*.yaml      extra themes (optional)
+//!   blends/*.yaml      models joined on shared fields, across connections (blend.rs)
 //!   dashboards/*.yaml  dashboards seeded into ScramDB on first start (file stem = id)
 //!   access.yaml        optional: initial organisations and members, adopted on first start
 //! ```
@@ -22,7 +23,8 @@ use std::time::SystemTime;
 use regex::Regex;
 use serde_json::Value;
 
-use crate::compiler::{Dialect, compile_query, expand};
+use crate::blend::{Blend, MAX_SOURCE_ROWS, Plan, plan};
+use crate::compiler::{Dialect, compile_query, compile_query_up_to, expand};
 use crate::period::now_rounded;
 use crate::schema::{Dashboard, Drill, Model, Query, is_temporal};
 use crate::themes::{Theme, builtin};
@@ -49,18 +51,73 @@ pub fn load_yaml<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String
     serde_yaml::from_str(text).map_err(|e| format!("invalid YAML: {e}"))
 }
 
-/// What the project files define, as one consistent snapshot.
-#[derive(Debug, Default)]
+/// What the project files define, as one consistent snapshot (plus, per request, the
+/// organisation's own blends: with_org_blends).
+#[derive(Debug, Default, Clone)]
 pub struct ProjectState {
     pub models: BTreeMap<String, Model>,
     /// extension model -> the model it extends
     pub bases: BTreeMap<String, String>,
+    /// blends; each is also in `models`, as its `model.field` view (Blend::as_model)
+    pub blends: BTreeMap<String, Blend>,
+    /// the blends that are the organisation's own (defined in the UI, editable there)
+    pub org_blends: BTreeSet<String>,
     pub themes: Vec<Theme>,
     /// file -> error, surfaced in the UI for builders
     pub errors: BTreeMap<String, String>,
 }
 
 impl ProjectState {
+    /// Can `b` be added? Its name must be free, and it joins models (not other blends).
+    pub fn check_new_blend(&self, b: &Blend) -> Result<(), String> {
+        if self.models.contains_key(&b.name) {
+            return Err(format!("the name {:?} is already a model's or blend's", b.name));
+        }
+        for m in std::iter::once(&b.base).chain(b.joins.iter().map(|j| &j.model)) {
+            if self.blends.contains_key(m) {
+                return Err(format!("{m} is a blend: a blend joins models"));
+            }
+        }
+        b.validate(&self.models)
+    }
+
+    /// This snapshot plus an organisation's own blends (one that no longer fits, e.g. after a
+    /// model changed, is left out and reported).
+    pub fn with_org_blends(&self, blends: &[Blend]) -> ProjectState {
+        let mut p = self.clone();
+        for b in blends {
+            match self.check_new_blend(b) {
+                Ok(()) => {
+                    p.models.insert(b.name.clone(), b.as_model(&self.models));
+                    p.blends.insert(b.name.clone(), b.clone());
+                    p.org_blends.insert(b.name.clone());
+                }
+                Err(e) => {
+                    p.errors.insert(format!("blend {}", b.name), e);
+                }
+            }
+        }
+        p
+    }
+
+    /// Compile a blend query's parts, each in its connection's dialect, and the join.
+    fn check_blend(&self, b: &Blend, q: &Query, dialect_of: &dyn Fn(&str) -> Option<Dialect>) -> Result<(), String> {
+        let now = now_rounded();
+        match plan(b, &self.models, q, now).map_err(|e| e.0)? {
+            Plan::Single { model, query } => check_query(&self.models[&model], &query, dialect_of),
+            Plan::Joined(j) => {
+                for side in &j.sides {
+                    let dialect = dialect_of(&side.source.connection).ok_or_else(|| no_connection(&side.source))?;
+                    compile_query_up_to(&side.source, &side.query, dialect, now, &[], MAX_SOURCE_ROWS)
+                        .map_err(|e| e.0)?;
+                }
+                let tables: Vec<String> = (0..j.sides.len()).map(|i| format!("source_{i}")).collect();
+                compile_query(&j.joined_model(&tables), &j.query, Dialect::Postgres, now, &[]).map_err(|e| e.0)?;
+                Ok(())
+            }
+        }
+    }
+
     /// Semantic checks of a dashboard against the models (`available`: the organisation's) and
     /// the organisation's connections (`dialect_of`: connection name -> its SQL dialect).
     /// Warnings, not errors, so a dashboard stays editable while a model it uses is broken.
@@ -77,11 +134,11 @@ impl ProjectState {
                     return Err(format!("unknown model {:?}", t.query.model));
                 }
                 let m = &self.models[&t.query.model];
-                let q = with_dashboard_period(d, t.query.clone(), &t.options);
-                let dialect = dialect_of(&m.connection)
-                    .ok_or_else(|| format!("this organisation has no connection named {:?}", m.connection))?;
-                let (m2, q2) = expand(m, &q, dialect).map_err(|e| e.0)?;
-                compile_query(&m2, &q2, dialect, now_rounded(), &[]).map_err(|e| e.0)?;
+                let q = with_dashboard_period(d, t.query.clone(), &t.options, m);
+                match self.blends.get(&q.model) {
+                    Some(b) => self.check_blend(b, &q, dialect_of)?,
+                    None => check_query(m, &q, dialect_of)?,
+                }
                 if let Some(Drill::Hierarchy(h)) = &t.drill
                     && !m.hierarchies.contains_key(h)
                 {
@@ -118,17 +175,31 @@ impl ProjectState {
 }
 
 /// Tiles inherit the dashboard period (same model, no period of their own, not opted out).
-pub fn with_dashboard_period(d: &Dashboard, mut q: Query, options: &serde_json::Map<String, Value>) -> Query {
+fn no_connection(m: &Model) -> String {
+    format!("this organisation has no connection named {:?}", m.connection)
+}
+
+fn check_query(m: &Model, q: &Query, dialect_of: &dyn Fn(&str) -> Option<Dialect>) -> Result<(), String> {
+    let dialect = dialect_of(&m.connection).ok_or_else(|| no_connection(m))?;
+    let (m2, q2) = expand(m, q, dialect).map_err(|e| e.0)?;
+    compile_query(&m2, &q2, dialect, now_rounded(), &[]).map_err(|e| e.0)?;
+    Ok(())
+}
+
+/// The tile's query with the dashboard's period, when the tile's model has the period's field
+/// (`model`: the tile's; a blend has it as `model.field`).
+pub fn with_dashboard_period(
+    d: &Dashboard,
+    mut q: Query,
+    options: &serde_json::Map<String, Value>,
+    model: &Model,
+) -> Query {
     if let Some(p) = &d.period
         && q.period.is_none()
-        && q.model == p.model
         && options.get("period") != Some(&Value::Bool(false))
+        && let Some(field) = crate::tile_query::tile_field(&q.model, model, &p.model, &p.field)
     {
-        q.period = Some(crate::schema::Period {
-            field: p.field.clone(),
-            current: p.current.clone(),
-            compare: p.compare.clone(),
-        });
+        q.period = Some(crate::schema::Period { field, current: p.current.clone(), compare: p.compare.clone() });
     }
     q
 }
@@ -191,6 +262,7 @@ impl Project {
 
     fn signature(&self) -> Signature {
         let mut files = self.yaml_files("models");
+        files.extend(self.yaml_files("blends"));
         files.extend(self.yaml_files("themes"));
         files
             .into_iter()
@@ -276,7 +348,32 @@ impl Project {
                 }
             }
         }
-        ProjectState { models, bases, themes, errors }
+        let mut blends = BTreeMap::new();
+        for path in self.yaml_files("blends") {
+            let file = format!("blends/{}", file_name(&path));
+            let result = std::fs::read_to_string(&path)
+                .map_err(|e| e.to_string())
+                .and_then(|t| load_yaml::<Blend>(&t))
+                .and_then(|b| {
+                    if models.contains_key(&b.name) || blends.contains_key(&b.name) {
+                        return Err(format!("the name {:?} is already a model's or blend's", b.name));
+                    }
+                    b.validate(&models)?;
+                    Ok(b)
+                });
+            match result {
+                Ok(b) => {
+                    blends.insert(b.name.clone(), b);
+                }
+                Err(e) => {
+                    errors.insert(file, e);
+                }
+            }
+        }
+        for b in blends.values() {
+            models.insert(b.name.clone(), b.as_model(&models));
+        }
+        ProjectState { models, bases, blends, org_blends: BTreeSet::new(), themes, errors }
     }
 }
 
@@ -340,13 +437,16 @@ mod tests {
         let all: BTreeSet<String> = s.models.keys().cloned().collect();
         for path in Project::new(&root).yaml_files("dashboards") {
             let d = parse_dashboard(&std::fs::read_to_string(&path).unwrap()).unwrap();
-            let warehouse = |c: &str| (c == "warehouse").then_some(Dialect::Postgres);
-            assert_eq!(s.validate_dashboard(&d, &all, &warehouse), Vec::<String>::new(), "{}", path.display());
+            let connections = |c: &str| match c {
+                "warehouse" => Some(Dialect::Postgres),
+                "nyc_taxi" => Some(Dialect::DuckDb),
+                "meteo" => Some(Dialect::Postgres),
+                _ => None,
+            };
+            assert_eq!(s.validate_dashboard(&d, &all, &connections), Vec::<String>::new(), "{}", path.display());
             // an organisation without the model's connection gets told
             let none = |_: &str| None;
-            assert!(
-                s.validate_dashboard(&d, &all, &none).iter().any(|w| w.contains("no connection named \"warehouse\""))
-            );
+            assert!(s.validate_dashboard(&d, &all, &none).iter().any(|w| w.contains("no connection named")));
             // the compact YAML round-trips
             let again = parse_dashboard(&dump_dashboard(&d)).unwrap();
             assert_eq!(serde_json::to_value(&again).unwrap(), serde_json::to_value(&d).unwrap());
@@ -372,6 +472,51 @@ mod tests {
         assert_eq!(s.models["b"].measures.len(), 2);
         assert_eq!(s.bases["b"], "a");
         assert!(s.errors["models/c.yaml"].contains("redefines"));
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn blends_are_models_of_models() {
+        let a = "name: a\nconnection: db\ntable: t\ndimensions: [{name: k}, {name: x}]\nmeasures: [{name: n, type: count}]\n";
+        let b = "name: b\nconnection: other\ntable: u\ndimensions: [{name: k}, {name: y}]\n";
+        let dir = tmp_project(&[
+            ("models/a.yaml", a),
+            ("models/b.yaml", b),
+            ("blends/ab.yaml", "name: ab\nlabel: A and B\nbase: a\njoins: [{model: b, on: [k = k]}]\ncache: 5m\n"),
+            ("blends/bad.yaml", "name: bad\nbase: a\njoins: [{model: b, on: [k = nope]}]\n"),
+            ("blends/a.yaml", "name: a\nbase: b\njoins: [{model: a, on: [k = k]}]\n"),
+        ]);
+        let s = Project::new(&dir).current();
+        let ab = &s.models["ab"];
+        assert_eq!(ab.label.as_deref(), Some("A and B"));
+        assert!(ab.dimension("b.y").is_some());
+        assert_eq!(ab.cache, Some(300));
+        assert_eq!(s.blends["ab"].base, "a");
+        assert!(s.errors["blends/bad.yaml"].contains("nope"));
+        assert!(s.errors["blends/a.yaml"].contains("already"), "{:?}", s.errors);
+        assert_eq!(s.models["a"].connection, "db", "a blend can't replace a model");
+
+        // dashboards check blend tiles part by part, each on its model's connection
+        let d = parse_dashboard(
+            "title: t\ntiles:\n\
+             - {id: ok, type: table, query: {model: ab, dimensions: [b.y], measures: [a.n]}}\n\
+             - {id: one, type: table, query: {model: ab, dimensions: [a.x], measures: [a.n]}}\n\
+             - {id: bad, type: table, query: {model: ab, dimensions: [b.nope], measures: [a.n]}}\n",
+        )
+        .unwrap();
+        let all: BTreeSet<String> = s.models.keys().cloned().collect();
+        let both = |c: &str| match c {
+            "db" => Some(Dialect::Postgres),
+            "other" => Some(Dialect::DuckDb),
+            _ => None,
+        };
+        let w = s.validate_dashboard(&d, &all, &both);
+        assert_eq!(w.len(), 1, "{w:?}");
+        assert!(w[0].starts_with("tile bad:") && w[0].contains("nope"), "{w:?}");
+        let only_db = |c: &str| (c == "db").then_some(Dialect::Postgres);
+        let w = s.validate_dashboard(&d, &all, &only_db);
+        assert!(w.iter().any(|w| w.starts_with("tile ok:") && w.contains("\"other\"")), "{w:?}");
+        assert!(!w.iter().any(|w| w.starts_with("tile one:")), "one model: the other connection isn't needed");
         std::fs::remove_dir_all(dir).ok();
     }
 }

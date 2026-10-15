@@ -451,6 +451,39 @@ impl Store {
         Ok(c.execute("DELETE FROM connections WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ blends
+
+    /// The organisation's own blends: (definition, updated_at, updated_by), by name.
+    pub async fn blends(&self, org: &str) -> Result<Vec<(crate::blend::Blend, String, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query("SELECT definition, updated_at, updated_by FROM blends WHERE org = $1 ORDER BY name", &[&org])
+            .await?;
+        rows.iter()
+            .map(|r| {
+                let at: DateTime<Utc> = r.get(1);
+                Ok((serde_json::from_str(&r.get::<_, String>(0))?, at.to_rfc3339(), r.get(2)))
+            })
+            .collect()
+    }
+
+    pub async fn put_blend(&self, org: &str, blend: &crate::blend::Blend, by: Option<&str>) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO blends (org, name, definition, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org, name) DO UPDATE SET definition = EXCLUDED.definition, updated_by = EXCLUDED.updated_by,
+               updated_at = now()",
+            &[&org, &blend.name, &serde_json::to_string(blend)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_blend(&self, org: &str, name: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM blends WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
+    }
+
     // ------------------------------------------------------------------ settings
 
     pub async fn setting(&self, key: &str) -> Result<Option<Value>> {

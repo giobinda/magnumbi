@@ -25,6 +25,18 @@ export interface ModelInfo {
   connection_type: string | null
   extends?: string | null  // extension models inherit their base model's data restrictions
   dimensions: Dimension[]; measures: Measure[]; hierarchies: Record<string, string[]>
+  /** a blend: models joined on shared fields (its fields are written model.field) */
+  blend?: { base: string; joins: BlendJoin[] } | null
+}
+
+/** A join key: "base_field = field", with a grain for dates and times ("sold_at:day = day:day") */
+export interface BlendJoin { model: string; on: string[] }
+export interface Blend {
+  name: string; label?: string | null; description?: string | null; base: string; joins: BlendJoin[]
+  /** seconds results may be reused */
+  cache?: number | null
+  /** the organisation's own (defined here); otherwise defined in the project's code */
+  editable?: boolean
 }
 
 export interface Filter { field: string; op?: FilterOp; values?: Value[] }
@@ -211,6 +223,9 @@ export const api = {
   deleteConnection: (name: string) => call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(`/api/period?model=${encodeURIComponent(model)}`, json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
+  blends: () => call<{ blends: Blend[] }>('/api/blends'),
+  saveBlend: (b: Blend) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}`, json('PUT', { ...b, editable: undefined })),
+  deleteBlend: (name: string) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   me: () => call<AuthState>('/api/auth/me'),
   login: (email: string, password: string) =>
     call<{ ok: boolean; must_change_password: boolean }>('/api/auth/login', json('POST', { email, password })),

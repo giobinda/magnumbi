@@ -26,11 +26,27 @@ For one process serving the API and the built UI on :8000, run `make serve`. Run
 for the backend tests and the frontend typecheck (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
+**A bigger demo: NYC taxi trips.** `make nyc-taxi ORG=globex` downloads five years of New York
+yellow taxi trips (NYC TLC open data, 3.3 GB) and cleans them into ~208 million rows of Parquet
+in that organisation's DuckDB folder (`devtools/nyc_taxi.py`, needs `uv`). Then, in that
+organisation: **Connections › New**, DuckDB, name `nyc_taxi`, table
+`trips = nyc_taxi/trips/*.parquet`; and import `project/dashboards/nyc_taxi.yaml` as dashboard
+`nyc_taxi` (model `taxi`). Tiles take about a second on a month and ~5 s on all five years,
+then come from the organisation's query cache. The same target fetches hourly weather per
+borough for those five years (`devtools/nyc_weather.py`: Open-Meteo, ERA5 reanalysis, CC BY 4.0);
+the demo reads it from PostgreSQL, another engine than the trips: load
+`nyc_taxi/weather/hourly.parquet` into a table `weather.hourly` and add a PostgreSQL connection
+`meteo` (schema `weather`). The blend `taxi_weather` (see Blends below) joins trips and weather on
+borough + hour (both New York local time); the dashboard's last three tiles use it.
+Temperature is per ~9 km cell; precipitation, snow and gusts come from a ~25 km grid, so
+neighbouring boroughs can share them.
+
 ## Project layout
 
 ```
 project/                    your content (git it)
   models/*.yaml             semantic models: dimensions, measures, drill hierarchies
+  blends/*.yaml             models joined on shared fields, across connections
   dashboards/*.yaml         dashboards seeded into ScramDB on first start (file stem = id)
   themes/*.yaml             optional extra themes
   access.yaml               optional: initial organisations/members, adopted on first start
@@ -44,14 +60,16 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     connectors/             where queries run: ScramDB/Postgres, BigQuery, DuckDB
     access.rs               organisations, roles, row filters
     compiler.rs             semantic query → SQL
+    blend.rs                blends: per-engine parts, then the join on ScramDB
     orgdb.rs                each organisation's own ScramDB (routing, registration)
-    cache.rs, materialize.rs  the query cache as typed tables (the future federation bridge)
+    cache.rs, materialize.rs  results as typed tables in ScramDB (the query cache, blends)
     usage.rs                usage metrics
     crypto.rs               sealing organisations' connection strings (AES-256-GCM)
     project.rs, schema.rs   loading and validating the YAML files
     store.rs, db.rs         tables and migrations
 frontend/                   React + Vite + ECharts + react-grid-layout
 devtools/scramdb.sh         local ScramDB containers: the primary and one per organisation
+devtools/nyc_*.py           demo data: NYC taxi trips and borough weather
 ```
 
 ## Architecture
@@ -124,9 +142,13 @@ own credentials.
 
 **DuckDB** runs each query in a fresh sandbox: in memory, or the organisation's `.duckdb` file
 opened read-only. Tables are views over files in the organisation's own directory
-(`MAGNUM_DUCKDB_DIR/<org>/`) or its object storage (`s3://`, `gs://`, `https://`; Parquet, CSV or
-JSON, globs allowed). Then it is locked: only those directories and prefixes are reachable, no
-extensions, no settings changes, no writes. Object storage needs DuckDB's `httpfs` extension,
+(`MAGNUM_DUCKDB_DIR/<org>/`) or its object storage (`s3://`, `gs://`, `https://`): Parquet, CSV,
+JSON or Avro files (globs allowed), or Iceberg tables as `iceberg:<table folder>`, e.g.
+`orders = iceberg:s3://acme-lake/warehouse/retail/orders`. An Iceberg table is read at its latest
+metadata version (`version-hint.text`, else the highest-numbered metadata file), with data files
+resolved inside the table's folder; catalogs (REST, Glue) aren't supported yet. Then the sandbox
+is locked: only those directories and prefixes are reachable, no extensions, no settings changes,
+no writes. Object storage, Avro and Iceberg need DuckDB extensions (`httpfs`, `avro`, `iceberg`),
 downloaded once into `MAGNUM_DUCKDB_DIR/_extensions` (or pre-installed there; set
 `MAGNUM_DUCKDB_INSTALL_EXTENSIONS=0` to forbid downloads). This DuckDB build has no ICU
 extension, so `time` columns are handled as UTC timestamps.
@@ -144,10 +166,51 @@ same rows anyway. Builders can bypass it (`x-magnum-refresh: 1`); Org admins see
 on **Usage**. Up to 2,000 results per instance, least recently used dropped first.
 
 Each cached result is a **typed table** (`magnum_cache.r_…`, indexed by
-`magnum_cache.entries`), not a JSON blob. That's on purpose: it is the same mechanism a
-federated query will use. To combine sources (say BigQuery and Postgres), each source's result is
-materialised into the organisation's ScramDB through its connector, then joined there with plain
-SQL. Connectors therefore report neutral column types (`materialize::ColType`) along with rows.
+`magnum_cache.entries`), not a JSON blob: the same mechanism blends use to join sources.
+Connectors therefore report neutral column types (`materialize::ColType`) along with rows.
+
+## Blends: joining models across engines
+
+A blend joins models on fields they share, even when their data is in different databases.
+Define one in code (`project/blends/*.yaml`) or, as a power user, on **Blends** in the UI (kept in
+the organisation's own ScramDB, for that organisation only):
+
+```yaml
+name: taxi_weather
+label: Taxi trips × weather
+base: taxi                       # every row of the result starts from it
+joins:
+  - model: weather
+    on:
+      - pickup_borough = borough
+      - pickup_at:hour = observed_at:hour   # dates/times match at a grain
+cache: 1h
+```
+
+Its fields are the models' fields as `model.field` (`taxi.trips`, `weather.condition`), and it is
+used like any model in Explore and on dashboards (a dashboard's period and filters on `taxi` apply
+to it too). A query runs in two steps (`blend.rs`, `api/blends.rs`):
+
+1. **Aggregate, per engine.** Each model involved gets its own query on its own connection (DuckDB,
+   BigQuery, PostgreSQL, ...), with that model's data restrictions, grouped by the join keys and
+   the dimensions asked for. Measures are split into parts that add up again (an average becomes
+   a sum and a count). A query touching one model only runs on it directly.
+2. **Join on ScramDB.** The parts are written to the organisation's ScramDB (`COPY`, about 0.1 s
+   per 60,000 rows), joined (the base `LEFT JOIN` each model; `INNER` when the query filters that
+   model's own fields), and the person's query is compiled over the join as an ordinary model:
+   grouping, sorting, top N and period comparison work as usual. The tables are dropped right
+   after; the result is cached like any other (`cache:`).
+
+Limits, by design: measures must add up (count, sum, min, max, avg), so distinct counts and custom
+SQL measures stay on the models themselves; a period must be on a date/time field the models are
+joined on (both windows are fetched from every model); each part may return up to 1,000,000 rows
+at the join keys. When a model has several rows per join key for the fields asked for, the other
+models' measures would be counted more than once: such queries are refused with an explanation.
+The SQL preview in Explore shows every part and the join.
+
+On the NYC demo, a dashboard tile joining a month of trips (DuckDB, 3.5 million) with the weather
+(PostgreSQL), compared with the same month a year earlier, takes about 2 s: ~1.2 s in DuckDB,
+~0.5 s in PostgreSQL, ~0.7 s joining 118,000 rows on ScramDB; then 0 s from the cache.
 
 ## Usage metrics
 
@@ -247,7 +310,7 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 | `MAGNUM_SECRET_KEY` | | seals organisations' connection strings (`magnum-bi gen-key`); required in production |
 | `MAGNUM_USAGE_RETENTION_DAYS` | 400 | how long usage events are kept |
 | `MAGNUM_DUCKDB_DIR` | `data/duckdb` | DuckDB files, one directory per organisation |
-| `MAGNUM_DUCKDB_INSTALL_EXTENSIONS` | 1 | allow downloading DuckDB's `httpfs` (object storage) |
+| `MAGNUM_DUCKDB_INSTALL_EXTENSIONS` | 1 | allow downloading DuckDB's `httpfs`, `avro` and `iceberg` extensions |
 | `MAGNUM_ALLOW_PRIVATE_CONNECTIONS` | 1 (0 with `MAGNUM_ENV=production`) | organisations' connections may reach private networks |
 | `MAGNUM_CONNECTION_ALLOWED_HOSTS` | | private hosts organisations' connections may reach anyway |
 | `MAGNUM_CLIENT_IP_HEADER` | | behind a proxy: header with the client address (e.g. `x-forwarded-for`) |

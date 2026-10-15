@@ -8,8 +8,9 @@
 //! be loaded, and the configuration can't be changed. A query can't read another
 //! organisation's files, the server's files, or anything else on the network.
 //!
-//! Object storage needs DuckDB's `httpfs` extension: loaded from MAGNUM_DUCKDB_DIR/_extensions,
-//! downloaded there once (DuckDB's signed builds) when MAGNUM_DUCKDB_INSTALL_EXTENSIONS allows.
+//! Object storage, Avro and Iceberg need DuckDB extensions (`httpfs`, `avro`, `iceberg`): loaded
+//! from MAGNUM_DUCKDB_DIR/_extensions, downloaded there once (DuckDB's signed builds) when
+//! MAGNUM_DUCKDB_INSTALL_EXTENSIONS allows. They're loaded before the sandbox is locked.
 
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -24,7 +25,7 @@ use serde_json::{Value, json};
 
 use super::{Connector, ConnectorError, QueryResult};
 use crate::compiler::{ident, quote};
-use crate::connections::{DuckDb, file_reader};
+use crate::connections::{DuckDb, Format, TableSource};
 use crate::materialize::ColType;
 
 /// S3 or GCS (HMAC) keys for the organisation's object storage.
@@ -68,12 +69,32 @@ impl DuckDbConnector {
         Ok(DuckDbConnector { cfg: cfg.clone(), root, extensions, install_extensions, keys })
     }
 
-    fn remote(&self) -> bool {
-        self.cfg.tables.values().any(|l| !is_local(l))
+    fn sources(&self) -> Result<Vec<(&String, TableSource<'_>)>, ConnectorError> {
+        self.cfg
+            .tables
+            .iter()
+            .map(|(name, l)| TableSource::parse(l).map(|s| (name, s)).map_err(ConnectorError::Query))
+            .collect()
     }
 
-    /// A configured, locked sandbox (blocking: call from a blocking thread).
-    fn open(&self) -> Result<Connection, ConnectorError> {
+    /// Load an extension from MAGNUM_DUCKDB_DIR/_extensions, downloading it first if allowed.
+    fn load(&self, conn: &Connection, ext: &str) -> Result<(), ConnectorError> {
+        if conn.execute_batch(&format!("LOAD {ext}")).is_ok() {
+            return Ok(());
+        }
+        if !self.install_extensions {
+            return Err(ConnectorError::Unavailable(format!(
+                "this needs DuckDB's {ext} extension; install it into MAGNUM_DUCKDB_DIR/_extensions \
+                 or allow MAGNUM_DUCKDB_INSTALL_EXTENSIONS"
+            )));
+        }
+        conn.execute_batch(&format!("INSTALL {ext}; LOAD {ext}"))
+            .map_err(|e| ConnectorError::Unavailable(format!("can't install DuckDB's {ext} extension: {e}")))
+    }
+
+    /// A configured, locked sandbox (blocking: call from a blocking thread). `on_open` gets the
+    /// connection as soon as it exists: configuring it already reads remote files.
+    fn open(&self, on_open: impl FnOnce(&Connection)) -> Result<Connection, ConnectorError> {
         let q = |e: duckdb::Error| ConnectorError::Query(e.to_string());
         std::fs::create_dir_all(&self.root).map_err(|e| ConnectorError::Unavailable(format!("data directory: {e}")))?;
         std::fs::create_dir_all(&self.extensions).ok();
@@ -97,61 +118,65 @@ impl DuckDbConnector {
             }
             None => Connection::open_in_memory_with_flags(config).map_err(q)?,
         };
+        on_open(&conn);
         let mut allowed: Vec<String> = vec![format!("{}/", root.display())];
-        if self.remote() {
-            if conn.execute_batch("LOAD httpfs").is_err() {
-                if !self.install_extensions {
-                    return Err(ConnectorError::Unavailable(
-                        "object storage needs DuckDB's httpfs extension; install it into MAGNUM_DUCKDB_DIR/_extensions \
-                         or allow MAGNUM_DUCKDB_INSTALL_EXTENSIONS"
-                            .into(),
-                    ));
-                }
-                conn.execute_batch("INSTALL httpfs; LOAD httpfs").map_err(|e| {
-                    ConnectorError::Unavailable(format!("can't install DuckDB's httpfs extension: {e}"))
-                })?;
-            }
-            if let Some(k) = &self.keys {
-                let lit = |s: &str| quote(s).map_err(|e| ConnectorError::Query(e.0));
-                let mut extra = String::new();
-                if let Some(r) = &self.cfg.s3_region {
-                    extra.push_str(&format!(", REGION {}", lit(r)?));
-                }
-                if let Some(e) = &self.cfg.s3_endpoint {
-                    extra.push_str(&format!(", ENDPOINT {}, URL_STYLE 'path'", lit(e)?));
-                }
-                let (id, secret) = (lit(&k.key_id)?, lit(&k.secret)?);
-                let schemes: Vec<&str> =
-                    self.cfg.tables.values().filter_map(|l| l.split_once("://").map(|(s, _)| s)).collect();
-                if schemes.contains(&"s3") {
-                    conn.execute_batch(&format!(
-                        "CREATE SECRET magnum_s3 (TYPE s3, KEY_ID {id}, SECRET {secret}{extra})"
-                    ))
-                    .map_err(q)?;
-                }
-                if schemes.iter().any(|s| *s == "gs" || *s == "gcs") {
-                    conn.execute_batch(&format!("CREATE SECRET magnum_gcs (TYPE gcs, KEY_ID {id}, SECRET {secret})"))
-                        .map_err(q)?;
-                }
+        let sources = self.sources()?;
+        let remote = sources.iter().any(|(_, s)| s.remote());
+        let mut extensions: Vec<&str> = if remote { vec!["httpfs"] } else { vec![] };
+        for ext in sources.iter().flat_map(|(_, s)| s.extensions()) {
+            if !extensions.contains(ext) {
+                extensions.push(ext);
             }
         }
-        for (name, location) in &self.cfg.tables {
-            let reader = file_reader(location).map_err(ConnectorError::Query)?;
-            let source = if is_local(location) {
-                root.join(location).to_string_lossy().into_owned()
-            } else {
+        for ext in extensions {
+            self.load(&conn, ext)?;
+        }
+        if remote {
+            let secs = self.cfg.statement_timeout_ms.div_ceil(1000).max(1);
+            conn.execute_batch(&format!("SET http_timeout = {secs}")).map_err(q)?;
+        }
+        if sources.iter().any(|(_, s)| s.format == Format::Iceberg) {
+            // a table folder without version-hint.text: read its latest metadata file
+            conn.execute_batch("SET unsafe_enable_version_guessing = true").map_err(q)?;
+        }
+        if remote && let Some(k) = &self.keys {
+            let lit = |s: &str| quote(s).map_err(|e| ConnectorError::Query(e.0));
+            let mut extra = String::new();
+            if let Some(r) = &self.cfg.s3_region {
+                extra.push_str(&format!(", REGION {}", lit(r)?));
+            }
+            if let Some(e) = &self.cfg.s3_endpoint {
+                extra.push_str(&format!(", ENDPOINT {}, URL_STYLE 'path'", lit(e)?));
+            }
+            let (id, secret) = (lit(&k.key_id)?, lit(&k.secret)?);
+            let schemes: Vec<&str> =
+                sources.iter().filter_map(|(_, s)| s.path.split_once("://").map(|(s, _)| s)).collect();
+            if schemes.contains(&"s3") {
+                conn.execute_batch(&format!("CREATE SECRET magnum_s3 (TYPE s3, KEY_ID {id}, SECRET {secret}{extra})"))
+                    .map_err(q)?;
+            }
+            if schemes.iter().any(|s| *s == "gs" || *s == "gcs") {
+                conn.execute_batch(&format!("CREATE SECRET magnum_gcs (TYPE gcs, KEY_ID {id}, SECRET {secret})"))
+                    .map_err(q)?;
+            }
+        }
+        for (name, source) in &sources {
+            let path = if source.remote() {
                 // only this table's folder (or file) becomes reachable
-                allowed.push(match location.rfind('/') {
-                    Some(i) if !location[..i].ends_with(':') && !location[..i].ends_with(":/") => {
-                        location[..=i].to_string()
-                    }
-                    _ => location.clone(),
-                });
-                location.clone()
+                allowed.push(source.reachable());
+                source.path.to_string()
+            } else {
+                root.join(source.path).to_string_lossy().into_owned()
             };
-            let src = quote(&source).map_err(|e| ConnectorError::Query(e.0))?;
-            conn.execute_batch(&format!("CREATE TEMP VIEW {} AS SELECT * FROM {reader}({src})", ident(name)))
-                .map_err(q)?;
+            let src = quote(&path).map_err(|e| ConnectorError::Query(e.0))?;
+            // Iceberg: data files are found relative to the table's folder, so reads stay inside it
+            let options = if source.format == Format::Iceberg { ", allow_moved_paths = true" } else { "" };
+            conn.execute_batch(&format!(
+                "CREATE TEMP VIEW {} AS SELECT * FROM {}({src}{options})",
+                ident(name),
+                source.reader()
+            ))
+            .map_err(q)?;
         }
         let list =
             allowed.iter().map(|a| quote(a).map_err(|e| ConnectorError::Query(e.0))).collect::<Result<Vec<_>, _>>()?;
@@ -182,10 +207,6 @@ impl DuckDbConnector {
     }
 }
 
-fn is_local(location: &str) -> bool {
-    !location.contains("://")
-}
-
 #[async_trait]
 impl Connector for DuckDbConnector {
     async fn run(&self, sql: &str, _columns: &[String]) -> Result<QueryResult, ConnectorError> {
@@ -193,17 +214,17 @@ impl Connector for DuckDbConnector {
         let this = self.clone();
         let sql = sql.to_string();
         let timeout = Duration::from_millis(self.cfg.statement_timeout_ms);
-        let (tx, rx) = tokio::sync::oneshot::channel();
+        let (tx, mut rx) = tokio::sync::oneshot::channel();
         let worker = tokio::task::spawn_blocking(move || {
-            let conn = this.open()?;
-            let _ = tx.send(conn.interrupt_handle());
+            let conn = this.open(|c| {
+                let _ = tx.send(c.interrupt_handle());
+            })?;
             this.query(&conn, &sql)
         });
-        let interrupt = rx.await.ok();
         let (rows, types) = match tokio::time::timeout(timeout, worker).await {
             Ok(joined) => joined.map_err(|e| ConnectorError::Query(e.to_string()))??,
             Err(_) => {
-                if let Some(h) = interrupt {
+                if let Ok(h) = rx.try_recv() {
                     h.interrupt();
                 }
                 return Err(ConnectorError::Query(format!("the query took longer than {} s", timeout.as_secs())));
@@ -363,6 +384,107 @@ mod tests {
         let ok =
             format!("SELECT COUNT(*) FROM read_csv_auto('{}')", org_dir(&base, "acme").join("secret.csv").display());
         assert!(c.run(&ok, &[]).await.is_ok());
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn empty_results_still_have_column_types() {
+        let (c, base) = sandbox(json!({}), None);
+        let r = c.run("SELECT 'x' AS a, 1.5 AS b WHERE false", &[]).await.unwrap();
+        assert!(r.rows.is_empty());
+        assert_eq!(r.types, [ColType::Text, ColType::Numeric]);
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn missing_extensions_are_explained() {
+        let (c, base) = sandbox(json!({"events": "events/*.avro"}), None);
+        let e = c.run("SELECT 1", &[]).await.unwrap_err();
+        assert!(matches!(&e, ConnectorError::Unavailable(m) if m.contains("avro extension")), "{e:?}");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    /// Avro and Iceberg need DuckDB extensions: these tests run when MAGNUM_TEST_DUCKDB_EXTENSIONS
+    /// names an extension directory (downloaded into it if needed).
+    fn with_extensions(tables: serde_json::Value) -> Option<(DuckDbConnector, PathBuf)> {
+        let Ok(ext) = std::env::var("MAGNUM_TEST_DUCKDB_EXTENSIONS") else {
+            eprintln!("skipped: MAGNUM_TEST_DUCKDB_EXTENSIONS isn't set");
+            return None;
+        };
+        let (c, base) = sandbox(tables, None);
+        Some((DuckDbConnector { extensions: PathBuf::from(ext), install_extensions: true, ..c }, base))
+    }
+
+    #[tokio::test]
+    async fn the_timeout_covers_opening_remote_files() {
+        // a server that accepts connections and never answers
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let _held = tokio::spawn(async move {
+            let mut open = vec![];
+            while let Ok((socket, _)) = listener.accept().await {
+                open.push(socket);
+            }
+        });
+        let Some((c, base)) = with_extensions(json!({"t": format!("https://127.0.0.1:{port}/x.parquet")})) else {
+            return;
+        };
+        let c = DuckDbConnector { cfg: DuckDb { statement_timeout_ms: 1000, ..c.cfg.clone() }, ..c };
+        let started = Instant::now();
+        let e = c.run("SELECT 1", &[]).await.unwrap_err();
+        assert!(started.elapsed() < Duration::from_secs(5), "took {:?}: {e:?}", started.elapsed());
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    fn copy_dir(from: &Path, to: &Path) {
+        std::fs::create_dir_all(to).unwrap();
+        for entry in std::fs::read_dir(from).unwrap() {
+            let entry = entry.unwrap();
+            if entry.file_type().unwrap().is_dir() {
+                copy_dir(&entry.path(), &to.join(entry.file_name()));
+            } else {
+                std::fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn reads_avro_and_iceberg() {
+        let Some((c, base)) =
+            with_extensions(json!({"events": "events/*.avro", "orders": "iceberg:lake/retail/sales"}))
+        else {
+            return;
+        };
+        let root = org_dir(&base, "acme");
+        std::fs::create_dir_all(root.join("events")).unwrap();
+        let writer = Connection::open_in_memory().unwrap();
+        writer
+            .execute_batch(&format!(
+                "SET extension_directory = '{}'; INSTALL avro; LOAD avro;
+                 COPY (SELECT i AS id, TIMESTAMP '2026-09-01 00:00:00' + INTERVAL (i) HOUR AS seen_at FROM range(5) t(i))
+                 TO '{}' (FORMAT avro)",
+                c.extensions.display(),
+                root.join("events/part1.avro").display()
+            ))
+            .unwrap();
+        // a table written elsewhere (its metadata names other paths): read relative to its folder
+        copy_dir(
+            Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/iceberg/sales").as_path(),
+            &root.join("lake/retail/sales"),
+        );
+
+        let r = c.run("SELECT COUNT(*), MAX(seen_at) FROM events", &[]).await.unwrap();
+        assert_eq!(r.rows, vec![vec![json!(5), json!("2026-09-01T04:00:00")]]);
+        assert_eq!(r.types, [ColType::Int, ColType::Timestamp]);
+        let r = c.run("SELECT region, COUNT(*) FROM orders GROUP BY 1 ORDER BY 1", &[]).await.unwrap();
+        assert_eq!(r.rows, vec![vec![json!("AMER"), json!(6)], vec![json!("EMEA"), json!(6)]]);
+        assert!(c.test().await.unwrap().contains("events, orders"));
+
+        // other Iceberg tables stay out of reach
+        let other = base.join("other_org/lake/sales");
+        copy_dir(&root.join("lake/retail/sales"), &other);
+        let escape = format!("SELECT COUNT(*) FROM iceberg_scan('{}', allow_moved_paths = true)", other.display());
+        assert!(c.run(&escape, &[]).await.is_err(), "{escape} should be refused");
         std::fs::remove_dir_all(base).ok();
     }
 

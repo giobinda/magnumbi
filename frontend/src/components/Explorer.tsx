@@ -16,7 +16,7 @@ const CHARTS: { type: ChartType; label: string; icon: string }[] = [
   { type: 'scatter', label: 'Scatter', icon: '⁘' },
   { type: 'kpi', label: 'KPI', icon: '#' },
 ]
-const GRAINS = ['', 'day', 'week', 'month', 'quarter', 'year']
+const GRAINS = ['', 'hour', 'day', 'week', 'month', 'quarter', 'year']
 const OPS: { op: FilterOp; label: string; arity: 0 | 1 | 2 | 'n' }[] = [
   { op: 'equals', label: 'is', arity: 'n' }, { op: 'not_equals', label: 'is not', arity: 'n' },
   { op: 'contains', label: 'contains', arity: 1 }, { op: 'gt', label: '>', arity: 1 }, { op: 'gte', label: '≥', arity: 1 },
@@ -177,7 +177,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                       const next = e.target.value ? `${fieldName(ref)}:${e.target.value}` : fieldName(ref)
                       setDims(dims.map((x, j) => (j === i ? next : x)))
                     }}>
-                      {GRAINS.map(g => <option key={g} value={g}>{g || 'raw'}</option>)}
+                      {GRAINS.filter(g => g !== 'hour' || d?.type !== 'date').map(g => <option key={g} value={g}>{g || 'raw'}</option>)}
                     </select>
                   )}
                 </Chip>

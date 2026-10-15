@@ -27,8 +27,8 @@ const FIELDS: Record<ConnectionType, Field[]> = {
   ],
   duckdb: [
     { key: 'database', label: 'Database file (.duckdb, in the organisation\'s directory)', optional: true, placeholder: 'warehouse.duckdb' },
-    { key: 'tables', label: 'Tables: one per line, name = files', kind: 'tables', optional: true,
-      placeholder: 'sample_sales = sales/*.parquet\nstores = s3://acme-data/stores.csv' },
+    { key: 'tables', label: 'Tables: one per line, name = files (.parquet, .csv, .json, .avro) or iceberg:<table folder>', kind: 'tables', optional: true,
+      placeholder: 'sample_sales = sales/*.parquet\nstores = s3://acme-data/stores.csv\norders = iceberg:gs://acme-lake/retail/orders' },
     { key: 's3_region', label: 'S3 region', optional: true, placeholder: 'eu-west-1' },
     { key: 's3_endpoint', label: 'S3-compatible endpoint', optional: true, placeholder: 'minio.example.com:9000' },
   ],

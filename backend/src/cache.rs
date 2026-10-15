@@ -134,6 +134,20 @@ pub async fn sweep(store: &Store) -> Result<usize> {
         )
         .await?;
     let cutoff = (Utc::now() - Duration::minutes(10)).timestamp();
+    // blends' work tables (materialize::copy), normally dropped right after the join
+    let work = c
+        .query(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'public' AND table_name LIKE 'magnum\\_work\\_%'",
+            &[],
+        )
+        .await?;
+    for r in &work {
+        let name: String = r.get(0);
+        if materialize::work_table_created(&name).is_some_and(|t| t < cutoff) {
+            materialize::drop(&store.pool, "public", &name).await?;
+            dropped += 1;
+        }
+    }
     for r in &orphans {
         let name: String = r.get(0);
         // tables of the last minutes may be filling right now: leave them for a later sweep

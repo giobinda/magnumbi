@@ -1,0 +1,114 @@
+title: NYC taxi × weather
+description: Does the weather change how New Yorkers ride? Every tile blends taxi trips (DuckDB) with the weather in the pickup borough during the pickup hour (PostgreSQL), joined on ScramDB.
+
+# Built on the blend taxi_weather (project/blends): fields are written model.field.
+# Weather tiles keep trips that have weather (an unknown pickup borough has none): the
+# not_null filter on a weather field also makes those tiles join INNER.
+period:
+  model: taxi_weather
+  field: taxi.pickup_at
+  current: {from: 2026-07-01, to: 2026-07-31}
+  compare: previous_year
+
+filters:
+  - model: taxi_weather
+    field: weather.condition
+    label: Weather
+  - model: taxi_weather
+    field: taxi.pickup_borough
+    label: Pickup borough
+
+tiles:
+  - id: trips
+    title: Trips
+    type: kpi
+    query: {model: taxi_weather, measures: [taxi.trips]}
+    layout: {x: 0, y: 0, w: 3, h: 2}
+  - id: avg_fare
+    title: Avg fare
+    type: kpi
+    query: {model: taxi_weather, measures: [taxi.avg_fare]}
+    layout: {x: 3, y: 0, w: 3, h: 2}
+  - id: avg_duration
+    title: Avg trip duration (min)
+    type: kpi
+    query: {model: taxi_weather, measures: [taxi.avg_duration]}
+    layout: {x: 6, y: 0, w: 3, h: 2}
+  - id: avg_temperature
+    title: Avg temperature (°C)
+    type: kpi
+    query: {model: taxi_weather, measures: [weather.avg_temperature]}
+    layout: {x: 9, y: 0, w: 3, h: 2}
+
+  - id: daily
+    title: Daily trips and temperature (dashed = a year earlier)
+    type: line
+    query:
+      model: taxi_weather
+      dimensions: ["taxi.pickup_at:day"]
+      measures: [taxi.trips, weather.avg_temperature]
+    layout: {x: 0, y: 2, w: 8, h: 5}
+
+  - id: by_condition
+    title: Trips by weather
+    type: pie
+    query:
+      model: taxi_weather
+      dimensions: [weather.condition]
+      measures: [taxi.trips]
+      filters: [{field: weather.condition, op: not_null}]
+    layout: {x: 8, y: 2, w: 4, h: 5}
+
+  - id: ride_by_condition
+    title: How rides change with the weather
+    type: table
+    query:
+      model: taxi_weather
+      dimensions: [weather.condition]
+      measures: [taxi.trips, taxi.avg_duration, taxi.avg_distance, taxi.avg_fare, taxi.tips]
+      filters: [{field: weather.condition, op: not_null}]
+      sort: ["-taxi.trips"]
+    layout: {x: 0, y: 7, w: 7, h: 5}
+
+  - id: borough_condition
+    title: Trips by borough and weather
+    type: bar
+    options: {stacked: true}
+    query:
+      model: taxi_weather
+      dimensions: [taxi.pickup_borough, weather.condition]
+      measures: [taxi.trips]
+      filters: [{field: weather.condition, op: not_null}]
+      top: {dimension: taxi.pickup_borough, n: 5, by: taxi.trips}
+    layout: {x: 7, y: 7, w: 5, h: 5}
+
+  - id: hour_of_day
+    title: Trips by hour of day and weather
+    type: line
+    query:
+      model: taxi_weather
+      dimensions: [taxi.pickup_hour, weather.condition]
+      measures: [taxi.trips]
+      filters: [{field: weather.condition, op: not_null}]
+      sort: [taxi.pickup_hour]
+    layout: {x: 0, y: 12, w: 7, h: 5}
+
+  - id: fare_by_condition
+    title: Avg fare by weather
+    type: hbar
+    query:
+      model: taxi_weather
+      dimensions: [weather.condition]
+      measures: [taxi.avg_fare]
+      filters: [{field: weather.condition, op: not_null}]
+    layout: {x: 7, y: 12, w: 5, h: 5}
+
+  - id: five_years
+    title: Five years of trips and temperature, by month
+    type: line
+    options: {period: false}
+    query:
+      model: taxi_weather
+      dimensions: ["taxi.pickup_at:month"]
+      measures: [taxi.trips, weather.avg_temperature]
+    layout: {x: 0, y: 17, w: 12, h: 6}

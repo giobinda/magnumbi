@@ -359,6 +359,12 @@ pub fn effective_role(actual: Option<Role>, view_as: Option<&str>) -> Option<Rol
 }
 
 pub fn model_available(scope: &Scope, project: &ProjectState, name: &str) -> bool {
+    if let Some(b) = project.blends.get(name) {
+        // a blend's fields are its models' fields: available when they all are
+        return std::iter::once(&b.base)
+            .chain(b.joins.iter().map(|j| &j.model))
+            .all(|m| model_available(scope, project, m));
+    }
     scope.role.is_some() && project.models.contains_key(name) && scope.models.as_ref().is_none_or(|m| m.contains(name))
 }
 
@@ -376,6 +382,10 @@ pub fn row_filters_for(scope: &Scope, project: &ProjectState, model_name: &str) 
     }
     if !model_available(scope, project, model_name) {
         return Err(AccessDenied(format!("model {model_name:?} isn't available")));
+    }
+    if project.blends.contains_key(model_name) {
+        // fail closed: a blend is queried model by model, each with its own restrictions
+        return Err(AccessDenied(format!("{model_name:?} is a blend: restrictions apply to its models")));
     }
     let model = &project.models[model_name];
     let mut out = vec![];
@@ -574,5 +584,31 @@ mod tests {
         let c = AccessConfig { broken: true, ..AccessConfig::default() };
         let s = scope_of(&c, "anyone@x.example", None);
         assert!(s.broken);
+    }
+
+    #[test]
+    fn a_blend_needs_all_its_models() {
+        use crate::schema::Model;
+        let model = |n: &str| -> Model {
+            serde_yaml::from_str(&format!("name: {n}\nconnection: db\ntable: t\ndimensions: [{{name: k}}]\n")).unwrap()
+        };
+        let blend: crate::blend::Blend =
+            serde_yaml::from_str("name: ab\nbase: a\njoins: [{model: b, on: [k = k]}]\n").unwrap();
+        let mut project = ProjectState::default();
+        for n in ["a", "b"] {
+            project.models.insert(n.into(), model(n));
+        }
+        project.models.insert("ab".into(), blend.as_model(&project.models));
+        project.blends.insert("ab".into(), blend);
+        let scope = |models: Option<&[&str]>| Scope {
+            role: Some(Role::Viewer),
+            models: models.map(|m| m.iter().map(|s| s.to_string()).collect()),
+            ..Scope::default()
+        };
+        assert!(model_available(&scope(None), &project, "ab"));
+        assert!(model_available(&scope(Some(&["a", "b"])), &project, "ab"), "not listed itself: its models are");
+        assert!(!model_available(&scope(Some(&["a", "ab"])), &project, "ab"), "b isn't available");
+        // its fields are the models': restrictions apply per model (blend.rs), never to the blend
+        assert!(row_filters_for(&scope(None), &project, "ab").is_err());
     }
 }

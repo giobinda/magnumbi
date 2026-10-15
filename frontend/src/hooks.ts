@@ -4,6 +4,11 @@ import type { ModelInfo, Query, QueryResult, TileRequest } from './api'
 
 let modelsPromise: Promise<{ models: ModelInfo[]; errors: Record<string, string> }> | null = null
 
+/** Models changed (a blend was saved): fetch them again next time. */
+export function forgetModels() {
+  modelsPromise = null
+}
+
 export function useModels() {
   const [state, setState] = useState<{ models: ModelInfo[]; errors: Record<string, string> } | null>(null)
   const [error, setError] = useState<string | null>(null)

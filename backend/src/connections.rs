@@ -85,8 +85,9 @@ pub struct DuckDb {
     /// a .duckdb file in the organisation's directory, opened read-only
     #[serde(default)]
     pub database: Option<String>,
-    /// logical table -> files: a path in the organisation's directory, or s3:// gs:// https://
-    /// (Parquet, CSV or JSON; globs allowed), e.g. {"sales": "s3://acme-data/sales/*.parquet"}
+    /// logical table -> files or an Iceberg table (see `TableSource`): a path in the organisation's
+    /// directory, or s3:// gs:// https://, e.g. {"sales": "s3://acme-data/sales/*.parquet",
+    /// "orders": "iceberg:s3://acme-lake/retail/orders"}
     #[serde(default)]
     pub tables: BTreeMap<String, String>,
     #[serde(default)]
@@ -187,7 +188,7 @@ impl ConnectionConfig {
                     if !IDENT.is_match(name) {
                         return Err(format!("table {name:?}: letters, digits and underscores"));
                     }
-                    file_reader(location).map_err(|e| format!("table {name}: {e}"))?;
+                    TableSource::parse(location).map_err(|e| format!("table {name}: {e}"))?;
                 }
                 if c.s3_region.as_deref().is_some_and(|r| !LOCATION.is_match(r)) {
                     return Err("s3_region: e.g. eu-west-1".into());
@@ -233,26 +234,92 @@ pub fn local_path(p: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// The DuckDB function reading a table location, from its extension; checks the location.
-pub fn file_reader(location: &str) -> Result<&'static str, String> {
-    let remote = ["s3://", "gs://", "gcs://", "https://"].iter().any(|s| location.starts_with(s));
-    if !remote {
-        local_path(location)?;
+/// Where a DuckDB table's data is: files (Parquet, CSV, JSON, Avro; globs allowed) or an Iceberg
+/// table's folder (`iceberg:<folder>`), in the organisation's directory or its object storage.
+#[derive(Debug, Clone, Copy)]
+pub struct TableSource<'a> {
+    pub format: Format,
+    /// without the `iceberg:` prefix
+    pub path: &'a str,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Format {
+    Parquet,
+    Csv,
+    Json,
+    Avro,
+    Iceberg,
+}
+
+impl<'a> TableSource<'a> {
+    pub fn parse(location: &'a str) -> Result<TableSource<'a>, String> {
+        let (iceberg, path) = match location.strip_prefix("iceberg:") {
+            Some(p) => (true, p),
+            None => (false, location),
+        };
+        if path.contains('\'') || path.chars().any(char::is_control) {
+            return Err("invalid characters".into());
+        }
+        let source = |format| TableSource { format, path };
+        if !source(Format::Parquet).remote() {
+            local_path(path.trim_end_matches('/'))?;
+        }
+        if iceberg {
+            return Ok(source(Format::Iceberg));
+        }
+        let lower = path.to_lowercase();
+        let lower = lower.strip_suffix(".gz").unwrap_or(&lower);
+        let format = if lower.ends_with(".parquet") {
+            Format::Parquet
+        } else if lower.ends_with(".csv") || lower.ends_with(".tsv") {
+            Format::Csv
+        } else if lower.ends_with(".json") || lower.ends_with(".ndjson") || lower.ends_with(".jsonl") {
+            Format::Json
+        } else if lower.ends_with(".avro") {
+            Format::Avro
+        } else {
+            return Err("files must be .parquet, .csv, .json or .avro (globs allowed, e.g. sales/*.parquet), \
+                        or an Iceberg table's folder as iceberg:<folder>"
+                .into());
+        };
+        Ok(source(format))
     }
-    if location.contains('\'') || location.chars().any(char::is_control) {
-        return Err("invalid characters".into());
+
+    pub fn remote(&self) -> bool {
+        ["s3://", "gs://", "gcs://", "https://"].iter().any(|s| self.path.starts_with(s))
     }
-    let lower = location.to_lowercase();
-    let lower = lower.strip_suffix(".gz").unwrap_or(&lower);
-    Ok(if lower.ends_with(".parquet") {
-        "read_parquet"
-    } else if lower.ends_with(".csv") || lower.ends_with(".tsv") {
-        "read_csv_auto"
-    } else if lower.ends_with(".json") || lower.ends_with(".ndjson") || lower.ends_with(".jsonl") {
-        "read_json_auto"
-    } else {
-        return Err("files must be .parquet, .csv or .json (globs allowed, e.g. sales/*.parquet)".into());
-    })
+
+    /// The DuckDB function reading it.
+    pub fn reader(&self) -> &'static str {
+        match self.format {
+            Format::Parquet => "read_parquet",
+            Format::Csv => "read_csv_auto",
+            Format::Json => "read_json_auto",
+            Format::Avro => "read_avro",
+            Format::Iceberg => "iceberg_scan",
+        }
+    }
+
+    /// DuckDB extensions it needs, besides httpfs for object storage (Iceberg manifests are Avro).
+    pub fn extensions(&self) -> &'static [&'static str] {
+        match self.format {
+            Format::Avro => &["avro"],
+            Format::Iceberg => &["avro", "iceberg"],
+            _ => &[],
+        }
+    }
+
+    /// The prefix its reads stay in: an Iceberg table's folder, or the folder of the files.
+    pub fn reachable(&self) -> String {
+        if self.format == Format::Iceberg {
+            return format!("{}/", self.path.trim_end_matches('/'));
+        }
+        match self.path.rfind('/') {
+            Some(i) if !self.path[..i].ends_with(':') && !self.path[..i].ends_with(":/") => self.path[..=i].to_string(),
+            _ => self.path.to_string(),
+        }
+    }
 }
 
 pub fn check_name(name: &str) -> Result<(), String> {
@@ -334,7 +401,8 @@ mod tests {
     #[test]
     fn duckdb_locations_stay_inside() {
         let ok = json!({"type": "duckdb", "database": "warehouse.duckdb",
-                        "tables": {"sales": "sales/*.parquet", "stores": "s3://acme-data/stores.csv", "events": "https://x.example/e.json"}});
+                        "tables": {"sales": "sales/*.parquet", "stores": "s3://acme-data/stores.csv", "events": "https://x.example/e.json",
+                                   "clicks": "gs://acme-data/clicks/*.avro", "orders": "iceberg:s3://acme-lake/retail/orders"}});
         assert_eq!(cfg(ok).unwrap().dialect(), Dialect::DuckDb);
         for bad in [
             "/etc/passwd.csv",
@@ -348,8 +416,30 @@ mod tests {
         }
         assert!(cfg(json!({"type": "duckdb", "database": "/var/db.duckdb"})).is_err());
         assert!(cfg(json!({"type": "duckdb"})).is_err());
-        assert_eq!(file_reader("sales/2026-*.parquet").unwrap(), "read_parquet");
-        assert_eq!(file_reader("x.csv.gz").unwrap(), "read_csv_auto");
+        assert!(cfg(json!({"type": "duckdb", "tables": {"t": "iceberg:../lake/sales"}})).is_err());
+    }
+
+    #[test]
+    fn table_sources() {
+        let reader = |l: &str| TableSource::parse(l).map(|s| s.reader());
+        assert_eq!(reader("sales/2026-*.parquet").unwrap(), "read_parquet");
+        assert_eq!(reader("x.csv.gz").unwrap(), "read_csv_auto");
+        assert_eq!(reader("s3://acme/events/*.avro").unwrap(), "read_avro");
+        assert_eq!(reader("iceberg:gs://acme-lake/retail/sales").unwrap(), "iceberg_scan");
+        assert_eq!(reader("iceberg:lake/retail/sales").unwrap(), "iceberg_scan");
+        assert!(reader("iceberg:").is_err());
+        assert!(reader("x.txt").unwrap_err().contains(".avro"));
+
+        let s = TableSource::parse("iceberg:s3://acme-lake/retail/sales/").unwrap();
+        assert_eq!((s.path, s.remote()), ("s3://acme-lake/retail/sales/", true));
+        assert_eq!(s.extensions(), ["avro", "iceberg"]);
+        // the files a table may read: an Iceberg table's whole folder, else the files' folder
+        assert_eq!(s.reachable(), "s3://acme-lake/retail/sales/");
+        assert_eq!(TableSource::parse("iceberg:s3://b/t").unwrap().reachable(), "s3://b/t/");
+        assert_eq!(TableSource::parse("s3://b/events/*.avro").unwrap().reachable(), "s3://b/events/");
+        assert_eq!(TableSource::parse("https://x.example/e.json").unwrap().reachable(), "https://x.example/");
+        assert!(TableSource::parse("events/*.avro").unwrap().extensions() == ["avro"]);
+        assert!(TableSource::parse("sales.parquet").unwrap().extensions().is_empty());
     }
 
     #[test]

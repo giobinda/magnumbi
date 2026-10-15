@@ -105,6 +105,16 @@ fn bucket(value: &str, grain: &str) -> Option<(String, String)> {
     Some((d.format(fmt).to_string(), end.format(fmt).to_string()))
 }
 
+/// A dashboard-level field (the period's, a filter's), written on model `owner`, as the tile's
+/// model names it: the field itself, or `owner.field` on a blend that contains `owner`.
+pub fn tile_field(q_model: &str, model: &Model, owner: &str, field: &str) -> Option<String> {
+    if q_model == owner {
+        return Some(field.to_string());
+    }
+    let name = format!("{owner}.{field}");
+    model.dimension(&name).is_some().then_some(name)
+}
+
 pub fn build(
     dash: &Dashboard,
     tile: &Tile,
@@ -118,13 +128,14 @@ pub fn build(
     let opted_out = tile.options.get("period") == Some(&Value::Bool(false));
     if q.period.is_none()
         && !opted_out
-        && let Some(p) = dash.period.as_ref().filter(|p| p.model == q.model)
+        && let Some(p) = dash.period.as_ref()
+        && let Some(field) = tile_field(&q.model, model, &p.model, &p.field)
     {
         let (current, compare) = match &req.period {
             Some(w) => (w.current.clone(), w.compare.clone()),
             None => (p.current.clone(), p.compare.clone()),
         };
-        q.period = Some(Period { field: p.field.clone(), current, compare });
+        q.period = Some(Period { field, current, compare });
     }
     let period_field = q.period.as_ref().map(|p| p.field.clone());
 
@@ -135,15 +146,13 @@ pub fn build(
         return invalid(format!("not a filter of this dashboard: {unknown:?}"));
     }
     for (key, f) in &declared {
-        if f.model != q.model {
-            continue;
-        }
+        let Some(field) = tile_field(&q.model, model, &f.model, &f.field) else { continue };
         let values = req.filters.get(key).unwrap_or(&f.default);
         if values.len() > MAX_VALUES {
             return invalid(format!("too many values for {key}"));
         }
         if !values.is_empty() || f.op == "is_null" || f.op == "not_null" {
-            q.filters.push(Filter { field: f.field.clone(), op: f.op.clone(), values: values.clone() });
+            q.filters.push(Filter { field, op: f.op.clone(), values: values.clone() });
         }
     }
 
@@ -248,6 +257,24 @@ tiles:
         assert_eq!(q.dimensions, ["sold_at:day"]);
         assert_eq!(q.filters[1].values, [json!("2026-12-01 00:00:00+00")]);
         assert_eq!(q.filters[2].values, [json!("2027-01-01 00:00:00+00")]);
+    }
+
+    #[test]
+    fn blends_get_their_models_period_and_filters() {
+        let (mut d, m) = fixtures();
+        let targets: Model =
+            serde_yaml::from_str("name: targets\nconnection: c\ntable: u\ndimensions: [{name: region}]").unwrap();
+        let blend: crate::blend::Blend =
+            serde_yaml::from_str("name: st\nbase: sales\njoins: [{model: targets, on: [region = region]}]").unwrap();
+        let bm = blend.as_model(&BTreeMap::from([("sales".to_string(), m), ("targets".to_string(), targets)]));
+        d.tiles[0].query = serde_json::from_value(json!({"model": "st", "dimensions": ["sales.region"],
+            "measures": ["sales.revenue"]}))
+        .unwrap();
+        d.tiles[0].drill = None;
+        let q = build(&d, &d.tiles[0], &bm, &TileRequest::default(), true).unwrap();
+        assert_eq!(q.period.unwrap().field, "sales.sold_at");
+        assert_eq!(q.filters.len(), 1);
+        assert_eq!((q.filters[0].field.as_str(), &q.filters[0].values), ("sales.category", &vec![json!("Shoes")]));
     }
 
     #[test]

@@ -4,6 +4,7 @@
 mod access;
 mod api;
 mod auth;
+mod blend;
 mod cache;
 mod compiler;
 mod config;
@@ -276,7 +277,15 @@ async fn serve(config: Config) -> Result<()> {
     );
     // organisations' connections never reach the platform's own databases
     let mut guard = config.connection_guard();
-    for (org, db) in store.org_databases().await? {
+    let org_dbs = store.org_databases().await?;
+    if config.secret_key.is_none() && !org_dbs.is_empty() {
+        tracing::warn!(
+            "{} organisation database(s) registered but MAGNUM_SECRET_KEY isn't set: those organisations \
+             will get 503s (set the key they were saved with, e.g. in .env.local)",
+            org_dbs.len()
+        );
+    }
+    for (org, db) in org_dbs {
         let shown = db["display"].as_str().and_then(|d| url::Url::parse(d).ok());
         match shown.and_then(|u| Some(format!("{}:{}", u.host_str()?, u.port().unwrap_or(5432)))) {
             Some(endpoint) => guard.internal.push(endpoint),
@@ -303,6 +312,7 @@ async fn serve(config: Config) -> Result<()> {
         limiter: auth::password::LoginLimiter::default(),
         ip_limiter: auth::password::LoginLimiter::new(20),
         hashing: tokio::sync::Semaphore::new(state::hashing_permits()),
+        blends: state::OrgBlends::default(),
         config,
     });
     let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;

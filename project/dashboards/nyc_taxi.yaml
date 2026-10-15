@@ -1,0 +1,145 @@
+title: NYC taxi overview
+description: Five years of New York yellow taxi trips (NYC TLC open data, about 200 million rows). Click a borough to drill into its zones.
+
+period:
+  model: taxi
+  field: pickup_at
+  current: {from: 2026-07-01, to: 2026-07-31}
+  compare: previous_year
+
+filters:
+  - model: taxi
+    field: pickup_borough
+    label: Pickup borough
+  - model: taxi
+    field: payment
+    label: Payment type
+
+tiles:
+  - id: trips
+    title: Trips
+    type: kpi
+    query: {model: taxi, measures: [trips]}
+    layout: {x: 0, y: 0, w: 3, h: 2}
+  - id: revenue
+    title: Revenue
+    type: kpi
+    query: {model: taxi, measures: [revenue]}
+    layout: {x: 3, y: 0, w: 3, h: 2}
+  - id: avg_fare
+    title: Avg fare
+    type: kpi
+    query: {model: taxi, measures: [avg_fare]}
+    layout: {x: 6, y: 0, w: 3, h: 2}
+  - id: tip_rate
+    title: Tip rate (card)
+    type: kpi
+    query: {model: taxi, measures: [tip_rate]}
+    layout: {x: 9, y: 0, w: 3, h: 2}
+
+  - id: trips_by_day
+    title: Daily trips (dashed = same period last year)
+    type: line
+    query:
+      model: taxi
+      dimensions: ["pickup_at:day"]
+      measures: [trips]
+    layout: {x: 0, y: 2, w: 8, h: 5}
+
+  - id: by_payment
+    title: Revenue by payment type
+    type: pie
+    query:
+      model: taxi
+      dimensions: [payment]
+      measures: [revenue]
+    layout: {x: 8, y: 2, w: 4, h: 5}
+
+  - id: by_borough
+    title: Trips by pickup borough
+    type: bar
+    drill: pickup_location
+    query:
+      model: taxi
+      dimensions: [pickup_borough]
+      measures: [trips]
+    layout: {x: 0, y: 7, w: 6, h: 5}
+
+  - id: top_zones
+    title: Top 10 pickup zones
+    type: hbar
+    query:
+      model: taxi
+      dimensions: [pickup_zone]
+      measures: [trips]
+      top: {dimension: pickup_zone, n: 10, by: trips}
+    layout: {x: 6, y: 7, w: 6, h: 5}
+
+  - id: by_hour
+    title: Trips by hour of day
+    type: bar
+    query:
+      model: taxi
+      dimensions: [pickup_hour]
+      measures: [trips]
+      sort: [pickup_hour]
+    layout: {x: 0, y: 12, w: 6, h: 5}
+
+  - id: zone_movers
+    title: Busiest pickup zones vs last year
+    type: table
+    query:
+      model: taxi
+      dimensions: [pickup_zone]
+      measures: [trips, revenue, avg_fare]
+      sort: ["-trips"]
+      limit: 20
+    layout: {x: 6, y: 12, w: 6, h: 5}
+
+  - id: monthly
+    title: Monthly trips by pickup borough (all five years)
+    type: area
+    options: {stacked: true, period: false}
+    query:
+      model: taxi
+      dimensions: ["pickup_at:month", pickup_borough]
+      measures: [trips]
+    layout: {x: 0, y: 17, w: 8, h: 6}
+
+  - id: monthly_revenue
+    title: Monthly revenue per mile (all five years)
+    type: line
+    options: {period: false}
+    query:
+      model: taxi
+      dimensions: ["pickup_at:month"]
+      measures: [revenue_per_mile]
+    layout: {x: 8, y: 17, w: 4, h: 6}
+
+  # blended with the weather (another engine): taxi_weather, joined on borough and hour
+  - id: by_weather
+    title: Trips by weather in the pickup borough
+    type: bar
+    query:
+      model: taxi_weather
+      dimensions: [weather.condition]
+      measures: [taxi.trips]
+    layout: {x: 0, y: 23, w: 6, h: 5}
+
+  - id: weather_fares
+    title: Fares, tips and temperature by weather
+    type: table
+    query:
+      model: taxi_weather
+      dimensions: [weather.condition]
+      measures: [taxi.trips, taxi.avg_fare, taxi.tips, weather.avg_temperature]
+    layout: {x: 6, y: 23, w: 6, h: 5}
+
+  - id: daily_temperature
+    title: Daily trips and temperature
+    type: line
+    query:
+      model: taxi_weather
+      dimensions: ["taxi.pickup_at:day"]
+      measures: [taxi.trips, weather.avg_temperature]
+    layout: {x: 0, y: 28, w: 12, h: 5}

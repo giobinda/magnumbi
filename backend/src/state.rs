@@ -35,6 +35,37 @@ pub struct AppState {
     pub ip_limiter: LoginLimiter,
     /// password hashing is deliberately slow: at most this many at once
     pub hashing: tokio::sync::Semaphore,
+    /// organisations' own blends, read from their databases
+    pub blends: OrgBlends,
+}
+
+/// Each organisation's own blends (defined in the UI, kept in its database), cached briefly:
+/// a save on this server forgets them at once, other servers see it within `TTL`.
+#[derive(Default)]
+pub struct OrgBlends {
+    cached: Mutex<BTreeMap<String, (Instant, Blends)>>,
+}
+
+type Blends = Arc<Vec<crate::blend::Blend>>;
+
+impl OrgBlends {
+    const TTL: Duration = Duration::from_secs(10);
+
+    pub async fn get(&self, orgs: &OrgDbs, org: &str) -> anyhow::Result<Blends> {
+        if let Some((at, b)) = self.cached.lock().expect("blends lock").get(org)
+            && at.elapsed() < Self::TTL
+        {
+            return Ok(b.clone());
+        }
+        let store = orgs.store(org).await?;
+        let blends = Arc::new(store.blends(org).await?.into_iter().map(|(b, _, _)| b).collect::<Vec<_>>());
+        self.cached.lock().expect("blends lock").insert(org.to_string(), (Instant::now(), blends.clone()));
+        Ok(blends)
+    }
+
+    pub fn forget(&self, org: &str) {
+        self.cached.lock().expect("blends lock").remove(org);
+    }
 }
 
 /// Password hashes allowed at once: half the CPUs (at least 2), so sign-in floods can't starve
