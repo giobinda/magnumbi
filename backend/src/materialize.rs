@@ -134,7 +134,7 @@ pub async fn read(pool: &DbPool, schema: &str, table: &str, columns: usize) -> R
     let select = if cols.is_empty() { "_row".to_string() } else { cols.join(", ") };
     let c = pool.get().await?;
     let rows = c.query(&format!("SELECT {select} FROM {name} ORDER BY _row"), &[]).await?;
-    Ok(rows.iter().map(|r| if columns == 0 { vec![] } else { crate::connectors::scramdb::row_json(r) }).collect())
+    Ok(rows.iter().map(|r| if columns == 0 { vec![] } else { crate::connectors::postgres::row_json(r) }).collect())
 }
 
 pub async fn drop(pool: &DbPool, schema: &str, table: &str) -> Result<()> {

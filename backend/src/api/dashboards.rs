@@ -38,14 +38,15 @@ pub async fn load(state: &AppState, caller: &Caller, id: &str) -> ApiResult<(Das
     Ok((d, text))
 }
 
-fn response(caller: &Caller, id: &str, d: &Dashboard, text: &str) -> Value {
+async fn response(state: &AppState, caller: &Caller, id: &str, d: &Dashboard, text: &str) -> ApiResult<Value> {
     let builder = caller.can("edit");
-    json!({
-        "id": id,
-        "dashboard": d,
-        "yaml": builder.then_some(text),
-        "warnings": if builder { caller.project.validate_dashboard(d, &available_names(caller)) } else { vec![] },
-    })
+    let warnings = if builder {
+        let dialects = super::dialects(state, caller).await?;
+        caller.project.validate_dashboard(d, &available_names(caller), &|c| dialects.get(c).copied())
+    } else {
+        vec![]
+    };
+    Ok(json!({"id": id, "dashboard": d, "yaml": builder.then_some(text), "warnings": warnings}))
 }
 
 fn track(state: &AppState, caller: &Caller, kind: &'static str, id: &str) {
@@ -73,7 +74,7 @@ pub async fn get_dashboard(
     caller.require("view")?;
     let (d, text) = load(&state, &caller, &id).await?;
     track(&state, &caller, "dashboard_view", &id);
-    Ok(Json(response(&caller, &id, &d, &text)))
+    Ok(Json(response(&state, &caller, &id, &d, &text).await?))
 }
 
 pub async fn save(
@@ -88,7 +89,7 @@ pub async fn save(
     let text = dump_dashboard(&d);
     store(&state, &caller).await?.write_dashboard(caller.org(), &id, &text, Some(caller.email())).await?;
     track(&state, &caller, "dashboard_saved", &id);
-    Ok(Json(response(&caller, &id, &d, &text)))
+    Ok(Json(response(&state, &caller, &id, &d, &text).await?))
 }
 
 pub async fn save_yaml(
@@ -103,7 +104,7 @@ pub async fn save_yaml(
     let text = if text.ends_with('\n') { text } else { text + "\n" };
     store(&state, &caller).await?.write_dashboard(caller.org(), &id, &text, Some(caller.email())).await?;
     track(&state, &caller, "dashboard_saved", &id);
-    Ok(Json(response(&caller, &id, &d, &text)))
+    Ok(Json(response(&state, &caller, &id, &d, &text).await?))
 }
 
 pub async fn export_yaml(

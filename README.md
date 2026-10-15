@@ -23,13 +23,13 @@ Open http://localhost:5173 and sign in. The **Sales overview** dashboard runs on
 To try organisations: create one on **Organisations** (e.g. `acme`), then give it its own
 ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
-for the backend tests and the frontend typecheck, and `make check` to validate the project files.
+for the backend tests and the frontend typecheck (`make test-db` also runs the tests that need
+ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
 ## Project layout
 
 ```
 project/                    your content (git it)
-  connections.yaml          named connections (${ENV_VARS} allowed, never secrets in the file)
   models/*.yaml             semantic models: dimensions, measures, drill hierarchies
   dashboards/*.yaml         dashboards seeded into ScramDB on first start (file stem = id)
   themes/*.yaml             optional extra themes
@@ -40,7 +40,8 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
   src/
     api/                    HTTP handlers (auth, models & queries, dashboards, admin, usage)
     auth/                   sessions, password sign-in (Argon2id), Google sign-in (OIDC)
-    connectors/             where queries run: the Connector trait, ScramDB
+    connections.rs          organisations' data connections (settings, validation)
+    connectors/             where queries run: ScramDB/Postgres, BigQuery, DuckDB
     access.rs               organisations, roles, row filters
     compiler.rs             semantic query → SQL
     orgdb.rs                each organisation's own ScramDB (routing, registration)
@@ -99,11 +100,39 @@ flowchart TB
   (`MAGNUM_DB_AUTO_MIGRATE=0` to turn off; `magnum-bi migrate` for the primary alone;
   organisation databases migrate when first used). ScramDB DDL isn't transactional, so every
   migration statement is idempotent.
-- **Data.** Queries are compiled from the models. Only declared fields can be referenced and every
-  value is an escaped literal; SQL inside models (`sql:`) is trusted configuration. Queries run in
-  `READ ONLY` transactions with a statement timeout. By default the `scramdb` connection reads
-  the primary database (where `make seed` puts the sample); set `MAGNUM_DATA_DSN` to read
-  another ScramDB.
+- **Data.** Queries are compiled from the models, in the SQL dialect of the organisation's
+  connection. Only declared fields can be referenced and every value is an escaped literal; SQL
+  inside models (`sql:`) is trusted configuration.
+
+## Data connections
+
+Each organisation has its own connections, in its own ScramDB, managed on **Connections** by its
+Org admins (and system owners). Settings are stored as-is; the secret (password, service-account
+key, storage keys) is sealed with `MAGNUM_SECRET_KEY` for that organisation and connection, and
+is never shown again. **Test** checks settings before they are saved.
+
+Models are platform YAML and only *name* a connection, with unqualified tables:
+`connection: warehouse`, `table: sample_sales`. Each organisation's `warehouse` decides where that
+is: so one model (and one dashboard) serves every organisation, each from its own data with its
+own credentials.
+
+| type | where `table: sample_sales` is | secret | notes |
+|---|---|---|---|
+| ScramDB, PostgreSQL | the connection's `schema` (search_path) | password | read-only transactions, statement timeout; TLS verified against public CAs, never downgraded |
+| BigQuery | the connection's `project` + `dataset` | service-account JSON key | every query dry-run first and refused over `max_bytes_billed` (also sent as BigQuery's own cap) |
+| DuckDB | `tables:` (name = files) or a `.duckdb` file | optional S3 / GCS HMAC keys | see below |
+
+**DuckDB** runs each query in a fresh sandbox: in memory, or the organisation's `.duckdb` file
+opened read-only. Tables are views over files in the organisation's own directory
+(`MAGNUM_DUCKDB_DIR/<org>/`) or its object storage (`s3://`, `gs://`, `https://`; Parquet, CSV or
+JSON, globs allowed). Then it is locked: only those directories and prefixes are reachable, no
+extensions, no settings changes, no writes. Object storage needs DuckDB's `httpfs` extension,
+downloaded once into `MAGNUM_DUCKDB_DIR/_extensions` (or pre-installed there; set
+`MAGNUM_DUCKDB_INSTALL_EXTENSIONS=0` to forbid downloads). This DuckDB build has no ICU
+extension, so `time` columns are handled as UTC timestamps.
+
+`make seed` gives the platform workspace a `warehouse` connection to the sample; organisations
+add their own.
 
 ## Query cache (and the federation bridge)
 
@@ -176,8 +205,8 @@ Disable an account with `magnum-bi user disable <email>`; this also ends its ses
 ```yaml
 # project/models/sales.yaml
 name: sales
-connection: scramdb
-table: sample_sales            # or sql: SELECT ...
+connection: warehouse         # each organisation's own `warehouse`
+table: sample_sales            # unqualified: the connection decides the schema/dataset/files
 dimensions:
   - {name: sold_at, type: time}           # string | number | boolean | date | time | datetime
   - {name: region}
@@ -217,7 +246,11 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 | `MAGNUM_DATABASE_URL` | `postgresql://scramdb@127.0.0.1:5432/scramdb` | the primary ScramDB |
 | `MAGNUM_SECRET_KEY` | | seals organisations' connection strings (`magnum-bi gen-key`); required in production |
 | `MAGNUM_USAGE_RETENTION_DAYS` | 400 | how long usage events are kept |
-| `MAGNUM_DATA_DSN` | (own database) | data for the `scramdb` connection (`connections.yaml`) |
+| `MAGNUM_DUCKDB_DIR` | `data/duckdb` | DuckDB files, one directory per organisation |
+| `MAGNUM_DUCKDB_INSTALL_EXTENSIONS` | 1 | allow downloading DuckDB's `httpfs` (object storage) |
+| `MAGNUM_ALLOW_PRIVATE_CONNECTIONS` | 1 (0 with `MAGNUM_ENV=production`) | organisations' connections may reach private networks |
+| `MAGNUM_CONNECTION_ALLOWED_HOSTS` | | private hosts organisations' connections may reach anyway |
+| `MAGNUM_CLIENT_IP_HEADER` | | behind a proxy: header with the client address (e.g. `x-forwarded-for`) |
 | `MAGNUM_SYSTEM_OWNERS` | | comma-separated emails, until organisations are first saved |
 | `MAGNUM_PUBLIC_URL` | | public https address (cookies `Secure`, OAuth callbacks, origin checks) |
 | `MAGNUM_ENV` | development | `production`/`staging` refuse to start with unsafe settings |
@@ -235,6 +268,15 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 ## Security
 
 - Every rule is enforced by the server; the UI only hides what a role can't use.
+- Organisations' connections can't reach the platform's internals (`netguard.rs`): loopback,
+  private, link-local and cloud-metadata addresses are refused (outside development, unless
+  allowlisted), the platform's own databases always. Host names are resolved and every address
+  checked; SQL connections are pinned to the checked address, so a second DNS answer can't
+  redirect them. BigQuery tokens only ever come from Google. Failed connection tests don't say
+  whether a port is open.
+- Sign-in: 5 failures lock an account and 20 lock a client address for 15 minutes (password
+  spraying), and only a few password hashes run at once. Every failed sign-in is recorded
+  (`sign_in_failed` in the usage events, with the reason and address).
 - CSRF: state-changing requests must come from Magnum BI's own origin (Origin / Sec-Fetch-Site),
   which covers sibling subdomains too. That's on top of `SameSite=Lax` HttpOnly cookies.
 - Headers: a strict CSP, `nosniff`, a referrer policy, HSTS on https, and `no-store` on the API.
@@ -250,12 +292,12 @@ can become fully independent (own keys, credentials, servers) without rewrites.
 
 Next, in rough order:
 
-- **Connectors** to other databases. The `Connector` trait (`backend/src/connectors/`), a
-  `Connection` variant (`schema.rs`) and, where SQL differs, a `Dialect` (`compiler.rs`).
+- More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
+  a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
 - **Federated queries** across connections, joined in the organisation's ScramDB (on top of the
   cache's materialisation).
 - Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next two).
 - Share links / QR codes, guest links for people without an account.
 - Configuration as code (`plan` / `apply` of organisations from git), automation tokens.
 - ThoughtSpot liveboard import (from the earlier Python version).
-- TLS to ScramDB (the connection is plain TCP today, so keep ScramDB on a private network).
+- TLS to the primary and organisation ScramDB instances (data connections already support it).

@@ -70,20 +70,30 @@ pub fn generate() -> String {
     format!("{}-{}-{}-{}", &raw[0..4], &raw[4..8], &raw[8..12], &raw[12..16])
 }
 
-/// Failed sign-ins per email: after 5, that email is locked for 15 minutes (on this replica).
-#[derive(Default)]
+/// Failed sign-ins per key (an email, or a client address): after `max` failures the key is
+/// locked for 15 minutes (on this replica).
 pub struct LoginLimiter {
+    max: u32,
     failures: Mutex<HashMap<String, (u32, Instant)>>,
 }
 
+impl Default for LoginLimiter {
+    /// Per email: 5 failures.
+    fn default() -> Self {
+        LoginLimiter::new(MAX_FAILURES)
+    }
+}
+
 impl LoginLimiter {
+    pub fn new(max: u32) -> LoginLimiter {
+        LoginLimiter { max, failures: Mutex::new(HashMap::new()) }
+    }
+
     /// Some(seconds left) while locked.
     pub fn locked(&self, email: &str) -> Option<u64> {
         let f = self.failures.lock().expect("limiter lock");
         match f.get(email) {
-            Some((n, at)) if *n >= MAX_FAILURES && at.elapsed() < LOCKOUT => {
-                Some((LOCKOUT - at.elapsed()).as_secs() + 1)
-            }
+            Some((n, at)) if *n >= self.max && at.elapsed() < LOCKOUT => Some((LOCKOUT - at.elapsed()).as_secs() + 1),
             _ => None,
         }
     }

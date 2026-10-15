@@ -52,7 +52,7 @@ export default function Home() {
           <Link key={m.name} to={`/explore?model=${m.name}`} className="card">
             <div className="card-title">{m.label}</div>
             <div className="muted small">{m.description}</div>
-            <div className="muted small">{m.dimensions.length} dimensions · {m.measures.length} measures · {m.connection_type}</div>
+            <div className="muted small">{m.dimensions.length} dimensions · {m.measures.length} measures · {m.connection_type ?? `needs a "${m.connection}" connection`}</div>
           </Link>
         ))}
       </div>

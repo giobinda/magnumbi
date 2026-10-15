@@ -406,6 +406,51 @@ impl Store {
             .collect())
     }
 
+    // ------------------------------------------------------------------ data connections
+
+    pub async fn connections(&self, org: &str) -> Result<Vec<crate::connections::Stored>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query("SELECT name, config, secret_sealed, updated_at, updated_by FROM connections WHERE org = $1 ORDER BY name", &[&org])
+            .await?;
+        rows.iter().map(stored_connection).collect()
+    }
+
+    pub async fn connection(&self, org: &str, name: &str) -> Result<Option<crate::connections::Stored>> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "SELECT name, config, secret_sealed, updated_at, updated_by FROM connections WHERE org = $1 AND name = $2",
+                &[&org, &name],
+            )
+            .await?;
+        row.as_ref().map(stored_connection).transpose()
+    }
+
+    pub async fn put_connection(
+        &self,
+        org: &str,
+        name: &str,
+        config: &crate::connections::ConnectionConfig,
+        secret_sealed: Option<&str>,
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO connections (org, name, config, secret_sealed, updated_by) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (org, name) DO UPDATE SET config = EXCLUDED.config, secret_sealed = EXCLUDED.secret_sealed,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &name, &serde_json::to_string(config)?, &secret_sealed, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_connection(&self, org: &str, name: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM connections WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
+    }
+
     // ------------------------------------------------------------------ settings
 
     pub async fn setting(&self, key: &str) -> Result<Option<Value>> {
@@ -439,4 +484,15 @@ impl Store {
         tx.commit().await?;
         Ok(())
     }
+}
+
+fn stored_connection(r: &Row) -> Result<crate::connections::Stored> {
+    let at: DateTime<Utc> = r.get(3);
+    Ok(crate::connections::Stored {
+        name: r.get(0),
+        config: serde_json::from_str(&r.get::<_, String>(1))?,
+        secret_sealed: r.get(2),
+        updated_at: at.to_rfc3339(),
+        updated_by: r.get(4),
+    })
 }

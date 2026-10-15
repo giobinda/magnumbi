@@ -67,8 +67,10 @@ impl Usage {
     }
 
     pub fn record(&self, e: Event) {
-        if let Err(mpsc::error::TrySendError::Full(_)) = self.tx.try_send(e) {
-            tracing::warn!("usage buffer full: event dropped");
+        match self.tx.try_send(e) {
+            Ok(()) => {}
+            Err(mpsc::error::TrySendError::Full(_)) => tracing::warn!("usage buffer full: event dropped"),
+            Err(mpsc::error::TrySendError::Closed(_)) => tracing::error!("usage writer stopped: event dropped"),
         }
     }
 }
@@ -245,4 +247,35 @@ pub async fn summary(store: &Store, org: Option<&str>, days: i64) -> Result<Valu
                                                 "avg_ms": r.get::<_, Option<f64>>(4)})).collect::<Vec<_>>(),
         "orgs": orgs,
     }))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    async fn count(store: &Store, kind: &str) -> i64 {
+        let c = store.pool.get().await.unwrap();
+        c.query_one("SELECT COUNT(*) FROM usage_events WHERE kind = $1", &[&kind]).await.unwrap().get(0)
+    }
+
+    /// Needs a ScramDB (MAGNUM_TEST_DATABASE_URL); skipped without it.
+    #[tokio::test]
+    async fn events_keep_being_written_after_quiet_periods() {
+        let Ok(url) = std::env::var("MAGNUM_TEST_DATABASE_URL") else { return };
+        let pool = crate::db::make_pool(&url, 4).unwrap();
+        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
+        let store = Store::new(pool);
+        let usage = Usage::start(store.clone(), 400);
+        let kind: &'static str = Box::leak(format!("test_{}", uuid::Uuid::new_v4().simple()).into_boxed_str());
+        for _ in 0..3 {
+            usage.record(Event::new(kind));
+        }
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(count(&store, kind).await, 3);
+        // quiet for longer than a flush interval, then more events
+        tokio::time::sleep(FLUSH_EVERY * 3).await;
+        usage.record(Event::new(kind));
+        tokio::time::sleep(Duration::from_secs(3)).await;
+        assert_eq!(count(&store, kind).await, 4, "the writer must survive quiet periods");
+    }
 }

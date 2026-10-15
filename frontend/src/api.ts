@@ -20,7 +20,9 @@ export interface Dimension {
 export interface TopN { dimension: string; n: number; by: string; bottom?: boolean }
 export interface Measure { name: string; label?: string | null; description?: string | null; type: string; format: 'number' | 'currency' | 'percent'; higher_is_better?: boolean }
 export interface ModelInfo {
-  name: string; label: string; description?: string | null; connection: string; connection_type: string
+  name: string; label: string; description?: string | null; connection: string
+  /** the organisation's connection of that name: null when it has none yet */
+  connection_type: string | null
   extends?: string | null  // extension models inherit their base model's data restrictions
   dimensions: Dimension[]; measures: Measure[]; hierarchies: Record<string, string[]>
 }
@@ -113,6 +115,12 @@ export interface UsageSummary {
   models: { model: string | null; queries: number; cache_hits: number; failed: number; avg_ms: number | null }[]
   orgs: { org: string; people: number; queries: number; dashboard_views: number }[]
 }
+/** A data connection of the organisation (its secret is never sent back) */
+export type ConnectionType = 'scramdb' | 'postgres' | 'bigquery' | 'duckdb'
+export interface ConnectionInfo {
+  name: string; type: ConnectionType; config: Record<string, unknown>; has_secret: boolean; dialect: string
+  updated_at: string; updated_by: string | null
+}
 export interface CacheStats {
   ttl_seconds: Record<string, number>
   cached: Record<string, { results: number; rows: number | null; hits: number | null }>
@@ -195,6 +203,12 @@ export const api = {
   usage: (days: number) => call<UsageSummary>(`/api/usage?days=${days}`),
   cacheStats: () => call<CacheStats>('/api/cache'),
   clearCache: (model?: string) => call<{ cleared: number }>(`/api/cache${model ? `?model=${encodeURIComponent(model)}` : ''}`, { method: 'DELETE' }),
+  connections: () => call<{ connections: ConnectionInfo[]; secret_key: boolean }>('/api/connections'),
+  saveConnection: (name: string, config: Record<string, unknown>, secret?: string) =>
+    call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, json('PUT', { config, secret: secret || undefined })),
+  testConnection: (name: string, config: Record<string, unknown>, secret?: string) =>
+    call<{ ok: boolean; message: string }>(`/api/connections/${encodeURIComponent(name)}/test`, json('POST', { config, secret: secret || undefined })),
+  deleteConnection: (name: string) => call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(`/api/period?model=${encodeURIComponent(model)}`, json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
   me: () => call<AuthState>('/api/auth/me'),

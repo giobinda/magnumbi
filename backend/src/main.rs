@@ -7,11 +7,13 @@ mod auth;
 mod cache;
 mod compiler;
 mod config;
+mod connections;
 mod connectors;
 mod crypto;
 mod db;
 mod error;
 mod materialize;
+mod netguard;
 mod orgdb;
 mod period;
 mod project;
@@ -112,8 +114,16 @@ async fn main() -> Result<()> {
         }
         Command::SeedSample { rows } => {
             let pool = db::make_pool(&config.database_url, 2)?;
+            db::migrate(&pool, db::PRIMARY).await?;
             let n = sample::seed(&pool, rows).await?;
             println!("{n} rows in {} ({})", sample::TABLE, db::redact(&config.database_url));
+            // the sample model reads `warehouse`: give the platform workspace one, if it has none
+            let store = Store::new(pool);
+            if store.connection("", "warehouse").await?.is_none() {
+                let warehouse = sample::warehouse(&config.database_url)?;
+                store.put_connection("", "warehouse", &warehouse, None, Some("seed")).await?;
+                println!("added the platform workspace's `warehouse` connection (to this database)");
+            }
             Ok(())
         }
         Command::GenKey => {
@@ -153,12 +163,17 @@ fn check(config: &Config) -> Result<()> {
             let name = path.file_name().unwrap_or_default().to_string_lossy().into_owned();
             match project::parse_dashboard(&std::fs::read_to_string(&path)?) {
                 Ok(d) => problems
-                    .extend(s.validate_dashboard(&d, &all).into_iter().map(|w| format!("dashboards/{name}: {w}"))),
+                    // connections belong to organisations: check models and fields, in Postgres SQL
+                    .extend(
+                        s.validate_dashboard(&d, &all, &|_| Some(compiler::Dialect::Postgres))
+                            .into_iter()
+                            .map(|w| format!("dashboards/{name}: {w}")),
+                    ),
                 Err(e) => problems.push(format!("dashboards/{name}: {e}")),
             }
         }
     }
-    println!("{} connection(s), {} model(s), {} theme(s)", s.connections.len(), s.models.len(), s.themes.len());
+    println!("{} model(s), {} theme(s)", s.models.len(), s.themes.len());
     if problems.is_empty() {
         println!("no problems found");
         return Ok(());
@@ -259,6 +274,18 @@ async fn serve(config: Config) -> Result<()> {
             (false, false) => "none configured",
         }
     );
+    // organisations' connections never reach the platform's own databases
+    let mut guard = config.connection_guard();
+    for (org, db) in store.org_databases().await? {
+        let shown = db["display"].as_str().and_then(|d| url::Url::parse(d).ok());
+        match shown.and_then(|u| Some(format!("{}:{}", u.host_str()?, u.port().unwrap_or(5432)))) {
+            Some(endpoint) => guard.internal.push(endpoint),
+            None => tracing::warn!(org, "can't tell where this organisation's database is; not guarded against"),
+        }
+    }
+    if guard.allow_private {
+        tracing::warn!("organisations' connections may reach private networks (MAGNUM_ALLOW_PRIVATE_CONNECTIONS)");
+    }
     let google = config.google.clone().map(auth::google::Google::new);
     let state = Arc::new(AppState {
         orgs: orgdb::OrgDbs::new(store.clone(), config.secret_key.clone()),
@@ -266,14 +293,22 @@ async fn serve(config: Config) -> Result<()> {
         store,
         project,
         access: state::AccessCache::new(),
-        connectors: connectors::Connectors::new(pool),
+        connectors: connectors::Connectors::new(
+            config.secret_key.clone(),
+            config.duckdb_dir.clone(),
+            config.duckdb_install_extensions,
+        )
+        .with_guard(guard),
         google,
         limiter: auth::password::LoginLimiter::default(),
+        ip_limiter: auth::password::LoginLimiter::new(20),
+        hashing: tokio::sync::Semaphore::new(state::hashing_permits()),
         config,
     });
     let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;
     tracing::info!("Magnum BI on http://{addr}");
-    axum::serve(listener, api::router(state)).with_graceful_shutdown(shutdown()).await?;
+    let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
     Ok(())
 }
 

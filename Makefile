@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed user dev-backend dev-frontend build serve check test lint
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed user dev-backend dev-frontend build serve check test test-db lint
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -57,6 +57,9 @@ check:              ## validate the project files (connections, models, dashboar
 test:               ## backend unit tests + frontend typecheck
 	cargo test
 	cd frontend && npx tsc -b
+
+test-db: db-up       ## also the tests that need ScramDB (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
+	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) cargo test
 
 lint:
 	cargo clippy --all-targets

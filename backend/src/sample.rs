@@ -73,3 +73,17 @@ async fn insert(client: &deadpool_postgres::Client, values: &[String]) -> Result
         .await?;
     Ok(())
 }
+
+/// A `scramdb` connection to the database the sample was loaded into (no TLS: local development).
+pub fn warehouse(database_url: &str) -> Result<crate::connections::ConnectionConfig> {
+    let u = url::Url::parse(database_url)?;
+    let config = serde_json::json!({
+        "type": "scramdb",
+        "host": u.host_str().unwrap_or("127.0.0.1"),
+        "port": u.port().unwrap_or(5432),
+        "database": u.path().trim_start_matches('/'),
+        "user": u.username(),
+        "tls": false,
+    });
+    Ok(serde_json::from_value(config)?)
+}

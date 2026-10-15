@@ -28,42 +28,6 @@ fn default_true() -> bool {
     true
 }
 
-// --------------------------------------------------------------------------- connections
-
-/// A named data connection. Only ScramDB for now; more connector types are added as variants.
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(tag = "type", rename_all = "lowercase")]
-pub enum Connection {
-    Scramdb(ScramDbConnection),
-}
-
-impl Connection {
-    pub fn type_name(&self) -> &'static str {
-        match self {
-            Connection::Scramdb(_) => "scramdb",
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
-#[serde(deny_unknown_fields)]
-pub struct ScramDbConnection {
-    /// postgresql://user@host:port/db (or key=value). Empty: Magnum BI's own database.
-    #[serde(default, deserialize_with = "empty_none")]
-    pub dsn: Option<String>,
-    #[serde(default = "default_statement_timeout")]
-    pub statement_timeout_ms: u64,
-}
-
-fn default_statement_timeout() -> u64 {
-    60_000
-}
-
-fn empty_none<'de, D: Deserializer<'de>>(d: D) -> Result<Option<String>, D::Error> {
-    let v: Option<String> = Option::deserialize(d)?;
-    Ok(v.filter(|s| !s.trim().is_empty()))
-}
-
 // --------------------------------------------------------------------------- semantic models
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize, Serialize)]
