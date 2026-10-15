@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import type { Column, QueryResult } from './api'
-import { buildOption } from './chartOption'
+import { buildOption, shade } from './chartOption'
 
 const dim: Column = { name: 'day', field: 'day', label: 'Day', kind: 'dimension', type: 'date', grain: 'day' }
 const measure = (name: string, format = 'number', compare?: 'previous' | 'change'): Column => ({
@@ -44,5 +44,23 @@ describe('value axes', () => {
     const r = result([dim, measure('trips'), measure('temperature')], [['2026-07-01', 1, 2]])
     const y = buildOption(r, 'line', {}, palette).yAxis as { name?: string }[]
     expect(y.map(a => a.name)).toEqual(['trips', 'temperature'])
+  })
+})
+
+describe('period colours', () => {
+  it('shades a colour towards another', () => {
+    expect(shade('#000000', '#ffffff', 0.5)).toBe('#808080')
+    expect(shade('#336699', '#ffffff', 0)).toBe('#336699')
+    expect(shade('#fff', '#000', 1)).toBe('#000000')
+    expect(shade('rgb(1, 2, 3)', '#ffffff', 0.5)).toBe('rgb(1, 2, 3)') // not hex: left as is
+  })
+
+  it('draws the previous period in a different shade of its measure\'s colour', () => {
+    const r = result([dim, measure('trips'), measure('trips', 'number', 'previous'), measure('trips', 'number', 'change')],
+      [['2026-07-01', 110695, 108349, 0.02]])
+    const [cur, prev] = buildOption(r, 'line', {}, ['#0f6cbd']).series as { color: string }[]
+    expect(cur.color).toBe('#0f6cbd')
+    expect(prev.color).not.toBe(cur.color)
+    expect(prev.color).toBe(shade('#0f6cbd', '#ffffff', 0.5)) // towards the background (white outside a browser)
   })
 })
