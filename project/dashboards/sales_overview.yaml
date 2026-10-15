@@ -1,0 +1,97 @@
+title: Sales overview
+description: Demo dashboard on the synthetic store sales. Click a region to drill into its stores.
+
+# Dashboard-wide period: every `sales` tile is restricted to it and, with `compare`, shows
+# previous-period values and % change. Viewers can change both in the UI.
+period:
+  model: sales
+  field: sold_at
+  current: {last_n_days: 30}        # or {preset: month_to_date} or {from: 2026-09-01, to: 2026-09-30}
+  compare: previous_period          # or previous_year (52 weeks back), {from: 2025-09-01}, or omit
+
+# Dashboard-wide filters apply to every tile built on the same model.
+filters:
+  - model: sales
+    field: category
+    label: Category
+
+tiles:
+  - id: revenue
+    title: Revenue
+    type: kpi
+    query: {model: sales, measures: [revenue]}
+    layout: {x: 0, y: 0, w: 3, h: 2}
+  - id: transactions
+    title: Transactions
+    type: kpi
+    query: {model: sales, measures: [transactions]}
+    layout: {x: 3, y: 0, w: 3, h: 2}
+  - id: avg_ticket
+    title: Avg ticket
+    type: kpi
+    query: {model: sales, measures: [avg_ticket]}
+    layout: {x: 6, y: 0, w: 3, h: 2}
+  - id: units
+    title: Units sold
+    type: kpi
+    query: {model: sales, measures: [units]}
+    layout: {x: 9, y: 0, w: 3, h: 2}
+
+  - id: revenue_by_day
+    title: Daily revenue (dashed = comparison period)
+    type: line
+    query:
+      model: sales
+      dimensions: ["sold_at:day"]
+      measures: [revenue]
+    layout: {x: 0, y: 2, w: 8, h: 5}
+
+  - id: by_category
+    title: Revenue by category
+    type: pie
+    query:
+      model: sales
+      dimensions: [category]
+      measures: [revenue]
+    layout: {x: 8, y: 2, w: 4, h: 5}
+
+  - id: by_region
+    title: Revenue by region
+    type: bar
+    drill: location
+    query:
+      model: sales
+      dimensions: [region]
+      measures: [revenue]
+    layout: {x: 0, y: 7, w: 6, h: 5}
+
+  - id: top_stores
+    title: Top 10 stores
+    type: hbar
+    query:
+      model: sales
+      dimensions: [store]
+      measures: [revenue]
+      top: {dimension: store, n: 10, by: revenue}
+    layout: {x: 6, y: 7, w: 6, h: 5}
+
+  - id: movers
+    title: Biggest movers by store
+    type: table
+    query:
+      model: sales
+      dimensions: [store]
+      measures: [revenue, transactions]
+      sort: ["-revenue__change"]
+      limit: 24
+    layout: {x: 0, y: 12, w: 7, h: 6}
+
+  - id: monthly
+    title: Monthly revenue by region (all time)
+    type: area
+    options: {stacked: true, period: false}
+    query:
+      model: sales
+      dimensions: ["sold_at:month", region]
+      measures: [revenue]
+    layout: {x: 7, y: 12, w: 5, h: 6}

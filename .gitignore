@@ -1,0 +1,7 @@
+/target/
+frontend/node_modules/
+frontend/dist/
+*.yaml.tmp
+.DS_Store
+.env.local
+project/access.yaml
