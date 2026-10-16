@@ -1,0 +1,11 @@
+{
+  "name": "Magnum BI",
+  "short_name": "Magnum BI",
+  "icons": [
+    {"src": "assets/favicon.svg", "sizes": "any", "type": "image/svg+xml"},
+    {"src": "assets/apple-touch-icon.png", "sizes": "180x180", "type": "image/png"}
+  ],
+  "theme_color": "#c8102e",
+  "background_color": "#fff6e9",
+  "display": "browser"
+}

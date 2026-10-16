@@ -38,6 +38,7 @@ backend/migrations/org/      each organisation's ScramDB } new numbered file, ne
 frontend/src/      React + Vite + ECharts; api.ts mirrors the API types
 project/           models/, blends/, dashboards/ (YAML; dashboards are seeded on first start)
 devtools/          scramdb.sh (local ScramDB containers)
+website/           the public site (plain HTML/CSS/JS, no build): landing page, docs, comparison
 Dockerfile, compose.yaml      the image (UI + server + project) and a one-machine stack
 .github/workflows/publish.yml the image and chart on ghcr.io (main: edge; tag vX.Y.Z: a release)
 deploy/helm/magnum-bi/        the Helm chart (bundled or external ScramDB; checks in secret.yaml)
@@ -103,6 +104,10 @@ Other engines:
 `compiler::Dialect` handles all of this. Add dialect differences there, with a test per dialect.
 
 ## Conventions worth knowing
+
+- **The website follows the product.** When a user-facing feature, command or setting changes,
+  update `website/` (mostly `docs.html`, sometimes `index.html`) in the same change, as for
+  `README.md`. The agent setup prompt lives in `website/assets/site.js`.
 
 - **Errors:** `ApiError` (`error.rs`) is JSON `{"detail": …}`. Database outages become 503.
   Errors that quote SQL are shown only to roles that may see SQL.
