@@ -1,11 +1,11 @@
 # Magnum BI on Kubernetes. The smallest install (bundled ScramDB, no ingress):
-#   helm install bi deploy/helm/magnum-bi --set production=false
+#   helm install bi oci://ghcr.io/giobinda/charts/magnum-bi --set production=false
 # A real one: an https address in front, and (better) your own ScramDB:
-#   helm install bi deploy/helm/magnum-bi --set publicUrl=https://bi.example.com \
+#   helm install bi oci://ghcr.io/giobinda/charts/magnum-bi --set publicUrl=https://bi.example.com \
 #     --set ingress.enabled=true --set admin.email=you@example.com
 
 image:
-  repository: localhost/magnum-bi   # where you pushed the image built from the Dockerfile
+  repository: ghcr.io/giobinda/magnum-bi   # or wherever you pushed your own build
   tag: ""                           # default: the chart's appVersion
   pullPolicy: IfNotPresent
 imagePullSecrets: []

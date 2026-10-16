@@ -42,32 +42,33 @@ snow and gusts come from a ~25 km grid, so neighbouring boroughs can share them.
 
 ## Deploying
 
-**Docker image.** `docker build -t magnum-bi .` (or `podman build`) builds one image of about
-150 MB with the server, the CLI, the built UI and the project files. It runs as an unprivileged
-user (uid 10001) and keeps DuckDB files in `/data`.
+**Docker image.** Releases are published as `ghcr.io/giobinda/magnum-bi` (`latest`, `X.Y.Z`;
+`edge` follows `main`). It's one image of about 150 MB with the server, the CLI, the built UI and
+the project files. It runs as an unprivileged user (uid 10001) and keeps DuckDB files in `/data`.
+Build your own with `docker build -t magnum-bi .` (or `podman build`).
 
 **Docker Compose: try it on one machine.** `compose.yaml` runs Magnum BI with its own ScramDB:
 
 ```bash
-docker build -t localhost/magnum-bi .
 MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d     # UI and API on http://localhost:8000
 docker compose logs magnum | grep one-time                  # the first sign-in's password
 docker compose exec magnum magnum-bi demo --months 1        # optional: the NYC demo
 ```
 
+`docker compose up -d --build` runs your checkout instead of the published image.
 With no accounts yet, the admin gets a one-time password, printed in the log (or set it with
 `MAGNUM_ADMIN_PASSWORD`), and chooses their own at first sign-in. `MAGNUM_HTTP_PORT` changes the
 port. The secret key is generated into the `secrets` volume on first start: back it up. For a
 shared server, put https in front and set `MAGNUM_PUBLIC_URL` and `MAGNUM_ENV=production`.
 
-**Kubernetes: the Helm chart** in `deploy/helm/magnum-bi`. Push the image to your registry, then:
+**Kubernetes: the Helm chart**, published as `oci://ghcr.io/giobinda/charts/magnum-bi` (source in
+`deploy/helm/magnum-bi`):
 
 ```bash
 # try it: bundled ScramDB, no ingress (kubectl port-forward svc/bi-magnum-bi 8000:80)
-helm install bi deploy/helm/magnum-bi --set image.repository=registry.example.com/magnum-bi \
-  --set production=false
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi --set production=false
 # for real: https address, ingress, your own ScramDB (database.existingSecret: key database-url)
-helm install bi deploy/helm/magnum-bi --set image.repository=registry.example.com/magnum-bi \
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi \
   --set publicUrl=https://bi.example.com --set ingress.enabled=true \
   --set admin.email=you@example.com --set database.existingSecret=bi-scramdb
 helm test bi
@@ -79,6 +80,9 @@ Magnum BI reach it. The pod has a read-only root filesystem. The chart refuses s
 can't work, such as production without an https `publicUrl`, or several replicas on a
 ReadWriteOnce volume. See `values.yaml` for the rest; any `MAGNUM_*` setting goes in `env` or
 `secretEnv`.
+
+**Releasing.** Bump `version` in `Cargo.toml`, then push a tag `vX.Y.Z` with the same version:
+`.github/workflows/publish.yml` publishes the image and the chart.
 
 ## Project layout
 
