@@ -37,6 +37,10 @@ pub struct AppState {
     pub hashing: tokio::sync::Semaphore,
     /// organisations' own blends, read from their databases
     pub blends: OrgBlends,
+    /// organisations' own sign-in providers (discovery and keys, cached)
+    pub oidc: crate::auth::oidc::Oidc,
+    /// the relying party for passkeys (None: unavailable)
+    pub passkeys: Option<webauthn_rs::Webauthn>,
 }
 
 /// Each organisation's own blends (defined in the UI, kept in its database), cached briefly:
@@ -82,14 +86,25 @@ type Cached = (Instant, Arc<AccessConfig>, BTreeMap<String, String>);
 
 pub struct AccessCache {
     cached: Mutex<Option<Cached>>,
+    /// tests: settings held in memory, never reloaded (the test database's stay untouched)
+    pinned: std::sync::atomic::AtomicBool,
 }
 
 impl AccessCache {
     pub fn new() -> AccessCache {
-        AccessCache { cached: Mutex::new(None) }
+        AccessCache { cached: Mutex::new(None), pinned: false.into() }
+    }
+
+    #[cfg(test)]
+    pub fn pin(&self, cfg: AccessConfig) {
+        self.pinned.store(true, std::sync::atomic::Ordering::SeqCst);
+        *self.cached.lock().expect("access lock") = Some((Instant::now(), Arc::new(cfg), BTreeMap::new()));
     }
 
     pub fn invalidate(&self) {
+        if self.pinned.load(std::sync::atomic::Ordering::SeqCst) {
+            return; // tests: the pinned settings stay
+        }
         *self.cached.lock().expect("access lock") = None;
     }
 
@@ -97,7 +112,7 @@ impl AccessCache {
     /// can't be read hand out no data.
     pub async fn get(&self, state: &AppState, project: &ProjectState) -> (Arc<AccessConfig>, BTreeMap<String, String>) {
         if let Some((at, cfg, errors)) = self.cached.lock().expect("access lock").as_ref()
-            && at.elapsed() < ACCESS_RELOAD
+            && (at.elapsed() < ACCESS_RELOAD || self.pinned.load(std::sync::atomic::Ordering::SeqCst))
         {
             return (cfg.clone(), errors.clone());
         }

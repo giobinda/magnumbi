@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
-import { AuthGate, ChangePasswordCard, useAuth, useCan } from './auth'
+import { AuthGate, useAuth, useCan } from './auth'
+import { SecurityCard } from './components/Security'
 import { getOrg, getViewAs, setOrg, setViewAs } from './api'
 import type { Role } from './api'
 import MembersPage from './pages/MembersPage'
@@ -51,11 +52,17 @@ function SignedIn() {
                 <Route path="/organisations" element={<Guarded perm="manage_orgs" page><OrganisationsPage /></Guarded>} />
                 <Route path="/dashboards/:id" element={<DashboardPage />} />
               </Routes>
+              <Credit />
             </div>
           } />
         </Routes>
       </AuthGate>
   )
+}
+
+/** Attribution required by the license's additional terms (NOTICE): keep it visible in forks. */
+function Credit() {
+  return <footer className="app-credit">Powered by Magnum BI · © Giovanni Andrea Binda · AGPL-3.0</footer>
 }
 
 /** Members are managed inside an organisation (system owners: after choosing one). */
@@ -126,11 +133,11 @@ function UserMenu() {
       {roleBadge}
       <span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span>
       <span className="user-name" title={auth.user?.email ?? undefined}>{name}</span>
-      {auth.methods.password && <button className="link" onClick={() => setChanging(true)}>Password</button>}
+      <button className="link" onClick={() => setChanging(true)}>Security</button>
       <button className="link" onClick={signOut}>Sign out</button>
       {changing && (
         <div className="modal-bg login-overlay">
-          <ChangePasswordCard hasPassword={auth.has_password} onDone={() => { setChanging(false); refresh() }} onCancel={() => setChanging(false)} />
+          <SecurityCard onClose={() => { setChanging(false); refresh() }} />
         </div>
       )}
     </div>

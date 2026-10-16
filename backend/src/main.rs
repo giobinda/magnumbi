@@ -313,6 +313,8 @@ async fn serve(config: Config) -> Result<()> {
         ip_limiter: auth::password::LoginLimiter::new(20),
         hashing: tokio::sync::Semaphore::new(state::hashing_permits()),
         blends: state::OrgBlends::default(),
+        oidc: crate::auth::oidc::Oidc::new(),
+        passkeys: crate::auth::passkeys::relying_party(&config),
         config,
     });
     let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;

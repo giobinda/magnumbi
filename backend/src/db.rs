@@ -23,6 +23,10 @@ pub const PRIMARY: Migrations = &[
     ("0002_orgs_usage", include_str!("../migrations/primary/0002_orgs_usage.sql")),
     ("0003_connections", include_str!("../migrations/primary/0003_connections.sql")),
     ("0004_blends", include_str!("../migrations/primary/0004_blends.sql")),
+    ("0005_two_factor", include_str!("../migrations/primary/0005_two_factor.sql")),
+    ("0006_single_sign_on", include_str!("../migrations/primary/0006_single_sign_on.sql")),
+    ("0007_passkeys", include_str!("../migrations/primary/0007_passkeys.sql")),
+    ("0008_api_tokens", include_str!("../migrations/primary/0008_api_tokens.sql")),
 ];
 /// Versions are prefixed, so an instance serving as both primary and organisation database keeps
 /// the two histories apart.

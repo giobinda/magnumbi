@@ -6,6 +6,7 @@ mod blends;
 mod connections;
 mod dashboards;
 mod models;
+mod tokens;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -39,13 +40,28 @@ pub fn router(state: Shared) -> Router {
         .route("/api/health", get(|| async { axum::Json(json!({"ok": true})) }))
         .route("/api/themes", get(themes))
         .route("/api/auth/me", get(auth::me))
+        .route("/api/auth/methods", post(auth::methods))
         .route("/api/auth/login", post(auth::login))
+        .route("/api/auth/login/two-factor", post(auth::login_two_factor))
+        .route("/api/auth/two-factor/setup", post(auth::two_factor_setup))
+        .route("/api/auth/two-factor/enable", post(auth::two_factor_enable))
+        .route("/api/auth/two-factor/disable", post(auth::two_factor_disable))
+        .route("/api/auth/passkeys", get(auth::passkeys))
+        .route("/api/auth/passkeys/{id}", axum::routing::delete(auth::delete_passkey))
+        .route("/api/auth/passkeys/register/start", post(auth::passkey_register_start))
+        .route("/api/auth/passkeys/register/finish", post(auth::passkey_register_finish))
+        .route("/api/auth/passkeys/login/start", post(auth::passkey_login_start))
+        .route("/api/auth/passkeys/login/finish", post(auth::passkey_login_finish))
         .route("/api/auth/logout", post(auth::logout))
         .route("/api/auth/password", post(auth::change_password))
         .route("/api/auth/google/login", get(auth::google_login))
-        .route("/api/auth/google/callback", get(auth::google_callback));
+        .route("/api/auth/google/callback", get(auth::google_callback))
+        .route("/api/auth/oidc/{org}/login", get(auth::oidc_login))
+        .route("/api/auth/oidc/callback", get(auth::oidc_callback));
     let protected = Router::new()
         .route("/api/models", get(models::list))
+        .route("/api/tokens", get(tokens::list).post(tokens::create))
+        .route("/api/tokens/{id}", axum::routing::delete(tokens::revoke))
         .route("/api/blends", get(blends::list))
         .route("/api/blends/{name}", axum::routing::put(blends::save).delete(blends::delete))
         .route("/api/models/{name}", get(models::get_model))
@@ -59,6 +75,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/tiles/{tile}/query", post(dashboards::run_tile))
         .route("/api/dashboards/{id}/filters/values", get(dashboards::filter_values))
         .route("/api/members", get(admin::get_members).put(admin::put_members))
+        .route("/api/members/sign-in", get(admin::get_sign_in).put(admin::put_sign_in))
         .route("/api/members/password", post(admin::reset_password))
         .route("/api/platform", get(admin::get_platform).put(admin::put_platform))
         .route("/api/platform/dashboards/{id}/publish", post(admin::publish))
@@ -372,7 +389,7 @@ pub mod tests {
             let hash = crate::auth::password::hash("test-only-password").unwrap();
             store.set_password(OWNER, Some("Owner"), &hash, None, false).await.unwrap();
         }
-        let session = store.create_session(OWNER, "password", chrono::Duration::hours(1)).await.unwrap();
+        let session = store.create_session_as(OWNER, "password", chrono::Duration::hours(1), None).await.unwrap();
         let state = Arc::new(AppState {
             orgs: crate::orgdb::OrgDbs::new(store.clone(), config.secret_key.clone()),
             usage: crate::usage::Usage::start(store.clone(), 400),
@@ -385,6 +402,8 @@ pub mod tests {
             ip_limiter: crate::auth::password::LoginLimiter::new(20),
             hashing: tokio::sync::Semaphore::new(crate::state::hashing_permits()),
             blends: crate::state::OrgBlends::default(),
+            oidc: crate::auth::oidc::Oidc::new(),
+            passkeys: crate::auth::passkeys::relying_party(&config),
             config,
         });
         Some((super::router(state.clone()), state, format!("magnum_session={session}")))

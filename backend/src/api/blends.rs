@@ -7,7 +7,7 @@ use std::time::Instant;
 use chrono::{DateTime, Utc};
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query as UrlQuery, State};
 use serde_json::{Value, json};
 
 use super::{
@@ -50,6 +50,7 @@ pub async fn save(
     State(state): State<Shared>,
     Auth(caller): Auth,
     Path(name): Path<String>,
+    UrlQuery(p): UrlQuery<super::dashboards::WriteParams>,
     Body(b): Body<Blend>,
 ) -> ApiResult<Json<Value>> {
     caller.require("edit")?;
@@ -64,6 +65,9 @@ pub async fn save(
     }
     // the project as defined in code: an organisation's blend never replaces its models or blends
     state.project.current().check_new_blend(&b).map_err(ApiError::bad_request)?;
+    if p.dry_run {
+        return Ok(Json(json!({"ok": true, "dry_run": true})));
+    }
     state.orgs.store(caller.org()).await?.put_blend(caller.org(), &b, Some(caller.email())).await?;
     state.blends.forget(caller.org());
     state.usage.record(crate::usage::Event { model: Some(name), ..caller.event("blend_saved") });

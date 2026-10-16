@@ -36,6 +36,8 @@ pub struct Event {
     pub cache_hit: Option<bool>,
     pub ok: bool,
     pub detail: Option<Value>,
+    /// through an API token: "token:<name>"
+    pub via: Option<String>,
 }
 
 impl Event {
@@ -100,8 +102,8 @@ async fn insert(store: &Store, events: &[Event]) -> Result<()> {
     let stmt = tx
         .prepare(
             "INSERT INTO usage_events (id, kind, org, user_email, role, source, dashboard_id, model, connection,
-               row_count, duration_ms, cache_hit, ok, detail)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)",
+               row_count, duration_ms, cache_hit, ok, detail, via)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)",
         )
         .await?;
     for e in events {
@@ -124,6 +126,7 @@ async fn insert(store: &Store, events: &[Event]) -> Result<()> {
                 &e.cache_hit,
                 &e.ok,
                 &detail,
+                &e.via,
             ],
         )
         .await?;
