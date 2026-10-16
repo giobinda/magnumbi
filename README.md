@@ -294,7 +294,8 @@ claude mcp add --transport http magnum-bi https://bi.example.com/api/mcp --heade
 Tools (`api/mcp.rs`): `list_models`, `describe_model`, `run_query`, `preview_sql`, `list_dashboards`,
 `get_dashboard`, `validate_dashboard`, `save_dashboard`, `delete_dashboard`, `dashboard_history`,
 `list_blends`, `save_blend`, `delete_blend`, `list_connections`, `save_connection`,
-`delete_connection`, `get_members`, `save_members`, `usage_summary`. Each calls the API handler
+`delete_connection`, `get_members`, `save_members`, `list_themes`, `export_theme_css`,
+`import_theme_css`, `get_org_themes`, `save_org_themes`, `usage_summary`. Each calls the API handler
 a browser would, as the token's person, so permissions, row filters, dry runs and version checks
 are the API's own. Agents see only the tools they may use; read-only tokens get no writing tools.
 Every tool call is in the usage log. The endpoint is stateless JSON-RPC (streamable HTTP transport
