@@ -4,7 +4,7 @@ import GridLayout, { WidthProvider } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 import CodeMirror from '@uiw/react-codemirror'
 import { yaml as yamlLang } from '@codemirror/lang-yaml'
-import { api, isTemporal } from '../api'
+import { ApiError, api, isTemporal } from '../api'
 import type { Dashboard, DashboardPeriod, Filter, Tile, Value } from '../api'
 import Explorer from '../components/Explorer'
 import FilterBar, { filterKey } from '../components/FilterBar'
@@ -29,6 +29,11 @@ function initialFilterValues(d: Dashboard): Record<string, Value[]> {
   return out
 }
 
+/** A save refused because the dashboard changed meanwhile: what to tell the person. */
+const conflict = (e: unknown) => (e instanceof ApiError && e.status === 409
+  ? 'Someone else changed this dashboard since you opened it. Reload the page to see their version (your unsaved changes will be lost), or copy your YAML first.'
+  : null)
+
 export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const params = useParams()
   const id = params.id ?? ''
@@ -41,6 +46,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [error, setError] = useState<string | null>(null)
   const [editing, setEditing] = useState(new URLSearchParams(location.search).has('edit') && !embed)
   const [dirty, setDirty] = useState(false)
+  // the version loaded: saves are refused if someone (or an agent) changed it since
+  const [version, setVersion] = useState<string | null>(null)
   const [view, setView] = useState<'dashboard' | 'yaml'>('dashboard')
   const [editTile, setEditTile] = useState<Tile | 'new' | null>(null)
   const [showEmbed, setShowEmbed] = useState(false)
@@ -59,6 +66,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const load = useCallback(() => {
     api.dashboard(id).then(r => {
       setDash(r.dashboard); setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setDirty(false); setYamlDraft(null)
+      setVersion(r.version ?? null)
       setFilterValues(initialFilterValues(r.dashboard))
       setPeriod(r.dashboard.period ? periodFromUrl(r.dashboard.period, location.search) : null)
     }, e => setError(e.message))
@@ -116,20 +124,21 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     if (!dash) return
     setSaving(true)
     try {
-      const r = await api.saveDashboard(id, dash)
-      setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setDirty(false); setEditing(false)
-    } catch (e) { alert(`Save failed: ${(e as Error).message}`) }
+      const r = await api.saveDashboard(id, dash, version)
+      setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setDirty(false); setEditing(false); setVersion(r.version ?? null)
+    } catch (e) { alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
     setSaving(false)
   }
 
   const applyYaml = async () => {
     if (yamlDraft === null) return
     try {
-      const r = await api.saveDashboardYaml(id, yamlDraft)
+      const r = await api.saveDashboardYaml(id, yamlDraft, version)
       setDash(r.dashboard); setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setYamlDraft(null); setDirty(false)
+      setVersion(r.version ?? null)
       setFilterValues(initialFilterValues(r.dashboard))
       setPeriod(r.dashboard.period ?? null)
-    } catch (e) { alert(`Invalid dashboard: ${(e as Error).message}`) }
+    } catch (e) { alert(conflict(e) ?? `Invalid dashboard: ${(e as Error).message}`) }
   }
 
   const onLayoutChange = (layout: Layout[]) => {

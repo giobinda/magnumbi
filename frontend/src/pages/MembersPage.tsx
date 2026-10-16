@@ -3,6 +3,7 @@ import { api } from '../api'
 import type { Members, MembersResponse, Permission, Role, RowRule } from '../api'
 import { useAuth } from '../auth'
 import Restrictions from '../components/Restrictions'
+import SignInSettings from '../components/SignInSettings'
 import { useModels } from '../hooks'
 
 export const PERM_LABELS: Record<Permission, string> = {
@@ -142,6 +143,9 @@ export default function MembersPage() {
       {errors.length > 0 && <div className="warn">{errors.map(e => <div key={e}>{e}</div>)}</div>}
       {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
       <div className="row"><button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
+
+      <h2 className="section">Sign-in</h2>
+      <SignInSettings />
     </div>
   )
 }

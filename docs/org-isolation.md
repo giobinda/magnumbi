@@ -45,6 +45,10 @@ the planned steps stay cheap.
   on the organisation's own ScramDB, each part run with that model's data restrictions (a
   blend never has restrictions of its own, so it can't widen access).
 
+- Sign-in policies per organisation (within the platform's), and the organisation's own OpenID
+  Connect provider, which can only vouch for the organisation's own domains. Its client secret is
+  sealed for "<org>/oidc".
+
 ## Planned (not built yet)
 
 - Organisation-specific models (today models are platform YAML shared by all organisations).
@@ -54,7 +58,7 @@ the planned steps stay cheap.
 - Platform access to an organisation by time-limited, approved, audited grants.
 - An audit log in each org DB; export and offboarding.
 - Roles, row filters and member lists in the org DB, with only an email → organisation index
-  in the primary; per-organisation sign-in policy (own OIDC/SAML, verified domains, MFA).
+  in the primary (sign-in settings, today with the members in the primary, would move along).
 - Cells: a Magnum BI server per organisation (or per pool), the primary as control plane.
 
 ScramDB notes (1.0): `SUM` of an unconstrained `NUMERIC` after a join loses its scale

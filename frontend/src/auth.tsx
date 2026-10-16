@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { AUTH_REQUIRED_EVENT, api, setOrg, setViewAs } from './api'
 import type { AuthState, Permission } from './api'
 import LoginPage from './pages/LoginPage'
+import { TwoFactorSetup } from './components/Security'
 
 type Ctx = { auth: AuthState | null; refresh: () => Promise<void>; signOut: () => Promise<void> }
 const AuthContext = createContext<Ctx>({ auth: null, refresh: async () => {}, signOut: async () => {} })
@@ -49,6 +50,7 @@ export function AuthGate({ children }: { children: ReactNode }) {
     <AuthContext.Provider value={{ auth, refresh, signOut }}>
       {needLogin || location.pathname === '/login' ? <LoginPage auth={auth} onSignedIn={refresh} />
         : auth.must_change_password ? <ChangePasswordCard required onDone={refresh} onCancel={signOut} />
+        : auth.two_factor_setup ? <TwoFactorSetup required onDone={refresh} onCancel={signOut} />
         : auth.member === false ? <NotAMember name={auth.user?.email || auth.user?.name} signOut={signOut} />
         : children}
     </AuthContext.Provider>

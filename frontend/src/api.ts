@@ -71,7 +71,11 @@ export interface Tile {
 export interface DashboardFilter { model: string; field: string; label?: string | null; op?: FilterOp; default?: Value[] }
 export interface DashboardPeriod extends Period { model: string }
 export interface Dashboard { title: string; description?: string | null; theme?: string | null; period?: DashboardPeriod | null; filters: DashboardFilter[]; tiles: Tile[] }
-export interface DashboardResponse { id: string; dashboard: Dashboard; yaml: string | null; warnings: string[] }
+export interface DashboardResponse {
+  id: string; dashboard: Dashboard; yaml: string | null; warnings: string[]
+  /** send back as If-Match to save only over this version */
+  version?: string
+}
 export interface DashboardSummary { id: string; title: string; description?: string | null; tiles?: number; error?: string }
 
 export type Role = 'viewer' | 'user' | 'power_user' | 'org_admin' | 'system_owner'
@@ -80,7 +84,11 @@ export interface AuthState {
   required: boolean; authenticated: boolean; user: { name?: string; email?: string } | null
   /** the sign-in methods this server offers */
   methods: { password: boolean; google: boolean }
-  method?: 'password' | 'google'; has_password?: boolean
+  method?: string; has_password?: boolean
+  /** signs in with an authenticator code after the password */
+  two_factor?: boolean
+  /** the organisation now requires an authenticator code: set one up before anything else */
+  two_factor_setup?: boolean
   /** an admin issued a one-time password: a new one must be chosen before anything else */
   must_change_password?: boolean
   role?: Role; role_label?: string; actual_role?: Role; permissions?: Permission[]; view_as?: Role[]
@@ -107,8 +115,16 @@ export interface MembersResponse {
   password_login: boolean
 }
 /** An organisation's definition (system owners only). */
-export interface Organisation { name: string; domains: string[]; models: string[]; filters: RowRule[] }
-export interface Platform { system_owners: string[]; organisations: Record<string, Organisation> }
+export interface Organisation {
+  name: string; domains: string[]; models: string[]; filters: RowRule[]
+  /** the platform's sign-in rules for this organisation (its admins can only tighten them) */
+  sign_in?: SignInPolicy | null
+}
+export interface Platform {
+  system_owners: string[]; organisations: Record<string, Organisation>
+  /** sign-in rules for everyone */
+  sign_in?: SignInPolicy | null
+}
 export interface PlatformResponse {
   platform: Platform; members: Record<string, number>; models: { name: string; label: string }[]
   errors: Record<string, string>
@@ -159,6 +175,34 @@ const ORG_KEY = 'magnum.org'
 export const getOrg = () => { try { return localStorage.getItem(ORG_KEY) } catch { return null } }
 export const setOrg = (id: string | null) => {
   try { if (id) localStorage.setItem(ORG_KEY, id); else localStorage.removeItem(ORG_KEY) } catch { /* ignore */ }
+}
+
+export type SignInMethod = 'password' | 'google' | 'oidc' | 'passkey' | 'token'
+export const SIGN_IN_METHODS: SignInMethod[] = ['password', 'google', 'oidc', 'passkey', 'token']
+export const SIGN_IN_LABELS: Record<SignInMethod, string> = {
+  password: 'Password', google: 'Google', oidc: "Organisation's single sign-on", passkey: 'Passkeys', token: 'API tokens (agents)',
+}
+/** An API token (never its secret, except once when created). */
+export interface ApiToken {
+  id: string; name: string; user_email?: string; role: Role; scope: 'read' | 'write'
+  created_at?: string; expires_at: string; last_used_at?: string | null; revoked_at?: string | null
+}
+/** One level's sign-in rules: allowed mechanisms (omitted: no restriction), required second factor. */
+export interface SignInPolicy { methods?: SignInMethod[] | null; require_two_factor?: boolean }
+export interface SignInMethods { methods: SignInMethod[]; oidc: { label: string; url: string } | null }
+export interface PasskeyInfo { id: string; name: string; created_at: string; last_used_at: string | null }
+export interface OidcInput {
+  label: string; issuer: string; client_id: string; client_secret?: string
+  groups_claim?: string; group_roles?: Record<string, Role>
+}
+export interface SignInSettings {
+  /** what the platform allows this organisation */
+  platform: { methods: SignInMethod[]; require_two_factor: boolean }
+  sign_in: SignInPolicy
+  oidc: (Omit<OidcInput, 'client_secret'> & { has_secret: boolean }) | null
+  domains: string[]
+  callback_url: string
+  secret_key: boolean
 }
 
 /** Fired when the server says the user must (re-)sign in; the AuthGate shows the login screen. */
@@ -227,17 +271,43 @@ export const api = {
   saveBlend: (b: Blend) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}`, json('PUT', { ...b, editable: undefined })),
   deleteBlend: (name: string) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   me: () => call<AuthState>('/api/auth/me'),
+  /** the ways this email can sign in (sign-in page, step 2) */
+  signInMethods: (email: string) => call<SignInMethods>('/api/auth/methods', json('POST', { email })),
   login: (email: string, password: string) =>
-    call<{ ok: boolean; must_change_password: boolean }>('/api/auth/login', json('POST', { email, password })),
+    call<{ ok: boolean; must_change_password?: boolean; two_factor?: boolean; ticket?: string }>('/api/auth/login', json('POST', { email, password })),
+  loginTwoFactor: (ticket: string, code: string) => call<{ ok: boolean }>('/api/auth/login/two-factor', json('POST', { ticket, code })),
+  twoFactorSetup: () => call<{ secret: string; qr_svg: string; uri: string }>('/api/auth/two-factor/setup', json('POST', {})),
+  twoFactorEnable: (code: string) => call<{ ok: boolean; recovery_codes: string[] }>('/api/auth/two-factor/enable', json('POST', { code })),
+  twoFactorDisable: (password: string) => call<{ ok: boolean }>('/api/auth/two-factor/disable', json('POST', { password })),
+  passkeys: () => call<{ passkeys: PasskeyInfo[]; available: boolean }>('/api/auth/passkeys'),
+  deletePasskey: (id: string) => call<{ ok: boolean }>(`/api/auth/passkeys/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  passkeyRegisterStart: () => call<{ ticket: string; options: unknown }>('/api/auth/passkeys/register/start', json('POST', {})),
+  passkeyRegisterFinish: (ticket: string, name: string, credential: unknown) =>
+    call<{ ok: boolean }>('/api/auth/passkeys/register/finish', json('POST', { ticket, name, credential })),
+  passkeyLoginStart: (email: string) => call<{ ticket: string; options: unknown }>('/api/auth/passkeys/login/start', json('POST', { email })),
+  passkeyLoginFinish: (ticket: string, credential: unknown) =>
+    call<{ ok: boolean }>('/api/auth/passkeys/login/finish', json('POST', { ticket, credential })),
+  signInSettings: () => call<SignInSettings>('/api/members/sign-in'),
+  saveSignInSettings: (s: { sign_in: SignInPolicy | null; oidc: OidcInput | null }) =>
+    call<SignInSettings>('/api/members/sign-in', json('PUT', s)),
   changePassword: (current: string | null, next: string) =>
     call<{ ok: boolean }>('/api/auth/password', json('POST', { current, new: next })),
   logout: () => call<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
   /** Org admins: a one-time password for a member, shown once */
   resetMemberPassword: (email: string) => call<{ email: string; password: string }>('/api/members/password', json('POST', { email })),
   dashboard: (id: string) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`),
-  saveDashboard: (id: string, d: Dashboard) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`, json('PUT', d)),
-  saveDashboardYaml: (id: string, text: string) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}/yaml`,
-    { method: 'PUT', headers: { 'content-type': 'text/plain' }, body: text }),
+  /** `version`: the one read; the save is refused (409) if someone changed it since */
+  saveDashboard: (id: string, d: Dashboard, version?: string | null) => {
+    const init = json('PUT', d)
+    if (version) init.headers = { ...(init.headers as Record<string, string>), 'if-match': version }
+    return call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`, init)
+  },
+  saveDashboardYaml: (id: string, text: string, version?: string | null) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}/yaml`,
+    { method: 'PUT', headers: { 'content-type': 'text/plain', ...(version ? { 'if-match': version } : {}) }, body: text }),
+  tokens: (all = false) => call<{ tokens: ApiToken[]; default_days: number; max_days: number }>(`/api/tokens${all ? '?all=true' : ''}`),
+  createToken: (t: { name: string; scope: 'read' | 'write'; role?: Role; expires_in_days?: number }) =>
+    call<ApiToken & { token: string }>('/api/tokens', json('POST', t)),
+  revokeToken: (id: string) => call<{ ok: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   deleteDashboard: (id: string) => call<{ ok: boolean }>(`/api/dashboards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 

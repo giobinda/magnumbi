@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
-import { api, setOrg } from '../api'
-import type { Organisation, Platform, PlatformResponse, RowRule } from '../api'
+import { api, setOrg, SIGN_IN_LABELS, SIGN_IN_METHODS } from '../api'
+import type { Organisation, Platform, PlatformResponse, RowRule, SignInMethod, SignInPolicy } from '../api'
 import type { FormEvent } from 'react'
 import { useAuth } from '../auth'
 import Restrictions from '../components/Restrictions'
@@ -16,6 +16,7 @@ export default function OrganisationsPage() {
   const { models } = useModels()
   const [data, setData] = useState<PlatformResponse | null>(null)
   const [owners, setOwners] = useState('')
+  const [platformPolicy, setPlatformPolicy] = useState<SignInPolicy | null>(null)
   const [rows, setRows] = useState<Row[]>([])
   const [msg, setMsg] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
@@ -23,6 +24,7 @@ export default function OrganisationsPage() {
   const adopt = (r: PlatformResponse) => {
     setData(r)
     setOwners(r.platform.system_owners.join(', '))
+    setPlatformPolicy(r.platform.sign_in ?? null)
     setRows(Object.entries(r.platform.organisations).map(([id, o]) => ({ ...o, id, isNew: false })))
   }
   useEffect(() => { api.platform().then(adopt, e => setMsg({ kind: 'error', text: e.message })) }, [])
@@ -46,11 +48,11 @@ export default function OrganisationsPage() {
       if (r.filters.some((f: RowRule) => !f.model || !f.dimension)) {
         setMsg({ kind: 'error', text: `${r.name}: finish or remove the filters that have no model or dimension yet.` }); return
       }
-      organisations[id] = { name: r.name.trim(), domains: r.domains, models: r.models, filters: r.filters }
+      organisations[id] = { name: r.name.trim(), domains: r.domains, models: r.models, filters: r.filters, sign_in: r.sign_in ?? null }
     }
     setBusy(true); setMsg(null)
     try {
-      adopt(await api.savePlatform({ system_owners: splitList(owners), organisations }))
+      adopt(await api.savePlatform({ system_owners: splitList(owners), organisations, sign_in: platformPolicy }))
       setMsg({ kind: 'ok', text: 'Saved.' })
       await refresh()
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }) }
@@ -71,6 +73,13 @@ export default function OrganisationsPage() {
         <input className="wide" value={owners} onChange={e => setOwners(e.target.value)} placeholder="emails, comma-separated" />
         <p className="small muted">Run the platform: every organisation, every model, no filters. System owners set their
           own password (<code>magnum-bi user set-password</code> on the server) or sign in with Google.</p>
+      </div>
+
+      <h2 className="section">Sign-in</h2>
+      <div className="card person">
+        <PolicyEditor policy={platformPolicy} onChange={setPlatformPolicy} />
+        <p className="small muted">For everyone, system owners included. Below, each organisation can be held to stricter rules;
+          its Org admins can only tighten them further, never loosen them.</p>
       </div>
 
       <h2 className="section">Organisations</h2>
@@ -106,6 +115,8 @@ export default function OrganisationsPage() {
                   </label>
                 ))}
               </div>
+              <div className="small">Sign-in rules for this organisation</div>
+              <PolicyEditor policy={r.sign_in ?? null} onChange={sign_in => set({ sign_in })} />
               <div className="small">Organisation filters (everyone in it, Org admins included; they can't change these)</div>
               <Restrictions rules={r.filters} models={available} onChange={filters => set({ filters })} addLabel="+ Add organisation filter" />
             </div>
@@ -118,6 +129,27 @@ export default function OrganisationsPage() {
       {errors.length > 0 && <div className="warn">{errors.map(e => <div key={e}>{e}</div>)}</div>}
       {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
       <div className="row"><button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
+    </div>
+  )
+}
+
+/** One level's sign-in rules: mechanisms allowed (all: no restriction) and a required second factor. */
+function PolicyEditor({ policy, onChange }: { policy: SignInPolicy | null; onChange: (p: SignInPolicy | null) => void }) {
+  const chosen = policy?.methods ?? SIGN_IN_METHODS
+  const update = (methods: SignInMethod[], require_two_factor: boolean) => {
+    const restricted = methods.length < SIGN_IN_METHODS.length
+    onChange(!restricted && !require_two_factor ? null : { methods: restricted ? methods : null, require_two_factor })
+  }
+  const two = Boolean(policy?.require_two_factor)
+  return (
+    <div className="row wrap small">
+      {SIGN_IN_METHODS.map(m => (
+        <label key={m} className="check">
+          <input type="checkbox" checked={chosen.includes(m)}
+            onChange={e => update(e.target.checked ? [...chosen, m] : chosen.filter(x => x !== m), two)} /> {SIGN_IN_LABELS[m]}
+        </label>
+      ))}
+      <label className="check"><input type="checkbox" checked={two} onChange={e => update([...chosen], e.target.checked)} /> Passwords need an authenticator code</label>
     </div>
   )
 }

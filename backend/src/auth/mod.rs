@@ -1,15 +1,27 @@
 //! Sign-in and sessions.
 //!
-//! Two ways to sign in, both ending in the same server-side session:
+//! Ways to sign in, all ending in the same server-side session:
 //! - **password** (auth::password): email + password, Argon2id hashes in ScramDB;
-//! - **Google** (auth::google): OpenID Connect, for a Google-verified email.
+//! - **Google** (auth::google): OpenID Connect, for a Google-verified email;
+//! - **an organisation's own provider** (auth::oidc): OpenID Connect, for its own domains;
+//! - **passkeys** (auth::passkeys): WebAuthn.
+//!
+//! Passwords can need a second factor: an authenticator code (auth::totp).
+//!
+//! Which of them someone may use is a policy (auth::policy): the platform's, tightened for an
+//! organisation by the platform and by its own admins. It's checked at sign-in and again on
+//! every request, so a stricter policy ends sessions that no longer meet it.
 //!
 //! The session is an opaque random token in an HttpOnly cookie; ScramDB keeps only its SHA-256.
 //! Who someone *is* comes from here; what they may do and see comes from organisations, roles
 //! and row filters (access.rs).
 
 pub mod google;
+pub mod oidc;
+pub mod passkeys;
 pub mod password;
+pub mod policy;
+pub mod totp;
 
 use std::sync::Arc;
 
@@ -22,17 +34,63 @@ use axum_extra::extract::CookieJar;
 use axum_extra::extract::cookie::{Cookie, SameSite};
 use serde_json::json;
 
-use crate::access::{AccessConfig, Role, Scope, effective_role, scope_of};
+use std::collections::BTreeSet;
+
+use crate::access::{AccessConfig, Role, Scope, effective_role, scope_of, sign_in_policy};
 use crate::error::ApiError;
 use crate::project::ProjectState;
 use crate::state::{AppState, Shared};
 use crate::store::SessionInfo;
+use policy::{Method, SessionCheck};
 
 pub const COOKIE: &str = "magnum_session";
 pub const ORG_HEADER: &str = "x-magnum-org";
 pub const VIEW_AS_HEADER: &str = "x-magnum-view-as";
 /// "1": bypass the query cache (builders only), e.g. after loading new data
 pub const REFRESH_HEADER: &str = "x-magnum-refresh";
+
+/// The sign-in mechanisms this server offers.
+pub fn offered(state: &AppState) -> BTreeSet<Method> {
+    let mut m = BTreeSet::new();
+    if state.config.password_login {
+        m.insert(Method::Password);
+    }
+    if state.google.is_some() {
+        m.insert(Method::Google);
+    }
+    if state.config.secret_key.is_some() {
+        m.insert(Method::Oidc); // providers' client secrets are sealed with it
+    }
+    if state.passkeys.is_some() {
+        m.insert(Method::Passkey);
+    }
+    m.insert(Method::Token);
+    m
+}
+
+/// A response refusing this session under the policy now in force, if it must be refused.
+pub async fn refuse_session(
+    state: &AppState,
+    access: &AccessConfig,
+    session: &SessionInfo,
+    jar: &CookieJar,
+) -> Option<Response> {
+    let policy = sign_in_policy(access, &session.user.email, &offered(state));
+    match policy.check_session(&session.method, session.user.two_factor) {
+        SessionCheck::Ok => None,
+        SessionCheck::SignInAgain(detail) => {
+            if let Some(c) = jar.get(COOKIE) {
+                let _ = state.store.delete_session(c.value()).await;
+            }
+            Some((StatusCode::UNAUTHORIZED, axum::Json(json!({"detail": detail, "login": true}))).into_response())
+        }
+        SessionCheck::SetUpTwoFactor => {
+            let body = json!({"detail": "your organisation requires an authenticator code: set one up first",
+                              "two_factor_setup": true});
+            Some((StatusCode::FORBIDDEN, axum::Json(body)).into_response())
+        }
+    }
+}
 
 pub fn session_cookie(state: &AppState, token: String) -> Cookie<'static> {
     let same_site = match state.config.cookie_samesite.as_str() {
@@ -58,6 +116,35 @@ fn time_duration(seconds: i64) -> cookie::time::Duration {
 }
 
 /// The signed-in person behind a request, if any.
+/// The browser session, or an API token (`Authorization: Bearer mbi_...`) for agents and scripts.
+pub async fn session_or_token(
+    state: &AppState,
+    jar: &CookieJar,
+    headers: &axum::http::HeaderMap,
+) -> Result<Option<SessionInfo>, ApiError> {
+    let bearer = headers
+        .get(axum::http::header::AUTHORIZATION)
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "));
+    match bearer {
+        Some(token) => Ok(state.store.token_session(token.trim()).await?),
+        None => session_of(state, jar).await,
+    }
+}
+
+/// Requests a read-only token may make: reading, and queries (which read through POST).
+pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<&str>) -> bool {
+    if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
+        return true;
+    }
+    if query.is_some_and(|q| q.split('&').any(|p| p == "dry_run=1" || p == "dry_run=true")) {
+        return true; // checks without saving
+    }
+    *method == axum::http::Method::POST
+        && (matches!(path, "/api/query" | "/api/query/sql" | "/api/period")
+            || (path.starts_with("/api/dashboards/") && (path.ends_with("/query") || path.contains("/filters/values"))))
+}
+
 pub async fn session_of(state: &AppState, jar: &CookieJar) -> Result<Option<SessionInfo>, ApiError> {
     match jar.get(COOKIE) {
         Some(c) => Ok(state.store.session(c.value()).await?),
@@ -69,8 +156,9 @@ pub async fn session_of(state: &AppState, jar: &CookieJar) -> Result<Option<Sess
 /// organisation: never as a system owner, never in another organisation. (Emails aren't
 /// verified on that path, so the admin could have created an account for someone else's email.)
 pub fn restrict_password_accounts(scope: Scope, session: &SessionInfo) -> Scope {
-    match (&session.method[..], &session.user.owner_org) {
-        ("password", Some(owner)) if scope.role == Some(Role::SystemOwner) || scope.org.as_deref() != Some(owner) => {
+    let password = Method::of_session(&session.method) == Some(Method::Password);
+    match &session.user.owner_org {
+        Some(owner) if password && (scope.role == Some(Role::SystemOwner) || scope.org.as_deref() != Some(owner)) => {
             Scope::none()
         }
         _ => scope,
@@ -78,7 +166,32 @@ pub fn restrict_password_accounts(scope: Scope, session: &SessionInfo) -> Scope 
 }
 
 pub fn scope_for(cfg: &AccessConfig, session: &SessionInfo, org_header: Option<&str>) -> Scope {
-    restrict_password_accounts(scope_of(cfg, &session.user.email, org_header), session)
+    if let Some(t) = &session.token {
+        // a token works in its own organisation only, with at most the role it was made with
+        let org = (!t.org.is_empty()).then_some(t.org.as_str());
+        let mut scope = scope_of(cfg, &session.user.email, org);
+        if scope.org.as_deref().unwrap_or_default() != t.org
+            || session.user.owner_org.as_ref().is_some_and(|o| *o != t.org)
+        {
+            return Scope::none();
+        }
+        let cap = Role::parse(&t.role).unwrap_or(Role::Viewer);
+        scope.role = scope.role.map(|r| r.min(cap));
+        return scope;
+    }
+    let mut scope = restrict_password_accounts(scope_of(cfg, &session.user.email, org_header), session);
+    // a role from the organisation's provider groups: for people who join by domain (a listed
+    // member keeps the role set here), in that organisation only, never above Org admin
+    if let (Some(granted), Some(oid)) = (&session.granted_role, &scope.org)
+        && let Some((org, role)) = granted.split_once(':')
+        && org == oid
+        && let Some(role) = Role::parse(role).filter(|r| *r <= Role::OrgAdmin)
+        && scope.role.is_some_and(|r| r < Role::SystemOwner)
+        && !cfg.members_of(oid).users.contains_key(&session.user.email.to_lowercase())
+    {
+        scope.role = Some(role);
+    }
+    scope
 }
 
 fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
@@ -114,6 +227,7 @@ impl Caller {
             org: self.org().to_string(),
             user_email: Some(self.email().to_string()),
             role: self.scope.role.map(|r| r.as_str().to_string()),
+            via: self.session.token.as_ref().map(|t| format!("token:{}", t.name)),
             ..crate::usage::Event::new(kind)
         }
     }
@@ -140,7 +254,7 @@ impl Caller {
 
 /// Middleware on every protected route: a valid session, a settled password, then the scope.
 pub async fn require_session(State(state): State<Shared>, jar: CookieJar, request: Request, next: Next) -> Response {
-    let session = match session_of(&state, &jar).await {
+    let session = match session_or_token(&state, &jar, request.headers()).await {
         Ok(Some(s)) => s,
         Ok(None) => return ApiError::sign_in().into_response(),
         Err(e) => return e.into_response(),
@@ -149,9 +263,17 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
         let body = json!({"detail": "choose a new password first", "change_password": true});
         return (StatusCode::FORBIDDEN, axum::Json(body)).into_response();
     }
+    if session.token.as_ref().is_some_and(|t| !t.write)
+        && !read_only_request(request.method(), request.uri().path(), request.uri().query())
+    {
+        return ApiError::forbidden("this API token is read-only").into_response();
+    }
     let (mut parts, body) = request.into_parts();
     let project = state.project.current();
     let (access, access_errors) = state.access.get(&state, &project).await;
+    if let Some(refused) = refuse_session(&state, &access, &session, &jar).await {
+        return refused;
+    }
     let org_choice = header(&parts, ORG_HEADER).map(str::to_lowercase);
     let scope = scope_for(&access, &session, org_choice.as_deref());
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
@@ -197,7 +319,10 @@ mod tests {
                 owner_org: owner_org.map(String::from),
                 must_change_password: false,
                 disabled: false,
+                two_factor: false,
             },
+            granted_role: None,
+            token: None,
         }
     }
 

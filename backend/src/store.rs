@@ -33,9 +33,12 @@ pub struct User {
     pub owner_org: Option<String>,
     pub must_change_password: bool,
     pub disabled: bool,
+    /// signs in with an authenticator code after the password (auth::totp)
+    pub two_factor: bool,
 }
 
-const USER_COLUMNS: &str = "email, name, password_hash, google_sub, owner_org, must_change_password, disabled";
+const USER_COLUMNS: &str =
+    "email, name, password_hash, google_sub, owner_org, must_change_password, disabled, totp_secret_sealed IS NOT NULL";
 
 impl User {
     fn from_row(r: &Row) -> User {
@@ -47,14 +50,50 @@ impl User {
             owner_org: r.get(4),
             must_change_password: r.get(5),
             disabled: r.get(6),
+            two_factor: r.get(7),
         }
     }
+}
+
+/// A person's authenticator settings (sealed secrets, as stored).
+pub struct TwoFactor {
+    pub secret_sealed: Option<String>,
+    pub pending_sealed: Option<String>,
+    pub last_step: Option<i64>,
+    /// SHA-256 of the unused recovery codes
+    pub recovery: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
 pub struct SessionInfo {
     pub method: String,
     pub user: User,
+    /// a role given by an organisation's provider at sign-in: "<org>:<role>"
+    pub granted_role: Option<String>,
+    /// set when this is an API token rather than a browser session
+    pub token: Option<TokenInfo>,
+}
+
+/// An API token's limits.
+#[derive(Debug, Clone)]
+pub struct TokenInfo {
+    pub name: String,
+    /// the organisation it works in ('' = the platform workspace)
+    pub org: String,
+    /// at most this role
+    pub role: String,
+    /// false: read-only
+    pub write: bool,
+}
+
+/// An OpenID Connect sign-in in progress.
+pub struct OAuthState {
+    pub verifier: String,
+    pub nonce: String,
+    pub redirect_uri: String,
+    pub next: String,
+    /// the organisation whose provider it's with (None: Google)
+    pub provider: Option<String>,
 }
 
 #[derive(Clone)]
@@ -123,6 +162,23 @@ impl Store {
         Ok(User::from_row(&row))
     }
 
+    /// Someone an organisation's provider vouched for: created if new (without a password).
+    pub async fn upsert_sso_user(&self, email: &str, name: &str) -> Result<User> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_one(
+                &format!(
+                    "INSERT INTO users (email, name) VALUES ($1, $2)
+                     ON CONFLICT (email) DO UPDATE SET
+                       name = CASE WHEN users.name = '' THEN EXCLUDED.name ELSE users.name END, updated_at = now()
+                     RETURNING {USER_COLUMNS}"
+                ),
+                &[&email.to_lowercase(), &name],
+            )
+            .await?;
+        Ok(User::from_row(&row))
+    }
+
     pub async fn set_disabled(&self, email: &str, disabled: bool) -> Result<bool> {
         let c = self.pool.get().await?;
         let n = c
@@ -168,12 +224,19 @@ impl Store {
     // ------------------------------------------------------------------ sessions
 
     /// A new session; returns the cookie value (only its hash is stored).
-    pub async fn create_session(&self, email: &str, method: &str, ttl: Duration) -> Result<String> {
+    /// A session with a role given by the organisation's provider ("<org>:<role>").
+    pub async fn create_session_as(
+        &self,
+        email: &str,
+        method: &str,
+        ttl: Duration,
+        granted_role: Option<&str>,
+    ) -> Result<String> {
         let token = random_token(32);
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO sessions (id_hash, user_email, method, expires_at) VALUES ($1, $2, $3, $4)",
-            &[&sha256_hex(&token), &email.to_lowercase(), &method, &(Utc::now() + ttl)],
+            "INSERT INTO sessions (id_hash, user_email, method, expires_at, granted_role) VALUES ($1, $2, $3, $4, $5)",
+            &[&sha256_hex(&token), &email.to_lowercase(), &method, &(Utc::now() + ttl), &granted_role],
         )
         .await?;
         // now and then, forget expired sessions and sign-ins
@@ -184,6 +247,315 @@ impl Store {
         Ok(token)
     }
 
+    // ------------------------------------------------------------------ authenticator codes
+
+    pub async fn two_factor(&self, email: &str) -> Result<TwoFactor> {
+        let c = self.pool.get().await?;
+        let r = c
+            .query_opt(
+                "SELECT totp_secret_sealed, totp_pending_sealed, totp_last_step, recovery_codes FROM users WHERE email = $1",
+                &[&email.to_lowercase()],
+            )
+            .await?;
+        Ok(match r {
+            Some(r) => TwoFactor {
+                secret_sealed: r.get(0),
+                pending_sealed: r.get(1),
+                last_step: r.get(2),
+                recovery: r
+                    .get::<_, Option<String>>(3)
+                    .map(|j| serde_json::from_str(&j))
+                    .transpose()?
+                    .unwrap_or_default(),
+            },
+            None => TwoFactor { secret_sealed: None, pending_sealed: None, last_step: None, recovery: vec![] },
+        })
+    }
+
+    pub async fn set_two_factor_pending(&self, email: &str, sealed: Option<&str>) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute("UPDATE users SET totp_pending_sealed = $2 WHERE email = $1", &[&email.to_lowercase(), &sealed])
+            .await?;
+        Ok(())
+    }
+
+    /// The pending secret becomes the secret; every other session ends.
+    pub async fn enable_two_factor(&self, email: &str, sealed: &str, step: i64, recovery: &[String]) -> Result<()> {
+        let email = email.to_lowercase();
+        let c = self.pool.get().await?;
+        c.execute(
+            "UPDATE users SET totp_secret_sealed = $2, totp_pending_sealed = NULL, totp_last_step = $3::BIGINT,
+               recovery_codes = $4, updated_at = now() WHERE email = $1",
+            &[&email, &sealed, &step, &serde_json::to_string(recovery)?],
+        )
+        .await?;
+        c.execute("DELETE FROM sessions WHERE user_email = $1", &[&email]).await?;
+        Ok(())
+    }
+
+    pub async fn disable_two_factor(&self, email: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "UPDATE users SET totp_secret_sealed = NULL, totp_pending_sealed = NULL, totp_last_step = NULL,
+               recovery_codes = NULL, updated_at = now() WHERE email = $1",
+            &[&email.to_lowercase()],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Record a code's step as used; false if that step (or a later one) was used already.
+    pub async fn use_two_factor_step(&self, email: &str, step: i64) -> Result<bool> {
+        let c = self.pool.get().await?;
+        let n = c
+            .execute(
+                "UPDATE users SET totp_last_step = $2::BIGINT
+                 WHERE email = $1 AND (totp_last_step IS NULL OR totp_last_step < $2::BIGINT)",
+                &[&email.to_lowercase(), &step],
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    /// Use up a recovery code (by hash); false if it isn't one of the unused ones.
+    pub async fn use_recovery_code(&self, email: &str, hash: &str) -> Result<bool> {
+        let current = self.two_factor(email).await?.recovery;
+        if !current.iter().any(|h| h == hash) {
+            return Ok(false);
+        }
+        let left: Vec<&String> = current.iter().filter(|h| *h != hash).collect();
+        let c = self.pool.get().await?;
+        // only if nobody used another code meanwhile
+        let n = c
+            .execute(
+                "UPDATE users SET recovery_codes = $2 WHERE email = $1 AND recovery_codes = $3",
+                &[&email.to_lowercase(), &serde_json::to_string(&left)?, &serde_json::to_string(&current)?],
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    /// A ticket for the second step of a sign-in (5 minutes, 5 attempts).
+    pub async fn create_login_challenge(&self, email: &str) -> Result<String> {
+        let ticket = random_token(24);
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO login_challenges (ticket_hash, user_email, expires_at) VALUES ($1, $2, $3)",
+            &[&sha256_hex(&ticket), &email.to_lowercase(), &(Utc::now() + Duration::minutes(5))],
+        )
+        .await?;
+        Ok(ticket)
+    }
+
+    /// The email a ticket is for, counting an attempt; None once expired or used up.
+    pub async fn login_challenge(&self, ticket: &str) -> Result<Option<String>> {
+        if ticket.is_empty() || ticket.len() > 128 {
+            return Ok(None);
+        }
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "UPDATE login_challenges SET attempts = attempts + 1
+                 WHERE ticket_hash = $1 AND expires_at > now() AND attempts < 5 RETURNING user_email",
+                &[&sha256_hex(ticket)],
+            )
+            .await?;
+        Ok(row.map(|r| r.get(0)))
+    }
+
+    pub async fn end_login_challenge(&self, ticket: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute("DELETE FROM login_challenges WHERE ticket_hash = $1 OR expires_at < now()", &[&sha256_hex(ticket)])
+            .await?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ API tokens
+
+    #[allow(clippy::too_many_arguments)]
+    pub async fn create_token(
+        &self,
+        token: &str,
+        name: &str,
+        email: &str,
+        org: &str,
+        role: &str,
+        write: bool,
+        expires: DateTime<Utc>,
+    ) -> Result<String> {
+        let id = uuid::Uuid::new_v4().to_string();
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO api_tokens (id, token_hash, name, user_email, org, role, write, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::BOOLEAN, $8::TIMESTAMPTZ)",
+            &[&id, &sha256_hex(token), &name, &email.to_lowercase(), &org, &role, &write, &expires],
+        )
+        .await?;
+        Ok(id)
+    }
+
+    /// The person an API token acts for, if it's valid (not revoked or expired, account enabled).
+    pub async fn token_session(&self, token: &str) -> Result<Option<SessionInfo>> {
+        if !token.starts_with("mbi_") || token.len() > 128 {
+            return Ok(None);
+        }
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                &format!(
+                    "SELECT t.id, t.name, t.org, t.role, t.write, {}
+                     FROM api_tokens t JOIN users u ON u.email = t.user_email
+                     WHERE t.token_hash = $1 AND t.revoked_at IS NULL AND t.expires_at > now() AND NOT u.disabled",
+                    USER_COLUMNS.split(", ").map(|c| format!("u.{c}")).collect::<Vec<_>>().join(", ")
+                ),
+                &[&sha256_hex(token)],
+            )
+            .await?;
+        let Some(r) = row else { return Ok(None) };
+        let id: String = r.get(0);
+        c.execute(
+            "UPDATE api_tokens SET last_used_at = now()
+             WHERE id = $1 AND (last_used_at IS NULL OR last_used_at < $2::TIMESTAMPTZ)",
+            &[&id, &(Utc::now() - Duration::minutes(1))],
+        )
+        .await?;
+        let user = User {
+            email: r.get(5),
+            name: r.get(6),
+            password_hash: r.get(7),
+            google_sub: r.get(8),
+            owner_org: r.get(9),
+            must_change_password: r.get(10),
+            disabled: r.get(11),
+            two_factor: r.get(12),
+        };
+        let token = TokenInfo { name: r.get(1), org: r.get(2), role: r.get(3), write: r.get(4) };
+        Ok(Some(SessionInfo { method: "token".into(), user, granted_role: None, token: Some(token) }))
+    }
+
+    /// Tokens of an organisation (all, or one person's), newest first; never the secrets.
+    pub async fn tokens(&self, org: &str, email: Option<&str>) -> Result<Vec<Value>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT id, name, user_email, role, write, created_at, expires_at, last_used_at, revoked_at
+                 FROM api_tokens WHERE org = $1 ORDER BY created_at DESC",
+                &[&org],
+            )
+            .await?;
+        let iso = |t: Option<DateTime<Utc>>| t.map(|t| t.to_rfc3339());
+        Ok(rows
+            .iter()
+            .filter(|r| email.is_none_or(|e| r.get::<_, String>(2) == e.to_lowercase()))
+            .map(|r| {
+                serde_json::json!({
+                    "id": r.get::<_, String>(0), "name": r.get::<_, String>(1), "user_email": r.get::<_, String>(2),
+                    "role": r.get::<_, String>(3), "scope": if r.get::<_, bool>(4) { "write" } else { "read" },
+                    "created_at": iso(r.get(5)), "expires_at": iso(r.get(6)),
+                    "last_used_at": iso(r.get(7)), "revoked_at": iso(r.get(8)),
+                })
+            })
+            .collect())
+    }
+
+    /// Revoke a token of the organisation (only one person's when `email` is set).
+    pub async fn revoke_token(&self, org: &str, id: &str, email: Option<&str>) -> Result<bool> {
+        let c = self.pool.get().await?;
+        let n = c
+            .execute(
+                "UPDATE api_tokens SET revoked_at = now()
+                 WHERE id = $1 AND org = $2 AND revoked_at IS NULL AND ($3::TEXT IS NULL OR user_email = $3::TEXT)",
+                &[&id, &org, &email.map(str::to_lowercase)],
+            )
+            .await?;
+        Ok(n > 0)
+    }
+
+    // ------------------------------------------------------------------ passkeys
+
+    /// The person's stable random id for authenticators (created on first use).
+    pub async fn webauthn_id(&self, email: &str) -> Result<String> {
+        let c = self.pool.get().await?;
+        let fresh = uuid::Uuid::new_v4().to_string();
+        c.execute(
+            "UPDATE users SET webauthn_id = $2 WHERE email = $1 AND webauthn_id IS NULL",
+            &[&email.to_lowercase(), &fresh],
+        )
+        .await?;
+        let r = c.query_one("SELECT webauthn_id FROM users WHERE email = $1", &[&email.to_lowercase()]).await?;
+        Ok(r.get(0))
+    }
+
+    /// (id, name, passkey JSON, created_at, last_used_at)
+    pub async fn passkeys(&self, email: &str) -> Result<Vec<(String, String, String, String, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT id, name, passkey, created_at, last_used_at FROM passkeys WHERE user_email = $1 ORDER BY created_at",
+                &[&email.to_lowercase()],
+            )
+            .await?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let (at, used): (DateTime<Utc>, Option<DateTime<Utc>>) = (r.get(3), r.get(4));
+                (r.get(0), r.get(1), r.get(2), at.to_rfc3339(), used.map(|u| u.to_rfc3339()))
+            })
+            .collect())
+    }
+
+    pub async fn add_passkey(&self, email: &str, id: &str, name: &str, passkey: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO passkeys (id, user_email, name, passkey) VALUES ($1, $2, $3, $4)",
+            &[&id, &email.to_lowercase(), &name, &passkey],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// After a sign-in: the credential's new counter, and when it was used.
+    pub async fn used_passkey(&self, id: &str, passkey: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute("UPDATE passkeys SET passkey = $2, last_used_at = now() WHERE id = $1", &[&id, &passkey]).await?;
+        Ok(())
+    }
+
+    pub async fn delete_passkey(&self, email: &str, id: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM passkeys WHERE id = $1 AND user_email = $2", &[&id, &email.to_lowercase()]).await?
+            > 0)
+    }
+
+    /// A WebAuthn ceremony in progress (5 minutes): returns its ticket.
+    pub async fn put_webauthn_state(&self, email: &str, kind: &str, state: &str) -> Result<String> {
+        let ticket = random_token(24);
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO webauthn_states (ticket_hash, user_email, kind, state, expires_at) VALUES ($1, $2, $3, $4, $5)",
+            &[&sha256_hex(&ticket), &email.to_lowercase(), &kind, &state, &(Utc::now() + Duration::minutes(5))],
+        )
+        .await?;
+        Ok(ticket)
+    }
+
+    /// One use only: (email, state) of a ceremony of `kind`.
+    pub async fn take_webauthn_state(&self, ticket: &str, kind: &str) -> Result<Option<(String, String)>> {
+        if ticket.is_empty() || ticket.len() > 128 {
+            return Ok(None);
+        }
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "DELETE FROM webauthn_states WHERE ticket_hash = $1 AND kind = $2 AND expires_at > now()
+                 RETURNING user_email, state",
+                &[&sha256_hex(ticket), &kind],
+            )
+            .await?;
+        c.execute("DELETE FROM webauthn_states WHERE expires_at < now()", &[]).await?;
+        Ok(row.map(|r| (r.get(0), r.get(1))))
+    }
+
     pub async fn session(&self, token: &str) -> Result<Option<SessionInfo>> {
         if token.is_empty() || token.len() > 128 {
             return Ok(None);
@@ -191,7 +563,8 @@ impl Store {
         let c = self.pool.get().await?;
         let row = c
             .query_opt(
-                "SELECT s.method, u.email, u.name, u.password_hash, u.google_sub, u.owner_org, u.must_change_password, u.disabled
+                "SELECT s.method, u.email, u.name, u.password_hash, u.google_sub, u.owner_org, u.must_change_password, u.disabled,
+                   u.totp_secret_sealed IS NOT NULL, s.granted_role
                  FROM sessions s JOIN users u ON u.email = s.user_email
                  WHERE s.id_hash = $1 AND s.expires_at > now()",
                 &[&sha256_hex(token)],
@@ -208,7 +581,10 @@ impl Store {
                     owner_org: r.get(5),
                     must_change_password: r.get(6),
                     disabled: r.get(7),
+                    two_factor: r.get(8),
                 },
+                granted_role: r.get(9),
+                token: None,
             })
             .filter(|s| !s.user.disabled))
     }
@@ -228,26 +604,43 @@ impl Store {
         nonce: &str,
         redirect_uri: &str,
         next: &str,
+        provider: Option<&str>,
     ) -> Result<()> {
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO oauth_states (state_hash, verifier, nonce, redirect_uri, next_url, expires_at) VALUES ($1, $2, $3, $4, $5, $6)",
-            &[&sha256_hex(state), &verifier, &nonce, &redirect_uri, &next, &(Utc::now() + Duration::minutes(10))],
+            "INSERT INTO oauth_states (state_hash, verifier, nonce, redirect_uri, next_url, expires_at, provider)
+             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+            &[
+                &sha256_hex(state),
+                &verifier,
+                &nonce,
+                &redirect_uri,
+                &next,
+                &(Utc::now() + Duration::minutes(10)),
+                &provider,
+            ],
         )
         .await?;
         Ok(())
     }
 
-    /// One use only: (verifier, nonce, redirect_uri, next).
-    pub async fn take_oauth_state(&self, state: &str) -> Result<Option<(String, String, String, String)>> {
+    /// One use only.
+    pub async fn take_oauth_state(&self, state: &str) -> Result<Option<OAuthState>> {
         let c = self.pool.get().await?;
         let row = c
             .query_opt(
-                "DELETE FROM oauth_states WHERE state_hash = $1 AND expires_at > now() RETURNING verifier, nonce, redirect_uri, next_url",
+                "DELETE FROM oauth_states WHERE state_hash = $1 AND expires_at > now()
+                 RETURNING verifier, nonce, redirect_uri, next_url, provider",
                 &[&sha256_hex(state)],
             )
             .await?;
-        Ok(row.map(|r| (r.get(0), r.get(1), r.get(2), r.get(3))))
+        Ok(row.map(|r| OAuthState {
+            verifier: r.get(0),
+            nonce: r.get(1),
+            redirect_uri: r.get(2),
+            next: r.get(3),
+            provider: r.get(4),
+        }))
     }
 
     // ------------------------------------------------------------------ dashboards

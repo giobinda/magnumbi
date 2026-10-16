@@ -4,16 +4,18 @@ use std::collections::BTreeMap;
 
 use axum::Json;
 use axum::extract::{Path, Query as UrlQuery, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Body, available_names};
-use crate::access::{AccessConfig, Members, Platform, Role, is_system_owner};
-use crate::auth::{Auth, Caller, password};
+use crate::access::{AccessConfig, Members, OidcSettings, Platform, Role, check_org_sign_in, is_system_owner};
+use crate::auth::policy::{SignInPolicy, effective};
+use crate::auth::{Auth, Caller, offered, password};
 use crate::error::{ApiError, ApiResult};
 use crate::orgdb::OrgDbError;
 use crate::project::{DASHBOARD_ID, parse_dashboard};
+use crate::security::public_base;
 use crate::state::{AppState, Shared, store_access};
 use crate::usage::Event;
 
@@ -45,7 +47,8 @@ async fn members_response(
         accounts.iter().filter(|(_, a)| !a["last_login"].is_null()).map(|(e, a)| (e, &a["last_login"])).collect();
     Ok(json!({
         "org": {"id": oid, "name": org.name, "domains": org.domains, "filters": org.filters, "models": available_names(caller)},
-        "members": members,
+        "version": members_version(&members),
+        "members": without_secrets(&members),
         "last_login": last_login,
         "accounts": accounts,
         "roles": role_list(Role::OrgAdmin),
@@ -61,14 +64,30 @@ pub async fn get_members(State(state): State<Shared>, Auth(caller): Auth) -> Api
     Ok(Json(members_response(&state, &caller, &caller.access, &caller.access_errors).await?))
 }
 
+/// The members settings' version: send it back as If-Match to save only over what you read.
+fn members_version(m: &Members) -> String {
+    crate::store::sha256_hex(&serde_json::to_string(m).unwrap_or_default())[..16].to_string()
+}
+
 pub async fn put_members(
     State(state): State<Shared>,
     Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<super::dashboards::WriteParams>,
+    headers: HeaderMap,
     Body(members): Body<Members>,
 ) -> ApiResult<Json<Value>> {
     caller.require("manage_members")?;
     let oid = current_org(&caller)?;
     let cfg = &caller.access;
+    let current = members_version(&cfg.members_of(&oid));
+    if let Some(expected) = headers.get(axum::http::header::IF_MATCH).and_then(|v| v.to_str().ok())
+        && expected.trim().trim_matches('"') != current
+    {
+        return Err(ApiError::Body(
+            StatusCode::CONFLICT,
+            json!({"detail": "the members changed since you read them: read them again, then save", "version": current}),
+        ));
+    }
     let available = available_names(&caller);
     let rules = members
         .default_filters
@@ -96,12 +115,148 @@ pub async fn put_members(
     {
         return Err(ApiError::bad_request("you would remove your own Org admin role; ask another Org admin"));
     }
+    // sign-in settings have their own page (and the provider's secret is never sent out): kept
+    let mut members = members;
+    let existing = cfg.members_of(&oid);
+    members.sign_in = existing.sign_in;
+    members.oidc = existing.oidc;
     let mut next = (**cfg).clone();
     next.members.insert(oid.clone(), members);
+    if p.dry_run {
+        let mut out = members_response(&state, &caller, &next, &caller.access_errors).await?;
+        out["dry_run"] = json!(true);
+        return Ok(Json(out));
+    }
     store_access(&state, &next, Some(&oid), Some(caller.email())).await?;
     state.usage.record(caller.event("members_changed"));
     let (fresh, errors) = state.access.get(&state, &caller.project).await;
     Ok(Json(members_response(&state, &caller, &fresh, &errors).await?))
+}
+
+/// Members settings as shown: the provider's sealed secret left out.
+fn without_secrets(m: &Members) -> Members {
+    let mut m = m.clone();
+    if let Some(o) = &mut m.oidc {
+        o.client_secret_sealed = None;
+    }
+    m
+}
+
+// --------------------------------------------------------------------------- sign-in settings
+
+async fn sign_in_response(
+    state: &AppState,
+    caller: &Caller,
+    cfg: &AccessConfig,
+    headers: &HeaderMap,
+) -> ApiResult<Value> {
+    let oid = current_org(caller)?;
+    let offered = offered(state);
+    // what the platform allows this organisation (its own choice can only narrow it)
+    let above = effective(
+        &[Some(&cfg.platform.sign_in), cfg.platform.organisations.get(&oid).and_then(|o| o.sign_in.as_ref())],
+        &offered,
+    );
+    let m = cfg.members_of(&oid);
+    let oidc = m.oidc.as_ref().map(|o| {
+        json!({"label": o.label, "issuer": o.issuer, "client_id": o.client_id, "groups_claim": o.groups_claim,
+               "group_roles": o.group_roles, "has_secret": o.client_secret_sealed.is_some()})
+    });
+    let methods: Vec<&str> = above.methods.iter().map(|m| m.as_str()).collect();
+    Ok(json!({
+        "platform": {"methods": methods, "require_two_factor": above.require_two_factor},
+        "sign_in": m.sign_in.unwrap_or_default(),
+        "oidc": oidc,
+        "domains": cfg.platform.organisations.get(&oid).map(|o| o.domains.clone()).unwrap_or_default(),
+        "callback_url": format!("{}/api/auth/oidc/callback", public_base(&state.config, headers)),
+        "secret_key": state.config.secret_key.is_some(),
+    }))
+}
+
+/// Org admins: how the organisation's people sign in, within what the platform allows.
+pub async fn get_sign_in(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    headers: HeaderMap,
+) -> ApiResult<Json<Value>> {
+    caller.require("manage_members")?;
+    Ok(Json(sign_in_response(&state, &caller, &caller.access, &headers).await?))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcInput {
+    label: String,
+    issuer: String,
+    client_id: String,
+    /// omitted or empty: keep the stored one
+    #[serde(default)]
+    client_secret: Option<String>,
+    #[serde(default)]
+    groups_claim: Option<String>,
+    #[serde(default)]
+    group_roles: BTreeMap<String, Role>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct SignInBody {
+    #[serde(default)]
+    sign_in: Option<SignInPolicy>,
+    #[serde(default)]
+    oidc: Option<OidcInput>,
+}
+
+pub async fn put_sign_in(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    headers: HeaderMap,
+    Body(body): Body<SignInBody>,
+) -> ApiResult<Json<Value>> {
+    caller.require("manage_members")?;
+    let oid = current_org(&caller)?;
+    let cfg = &caller.access;
+    let existing = cfg.members_of(&oid);
+    let oidc = match body.oidc {
+        None => None,
+        Some(o) => {
+            let issuer = o.issuer.trim().trim_end_matches('/').to_string();
+            // reachable, and a real provider: its discovery document must check out
+            state
+                .oidc
+                .provider(&issuer, state.connectors.net_guard())
+                .await
+                .map_err(|e| ApiError::bad_request(format!("single sign-on: {}", e.0)))?;
+            let sealed = match o.client_secret.as_deref().map(str::trim).filter(|s| !s.is_empty()) {
+                Some(secret) => {
+                    let key = state.config.secret_key.as_ref().ok_or_else(|| {
+                        ApiError::bad_request("a client secret needs MAGNUM_SECRET_KEY on the server")
+                    })?;
+                    if secret.len() > 1024 {
+                        return Err(ApiError::bad_request("client secret too long"));
+                    }
+                    Some(key.seal(secret, &format!("{oid}/oidc"))?)
+                }
+                None => existing.oidc.as_ref().and_then(|e| e.client_secret_sealed.clone()),
+            };
+            Some(OidcSettings {
+                label: o.label.trim().to_string(),
+                issuer,
+                client_id: o.client_id.trim().to_string(),
+                client_secret_sealed: sealed,
+                groups_claim: o.groups_claim.filter(|g| !g.trim().is_empty()).unwrap_or_else(|| "groups".into()),
+                group_roles: o.group_roles,
+            })
+        }
+    };
+    let candidate = Members { sign_in: body.sign_in, oidc, ..existing };
+    check_org_sign_in(cfg, &oid, &candidate, &offered(&state), state.config.secret_key.is_some())
+        .map_err(ApiError::bad_request)?;
+    let mut next = (**cfg).clone();
+    next.members.insert(oid.clone(), candidate);
+    store_access(&state, &next, Some(&oid), Some(caller.email())).await?;
+    state.usage.record(caller.event("sign_in_changed"));
+    Ok(Json(sign_in_response(&state, &caller, &next, &headers).await?))
 }
 
 #[derive(Deserialize)]
@@ -182,6 +337,11 @@ pub async fn put_platform(
     let platform: Platform = serde_json::from_value(serde_json::to_value(&platform).map_err(anyhow::Error::from)?)
         .map_err(|e| ApiError::bad_request(e.to_string()))?;
     platform.validate().map_err(ApiError::bad_request)?;
+    let two_factor = platform.sign_in.require_two_factor
+        || platform.organisations.values().any(|o| o.sign_in.as_ref().is_some_and(|p| p.require_two_factor));
+    if two_factor && state.config.secret_key.is_none() {
+        return Err(ApiError::bad_request("authenticator codes need MAGNUM_SECRET_KEY on the server"));
+    }
     if !platform.system_owners.iter().any(|o| o == caller.email()) {
         return Err(ApiError::bad_request(
             "you would remove yourself from the system owners; ask another system owner",
@@ -373,4 +533,63 @@ pub async fn clear_cache(
         ..caller.event("cache_cleared")
     });
     Ok(Json(json!({"cleared": n})))
+}
+
+#[cfg(test)]
+mod agent_tests {
+    use axum::http::StatusCode;
+    use serde_json::{Value, json};
+
+    use crate::access::AccessConfig;
+    use crate::api::tests::{OWNER, app};
+
+    async fn send(
+        app: &axum::Router,
+        cookie: &str,
+        method: &str,
+        path: &str,
+        body: Option<Value>,
+        if_match: Option<&str>,
+    ) -> (StatusCode, Value) {
+        let mut req = axum::http::Request::builder()
+            .method(method)
+            .uri(path)
+            .header("cookie", cookie)
+            .header("x-magnum-org", "polm")
+            .header("content-type", "application/json");
+        if let Some(v) = if_match {
+            req = req.header("if-match", v);
+        }
+        let body = body.map_or(axum::body::Body::empty(), |b| axum::body::Body::from(b.to_string()));
+        let resp = tower::ServiceExt::oneshot(app.clone(), req.body(body).unwrap()).await.unwrap();
+        let status = resp.status();
+        let bytes = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
+        (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[tokio::test]
+    async fn member_changes_check_what_was_read() {
+        let Some((app, state, cookie)) = app().await else { return };
+        state.access.pin(
+            AccessConfig::from_document(json!({"system_owners": [OWNER], "organisations": {"polm": {"name": "Pol",
+                "domains": ["polm.example"], "models": ["*"], "members": {"users": {"ana@polm.example": "user"}}}}}))
+            .unwrap(),
+        );
+        let (s, got) = send(&app, &cookie, "GET", "/api/members", None, None).await;
+        assert_eq!(s, StatusCode::OK, "{got}");
+        let version = got["version"].as_str().unwrap().to_string();
+        let next =
+            json!({"default_role": "viewer", "users": {"ana@polm.example": "power_user", "bo@polm.example": "viewer"}});
+
+        // a dry run: checked, not saved
+        let (s, body) = send(&app, &cookie, "PUT", "/api/members?dry_run=1", Some(next.clone()), Some(&version)).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        assert_eq!(body["dry_run"], json!(true));
+        assert!(state.store.setting("members:polm").await.unwrap().is_none(), "nothing written");
+        // a stale version: refused, nothing written
+        let (s, body) = send(&app, &cookie, "PUT", "/api/members", Some(next), Some("0123456789abcdef")).await;
+        assert_eq!(s, StatusCode::CONFLICT, "{body}");
+        assert_eq!(body["version"], json!(version));
+        assert!(state.store.setting("members:polm").await.unwrap().is_none());
+    }
 }

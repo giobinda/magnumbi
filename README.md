@@ -55,12 +55,14 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
   migrations/org/           schema of each organisation's  } applied automatically
   src/
     api/                    HTTP handlers (auth, models & queries, dashboards, admin, usage)
-    auth/                   sessions, password sign-in (Argon2id), Google sign-in (OIDC)
+    auth/                   sessions; sign-in: passwords (Argon2id) + authenticator codes, passkeys,
+                            Google and organisations' own OpenID Connect providers; policies
     connections.rs          organisations' data connections (settings, validation)
     connectors/             where queries run: ScramDB/Postgres, BigQuery, DuckDB
     access.rs               organisations, roles, row filters
     compiler.rs             semantic query → SQL
     blend.rs                blends: per-engine parts, then the join on ScramDB
+    api/tokens.rs           API tokens for agents and scripts
     orgdb.rs                each organisation's own ScramDB (routing, registration)
     cache.rs, materialize.rs  results as typed tables in ScramDB (the query cache, blends)
     usage.rs                usage metrics
@@ -222,25 +224,74 @@ system owners the whole platform (or one organisation, from inside it).
 
 ## Sign-in
 
-Two methods, both ending in the same server-side session (an opaque token in an HttpOnly cookie;
-ScramDB stores only its SHA-256):
+Every method ends in the same server-side session (an opaque token in an HttpOnly cookie;
+ScramDB stores only its SHA-256). The sign-in page asks for the email first, then offers the
+ways that person's organisation allows.
 
 - **Password** (on by default; `MAGNUM_PASSWORD_LOGIN=0` turns it off). Argon2id hashes, at
   least 10 characters, lockout for 15 minutes after 5 failures. Accounts get a password from:
   - the server: `magnum-bi user set-password you@example.com` (system owners, recovery);
   - an Org admin: **Members › One-time password…** creates a one-time password to hand over. The
     person must choose their own at the next sign-in;
-  - the person themselves: **Password** in the top bar.
+  - the person themselves: **Security** in the top bar.
+- **Authenticator codes** after the password (TOTP, RFC 6238: any authenticator app), set up
+  under **Security** with a QR code, plus 10 one-time recovery codes. A code is good once; wrong
+  codes count like wrong passwords. The secret is sealed with `MAGNUM_SECRET_KEY`.
+- **Passkeys** (WebAuthn: Touch ID, Windows Hello, phones, security keys), added under
+  **Security**. The relying party is `MAGNUM_PUBLIC_URL`'s host (in development: `localhost`
+  on the server's port and Vite's, so open it as localhost, not 127.0.0.1). Uses `webauthn-rs`,
+  which needs the system's OpenSSL library at build time.
 - **Google** (optional): set `MAGNUM_GOOGLE_CLIENT_ID` / `MAGNUM_GOOGLE_CLIENT_SECRET` (see
   `.env.local.example`). PKCE, a browser-bound state, and an ID token verified against Google's
   keys; only a Google-verified email is accepted, and the email is bound to that Google account.
+- **An organisation's own single sign-on** (OpenID Connect: Microsoft Entra ID, Okta, Keycloak,
+  Auth0, Google Workspace, ...), set up by its Org admins under **Members › Sign-in**: issuer,
+  client id and secret (sealed, never shown again), and provider groups mapped to roles (up to
+  Org admin). Endpoints and keys come from the issuer's discovery document, through the network
+  guard. It signs in **only addresses on the organisation's own domains** (set by system
+  owners), never a system owner; listed members keep their own role, everyone else gets a role
+  from their groups or the default role.
+
+**Policies.** Which methods people may use, and whether passwords need an authenticator code,
+is set at three levels: the platform (system owners, **Organisations › Sign-in**), the platform
+for one organisation (same page), and the organisation itself (its Org admins, **Members ›
+Sign-in**). Methods allowed = what the server offers ∩ every level; a requirement at any level
+holds. So organisations choose within the platform's rules and can only tighten them. Policies
+are checked at sign-in and on every request: a stricter policy signs out sessions that no longer
+meet it, and someone who now needs an authenticator code must set one up before anything else.
 
 An account whose password was issued by an Org admin is **bound to that organisation**. With
 that password it can never act as a system owner or in another organisation, because the admin
-could have created it for an email they don't own. Signing in with Google, or a password set by
-a system owner or on the server, isn't bound.
+could have created it for an email they don't own. Other methods, or a password set by a
+system owner or on the server, aren't bound.
 
 Disable an account with `magnum-bi user disable <email>`; this also ends its sessions.
+
+## Agents and automation
+
+Agents (MCP clients, scripts, CI, notebooks) use the same API as the UI, with an **API token**
+(`Authorization: Bearer mbi_...`), made under **Security › API tokens**:
+
+- it acts for the person who made it, in the organisation they made it in, with at most their
+  role (or a lower one chosen at creation): row filters and organisation isolation apply as usual;
+- **read-only** (reading, queries, dry runs) or **read & write**; it always expires (90 days by
+  default, at most 365); only a SHA-256 is stored, and the secret is shown once;
+- it can't make tokens or change how anyone signs in; revoking it (or disabling the account)
+  stops it at once. Org admins see and revoke every token of their organisation (`GET
+  /api/tokens?all=true`), and everything a token does is in the usage log as `token:<name>`;
+- tokens are a sign-in method in the policies ("API tokens"): the platform or an organisation
+  can switch them off.
+
+Two safety nets for changes made by agents (and people):
+
+- **Dry runs**: `?dry_run=1` on `PUT /api/dashboards/{id}` (JSON), `PUT /api/dashboards/{id}/yaml`,
+  `PUT /api/blends/{name}` and `PUT /api/members` checks everything and reports warnings (e.g. a
+  tile on a field that doesn't exist) without saving. Read-only tokens may make them.
+- **Versions**: reads of a dashboard or of the members return a `version`; send it back as
+  `If-Match: <version>` and the save is refused with 409 (and the current version) if someone
+  changed it meanwhile, instead of silently overwriting their work. `If-Match: none` creates
+  only if it doesn't exist yet. The dashboard editor does this too. Deleted and overwritten
+  dashboards stay in their history.
 
 ## Organisations and roles
 
@@ -364,3 +415,15 @@ Next, in rough order:
 - Configuration as code (`plan` / `apply` of organisations from git), automation tokens.
 - ThoughtSpot liveboard import (from the earlier Python version).
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
+
+## License
+
+Copyright (C) 2026 Giovanni Andrea Binda. Magnum BI is free software under the
+[GNU Affero General Public License v3.0](LICENSE), with two additional terms (see [NOTICE](NOTICE)):
+the "Powered by Magnum BI" credit must stay visible in the user interface, and the name and logo
+are covered by the [trademark policy](TRADEMARKS.md).
+
+You may use, modify and run Magnum BI commercially. If you offer a modified version to others over
+a network, you must publish your changes under the same license. If that doesn't suit you, for
+example for a closed-source hosted service, a commercial license is available from the author
+(gbinda@pm.me).

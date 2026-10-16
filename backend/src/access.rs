@@ -29,6 +29,7 @@ use regex::Regex;
 use serde::{Deserialize, Deserializer, Serialize};
 use serde_json::{Value, json};
 
+use crate::auth::policy::{Effective, Method, SignInPolicy, effective};
 use crate::project::ProjectState;
 use crate::schema::Filter;
 
@@ -174,12 +175,49 @@ pub struct Members {
     pub default_filters: Vec<RowRule>,
     #[serde(default, deserialize_with = "people")]
     pub users: BTreeMap<String, UserAccess>,
+    /// how the organisation's people sign in (within what the platform allows)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<SignInPolicy>,
+    /// the organisation's own OpenID Connect provider
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub oidc: Option<OidcSettings>,
 }
 
 impl Default for Members {
     fn default() -> Self {
-        Members { default_role: Role::Viewer, default_filters: vec![], users: BTreeMap::new() }
+        Members {
+            default_role: Role::Viewer,
+            default_filters: vec![],
+            users: BTreeMap::new(),
+            sign_in: None,
+            oidc: None,
+        }
     }
+}
+
+/// An organisation's OpenID Connect provider (Entra ID, Okta, Keycloak, Google Workspace, ...).
+/// It may only sign in emails of the organisation's own domains (set by system owners).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct OidcSettings {
+    /// on the sign-in button, e.g. "ACME (Microsoft)"
+    pub label: String,
+    /// e.g. https://login.microsoftonline.com/<tenant>/v2.0 (its /.well-known/openid-configuration)
+    pub issuer: String,
+    pub client_id: String,
+    /// sealed with MAGNUM_SECRET_KEY for "<org>/oidc"; never sent back
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub client_secret_sealed: Option<String>,
+    /// the ID token claim listing the person's groups
+    #[serde(default = "groups_claim")]
+    pub groups_claim: String,
+    /// provider group -> role (up to Org admin); people in none get the default role
+    #[serde(default)]
+    pub group_roles: BTreeMap<String, Role>,
+}
+
+fn groups_claim() -> String {
+    "groups".into()
 }
 
 fn lower_set<'de, D: Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
@@ -201,6 +239,9 @@ pub struct Organisation {
     pub models: Vec<String>,
     #[serde(default)]
     pub filters: Vec<RowRule>,
+    /// the platform's sign-in rules for this organisation (its admins can only tighten them)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sign_in: Option<SignInPolicy>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
@@ -210,10 +251,24 @@ pub struct Platform {
     pub system_owners: Vec<String>,
     #[serde(default)]
     pub organisations: BTreeMap<String, Organisation>,
+    /// sign-in rules for everyone (organisations can only tighten them)
+    #[serde(default, skip_serializing_if = "is_default", deserialize_with = "null_is_default")]
+    pub sign_in: SignInPolicy,
+}
+
+fn null_is_default<'de, D: Deserializer<'de>>(d: D) -> Result<SignInPolicy, D::Error> {
+    Ok(Option::<SignInPolicy>::deserialize(d)?.unwrap_or_default())
+}
+
+fn is_default(p: &SignInPolicy) -> bool {
+    *p == SignInPolicy::default()
 }
 
 impl Platform {
     pub fn validate(&self) -> Result<(), String> {
+        if self.sign_in.methods.as_ref().is_some_and(|m| m.iter().all(|m| matches!(m, Method::Oidc | Method::Token))) {
+            return Err("sign-in: system owners need a way in besides organisations' own single sign-on".into());
+        }
         let mut seen: BTreeMap<&str, &str> = BTreeMap::new();
         for (oid, org) in &self.organisations {
             if !ORG_ID.is_match(oid) {
@@ -325,6 +380,80 @@ pub fn membership(cfg: &AccessConfig, email: &str) -> Option<(String, Role, Vec<
         }
     }
     None
+}
+
+/// The sign-in policy that holds for `email` (`offered`: mechanisms this server offers). System
+/// owners and people outside any organisation follow the platform level alone.
+pub fn sign_in_policy(cfg: &AccessConfig, email: &str, offered: &BTreeSet<Method>) -> Effective {
+    match sign_in_org(cfg, email) {
+        Some(oid) => org_policy(cfg, &oid, offered),
+        None => effective(&[Some(&cfg.platform.sign_in)], offered),
+    }
+}
+
+/// The organisation whose sign-in rules hold for `email` (none for system owners).
+pub fn sign_in_org(cfg: &AccessConfig, email: &str) -> Option<String> {
+    if is_system_owner(cfg, email) { None } else { membership(cfg, email).map(|(oid, _, _)| oid) }
+}
+
+/// An organisation's sign-in policy: the platform's, the platform's for it, its own.
+pub fn org_policy(cfg: &AccessConfig, oid: &str, offered: &BTreeSet<Method>) -> Effective {
+    effective(
+        &[
+            Some(&cfg.platform.sign_in),
+            cfg.platform.organisations.get(oid).and_then(|o| o.sign_in.as_ref()),
+            cfg.members.get(oid).and_then(|m| m.sign_in.as_ref()),
+        ],
+        offered,
+    )
+}
+
+/// Can an organisation adopt these sign-in settings (`candidate`: its members settings with the
+/// new policy and provider)? Within what the platform allows, someone must still have a way in.
+pub fn check_org_sign_in(
+    cfg: &AccessConfig,
+    oid: &str,
+    candidate: &Members,
+    offered: &BTreeSet<Method>,
+    has_secret_key: bool,
+) -> Result<(), String> {
+    if let Some(o) = &candidate.oidc {
+        if o.label.trim().is_empty() || o.label.len() > 80 {
+            return Err("single sign-on: a label for the sign-in button (up to 80 characters)".into());
+        }
+        if o.client_id.trim().is_empty() || o.issuer.trim().is_empty() {
+            return Err("single sign-on: the provider's issuer address and client id are required".into());
+        }
+        if let Some((g, _)) = o.group_roles.iter().find(|(_, r)| **r > Role::OrgAdmin) {
+            return Err(format!("single sign-on: group {g:?} can give at most the Org admin role"));
+        }
+    }
+    let policy = effective(
+        &[
+            Some(&cfg.platform.sign_in),
+            cfg.platform.organisations.get(oid).and_then(|o| o.sign_in.as_ref()),
+            candidate.sign_in.as_ref(),
+        ],
+        offered,
+    );
+    if policy.usable(candidate.oidc.is_some()).is_empty() {
+        return Err("this would leave nobody a way to sign in (single sign-on needs a provider set up)".into());
+    }
+    if policy.require_two_factor && policy.allows(Method::Password) && !has_secret_key {
+        return Err("authenticator codes need MAGNUM_SECRET_KEY on the server".into());
+    }
+    Ok(())
+}
+
+/// The organisation provider `email` can sign in with: its organisation's, when the email is on
+/// one of that organisation's domains (the provider can't vouch for anyone else's).
+pub fn oidc_for<'a>(cfg: &'a AccessConfig, email: &str) -> Option<(String, &'a OidcSettings)> {
+    let oid = sign_in_org(cfg, email)?;
+    let domain = email.rsplit_once('@')?.1.to_lowercase();
+    if !cfg.platform.organisations.get(&oid)?.domains.contains(&domain) {
+        return None;
+    }
+    Some((oid.clone(), cfg.members.get(&oid)?.oidc.as_ref()?))
 }
 
 pub fn is_system_owner(cfg: &AccessConfig, email: &str) -> bool {
@@ -584,6 +713,66 @@ mod tests {
         let c = AccessConfig { broken: true, ..AccessConfig::default() };
         let s = scope_of(&c, "anyone@x.example", None);
         assert!(s.broken);
+    }
+
+    #[test]
+    fn sign_in_policy_per_person() {
+        use crate::auth::policy::{METHODS, Method};
+        let mut c = cfg();
+        c.platform.sign_in = serde_json::from_value(json!({"methods": ["password", "oidc", "passkey"]})).unwrap();
+        c.platform.organisations.get_mut("acme").unwrap().sign_in =
+            Some(serde_json::from_value(json!({"require_two_factor": true})).unwrap());
+        c.members.get_mut("acme").unwrap().sign_in =
+            Some(serde_json::from_value(json!({"methods": ["oidc", "password"]})).unwrap());
+        let offered = METHODS.into_iter().collect();
+
+        let boss = sign_in_policy(&c, "boss@acme.example", &offered);
+        assert_eq!(boss.methods, BTreeSet::from([Method::Password, Method::Oidc]));
+        assert!(boss.require_two_factor);
+        let newcomer = sign_in_policy(&c, "someone@acme.example", &offered); // joins by domain
+        assert_eq!(newcomer, boss);
+        // system owners and outsiders: the platform level alone
+        for email in ["owner@platform.example", "who@nowhere.example"] {
+            let p = sign_in_policy(&c, email, &offered);
+            assert_eq!(p.methods, BTreeSet::from([Method::Password, Method::Oidc, Method::Passkey]), "{email}");
+            assert!(!p.require_two_factor);
+        }
+        // the platform must leave system owners a way in (their own provider doesn't exist)
+        c.platform.sign_in = serde_json::from_value(json!({"methods": ["oidc"]})).unwrap();
+        assert!(c.platform.validate().unwrap_err().contains("system owners"));
+    }
+
+    #[test]
+    fn organisations_choose_within_the_platform() {
+        use crate::auth::policy::{METHODS, Method};
+        let mut c = cfg();
+        c.platform.sign_in = serde_json::from_value(json!({"methods": ["password", "oidc"]})).unwrap();
+        let offered: BTreeSet<Method> = METHODS.into_iter().collect();
+        let with = |policy: Value, oidc: Option<Value>| {
+            let mut m = c.members_of("acme");
+            m.sign_in = serde_json::from_value(policy).unwrap();
+            m.oidc = oidc.map(|o| serde_json::from_value(o).unwrap());
+            m
+        };
+        let provider = json!({"label": "ACME", "issuer": "https://idp.acme.example", "client_id": "magnum",
+                              "group_roles": {"Admins": "org_admin"}});
+        assert!(
+            check_org_sign_in(&c, "acme", &with(json!({"methods": ["oidc"]}), Some(provider.clone())), &offered, true)
+                .is_ok()
+        );
+        // single sign-on only, but no provider: nobody could sign in
+        let e = check_org_sign_in(&c, "acme", &with(json!({"methods": ["oidc"]}), None), &offered, true).unwrap_err();
+        assert!(e.contains("nobody"), "{e}");
+        // passkeys aren't allowed by the platform: choosing only them leaves nothing
+        assert!(check_org_sign_in(&c, "acme", &with(json!({"methods": ["passkey"]}), None), &offered, true).is_err());
+        // providers can't make system owners
+        let mut bad = provider.clone();
+        bad["group_roles"] = json!({"Admins": "system_owner"});
+        assert!(check_org_sign_in(&c, "acme", &with(Value::Null, Some(bad)), &offered, true).is_err());
+        // authenticator codes need the server's secret key
+        let e = check_org_sign_in(&c, "acme", &with(json!({"require_two_factor": true}), None), &offered, false)
+            .unwrap_err();
+        assert!(e.contains("MAGNUM_SECRET_KEY"), "{e}");
     }
 
     #[test]

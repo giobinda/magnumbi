@@ -105,6 +105,11 @@ impl Connectors {
         self
     }
 
+    /// Where organisations' settings may make the server connect (also their sign-in providers).
+    pub fn net_guard(&self) -> &NetGuard {
+        &self.guard
+    }
+
     /// Organisations' connections may only reach allowed addresses; the platform workspace's
     /// connections are the system owners'. Returns the checked address to connect to (SQL servers).
     async fn guard(&self, org: &str, config: &ConnectionConfig) -> Result<Option<IpAddr>, ConnError> {
