@@ -844,6 +844,30 @@ impl Store {
         Ok(c.execute("DELETE FROM connections WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ themes
+
+    /// The organisation's own themes and defaults (empty when it has none).
+    pub async fn org_themes(&self, org: &str) -> Result<crate::themes::OrgThemes> {
+        let c = self.pool.get().await?;
+        let row = c.query_opt("SELECT definition FROM theme_settings WHERE org = $1", &[&org]).await?;
+        Ok(match row {
+            Some(r) => serde_json::from_str(&r.get::<_, String>(0))?,
+            None => crate::themes::OrgThemes::default(),
+        })
+    }
+
+    pub async fn put_org_themes(&self, org: &str, t: &crate::themes::OrgThemes, by: Option<&str>) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO theme_settings (org, definition, updated_by) VALUES ($1, $2, $3)
+             ON CONFLICT (org) DO UPDATE SET definition = EXCLUDED.definition, updated_by = EXCLUDED.updated_by,
+               updated_at = now()",
+            &[&org, &serde_json::to_string(t)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
     // ------------------------------------------------------------------ blends
 
     /// The organisation's own blends: (definition, updated_at, updated_by), by name.

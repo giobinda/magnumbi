@@ -64,6 +64,7 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     demo.rs                 the NYC demo: download, clean, connections, dashboards
     api/tokens.rs           API tokens for agents and scripts
     api/mcp.rs              MCP endpoint: tools for AI agents over the API
+    themes.rs, api/themes.rs  themes: built-in, organisations' own, CSS tokens out and in
     orgdb.rs                each organisation's own ScramDB (routing, registration)
     cache.rs, materialize.rs  results as typed tables in ScramDB (the query cache, blends)
     usage.rs                usage metrics
@@ -360,6 +361,28 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
+
+## Themes and company colours
+
+The default themes are **Aloha** (light) and **Aloha night** (dark); people can pick any theme
+for themselves, and a dashboard can pin one (`theme: <id>`). Built-in themes are frozen: an id
+always looks the same. Projects can add themes in `project/themes/*.yaml`.
+
+Each organisation can have its **own themes**, made by its Org admins under **Themes**:
+
+- a visual editor (colours, chart palette, corners, font) with a live preview and contrast
+  checks (WCAG: text 4.5:1, chart colours 3:1), starting from any theme;
+- the organisation's **default** light and dark theme, which everyone in it gets unless they
+  picked another;
+- **Export CSS** for any theme: design tokens (`--mbi-accent`, `--mbi-surface`, `--mbi-radius`,
+  `--mbi-font`, `--mbi-chart-1` …) plus helper classes in Magnum BI's style (`.mbi-card`,
+  `.mbi-button-primary`, `.mbi-kpi` …), for the company's own site or design system;
+- **Import CSS**: the design team pastes such tokens back (edited, or from their own system) and
+  the editor opens with them. Only token values are read (colours, radius, font), and they're
+  validated like any theme: the rest of the CSS is ignored.
+
+They're kept in the organisation's own ScramDB (`GET/PUT /api/org-themes`, with `?dry_run=1` and
+`If-Match` like other documents).
 
 ## Embedding
 

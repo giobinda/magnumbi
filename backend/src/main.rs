@@ -346,6 +346,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         ip_limiter: auth::password::LoginLimiter::new(20),
         hashing: tokio::sync::Semaphore::new(state::hashing_permits()),
         blends: state::OrgBlends::default(),
+        themes: Default::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),

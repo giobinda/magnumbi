@@ -1,5 +1,7 @@
-import { createContext, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
+import { createContext, useCallback, useContext, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
+import { onColor } from './colors'
+import { getOrg } from './api'
 
 export interface Theme {
   id: string; label: string; mode: 'light' | 'dark'; palette: string[]; font: string; radius: number; builtin: boolean
@@ -19,8 +21,10 @@ const FALLBACK: Theme = {  // until /api/themes answers (same values as aloha)
 type Ctx = {
   themes: Theme[]; theme: Theme; preference: string; setPreference: (id: string) => void
   override: string | null; setOverride: (id: string | null) => void
+  /** fetch the theme list again (after sign-in, an organisation switch, or saving themes) */
+  reload: () => void
 }
-const ThemeContext = createContext<Ctx>({ themes: [], theme: FALLBACK, preference: 'auto', setPreference: () => {}, override: null, setOverride: () => {} })
+const ThemeContext = createContext<Ctx>({ themes: [], theme: FALLBACK, preference: 'auto', setPreference: () => {}, override: null, setOverride: () => {}, reload: () => {} })
 export const useTheme = () => useContext(ThemeContext)
 
 /** A page (dashboard, embed) pins a theme id while it is mounted. */
@@ -30,16 +34,6 @@ export function useThemeOverride(id: string | null | undefined) {
 }
 
 function readPref() { try { return localStorage.getItem(PREF_KEY) || 'auto' } catch { return 'auto' } }
-
-function luminance(hex: string) {
-  const c = [1, 3, 5].map(i => parseInt(hex.slice(i, i + 2), 16) / 255).map(x => (x <= 0.04045 ? x / 12.92 : ((x + 0.055) / 1.055) ** 2.4))
-  return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
-}
-/** Black or white, whichever reads better on `hex` (button text on the accent colour). */
-function onColor(hex: string) {
-  const l = luminance(hex)
-  return (1.05 / (l + 0.05)) >= ((l + 0.05) / 0.05) ? '#ffffff' : '#000000'
-}
 
 function apply(t: Theme) {
   const r = document.documentElement, c = t.colors
@@ -63,15 +57,21 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [override, setOverride] = useState<string | null>(null)
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
 
-  useEffect(() => {
-    fetch('/api/themes').then(r => r.json()).then(j => {
+  // the project's themes, plus the organisation's own once signed in (reload after sign-in or
+  // switching organisation)
+  const reload = useCallback(() => {
+    const org = getOrg()
+    fetch('/api/themes', { headers: org ? { 'x-magnum-org': org } : {} }).then(r => r.json()).then(j => {
       setThemes(j.themes); setDefaults({ light: j.default_light, dark: j.default_dark })
     }).catch(() => {})
+  }, [])
+  useEffect(() => {
+    reload()
     const mq = matchMedia('(prefers-color-scheme: dark)')
     const on = (e: MediaQueryListEvent) => setSystemDark(e.matches)
     mq.addEventListener('change', on)
     return () => mq.removeEventListener('change', on)
-  }, [])
+  }, [reload])
 
   const setPreference = (id: string) => {
     setPref(id)
@@ -87,7 +87,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useLayoutEffect(() => apply(theme), [theme])  // before charts paint, so they read the right colours
 
   return (
-    <ThemeContext.Provider value={{ themes, theme, preference, setPreference, override, setOverride }}>
+    <ThemeContext.Provider value={{ themes, theme, preference, setPreference, override, setOverride, reload }}>
       {children}
     </ThemeContext.Provider>
   )

@@ -62,6 +62,8 @@ pub struct ProjectState {
     pub blends: BTreeMap<String, Blend>,
     /// the blends that are the organisation's own (defined in the UI, editable there)
     pub org_blends: BTreeSet<String>,
+    /// the default (light, dark) themes: the platform's, or the organisation's own choice
+    pub theme_defaults: (String, String),
     pub themes: Vec<Theme>,
     /// file -> error, surfaced in the UI for builders
     pub errors: BTreeMap<String, String>,
@@ -79,6 +81,24 @@ impl ProjectState {
             }
         }
         b.validate(&self.models)
+    }
+
+    /// This snapshot plus an organisation's own themes and default themes (a theme whose id is
+    /// taken here is left out).
+    pub fn with_org_themes(&self, t: &crate::themes::OrgThemes) -> ProjectState {
+        let mut p = self.clone();
+        for theme in &t.themes {
+            if !p.themes.iter().any(|x| x.id == theme.id) {
+                p.themes.push(theme.clone());
+            }
+        }
+        if let Some(l) = t.default_light.as_ref().filter(|id| p.themes.iter().any(|x| &x.id == *id)) {
+            p.theme_defaults.0 = l.clone();
+        }
+        if let Some(d) = t.default_dark.as_ref().filter(|id| p.themes.iter().any(|x| &x.id == *id)) {
+            p.theme_defaults.1 = d.clone();
+        }
+        p
     }
 
     /// This snapshot plus an organisation's own blends (one that no longer fits, e.g. after a
@@ -373,7 +393,8 @@ impl Project {
         for b in blends.values() {
             models.insert(b.name.clone(), b.as_model(&models));
         }
-        ProjectState { models, bases, blends, org_blends: BTreeSet::new(), themes, errors }
+        let theme_defaults = (crate::themes::DEFAULT_LIGHT.to_string(), crate::themes::DEFAULT_DARK.to_string());
+        ProjectState { models, bases, blends, org_blends: BTreeSet::new(), theme_defaults, themes, errors }
     }
 }
 

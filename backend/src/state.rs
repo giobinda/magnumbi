@@ -35,8 +35,9 @@ pub struct AppState {
     pub ip_limiter: LoginLimiter,
     /// password hashing is deliberately slow: at most this many at once
     pub hashing: tokio::sync::Semaphore,
-    /// organisations' own blends, read from their databases
+    /// organisations' own blends and themes, read from their databases
     pub blends: OrgBlends,
+    pub themes: OrgCached<crate::themes::OrgThemes>,
     /// organisations' own sign-in providers (discovery and keys, cached)
     pub oidc: crate::auth::oidc::Oidc,
     /// the relying party for passkeys (None: unavailable)
@@ -45,32 +46,57 @@ pub struct AppState {
     pub demo: crate::demo::Progress,
 }
 
-/// Each organisation's own blends (defined in the UI, kept in its database), cached briefly:
-/// a save on this server forgets them at once, other servers see it within `TTL`.
-#[derive(Default)]
-pub struct OrgBlends {
-    cached: Mutex<BTreeMap<String, (Instant, Blends)>>,
+/// Something each organisation keeps in its own database (its blends, its themes), cached
+/// briefly: a save on this server forgets it at once, other servers see it within `TTL`.
+pub struct OrgCached<T> {
+    cached: Mutex<BTreeMap<String, (Instant, Arc<T>)>>,
 }
 
-type Blends = Arc<Vec<crate::blend::Blend>>;
+impl<T> Default for OrgCached<T> {
+    fn default() -> Self {
+        OrgCached { cached: Mutex::new(BTreeMap::new()) }
+    }
+}
 
-impl OrgBlends {
+impl<T> OrgCached<T> {
     const TTL: Duration = Duration::from_secs(10);
 
-    pub async fn get(&self, orgs: &OrgDbs, org: &str) -> anyhow::Result<Blends> {
-        if let Some((at, b)) = self.cached.lock().expect("blends lock").get(org)
+    pub async fn get<F: std::future::Future<Output = anyhow::Result<T>>>(
+        &self,
+        org: &str,
+        load: impl FnOnce() -> F,
+    ) -> anyhow::Result<Arc<T>> {
+        if let Some((at, v)) = self.cached.lock().expect("org cache lock").get(org)
             && at.elapsed() < Self::TTL
         {
-            return Ok(b.clone());
+            return Ok(v.clone());
         }
-        let store = orgs.store(org).await?;
-        let blends = Arc::new(store.blends(org).await?.into_iter().map(|(b, _, _)| b).collect::<Vec<_>>());
-        self.cached.lock().expect("blends lock").insert(org.to_string(), (Instant::now(), blends.clone()));
-        Ok(blends)
+        let v = Arc::new(load().await?);
+        self.cached.lock().expect("org cache lock").insert(org.to_string(), (Instant::now(), v.clone()));
+        Ok(v)
     }
 
     pub fn forget(&self, org: &str) {
-        self.cached.lock().expect("blends lock").remove(org);
+        self.cached.lock().expect("org cache lock").remove(org);
+    }
+}
+
+pub type OrgBlends = OrgCached<Vec<crate::blend::Blend>>;
+
+impl AppState {
+    /// The organisation's own blends.
+    pub async fn org_blends(&self, org: &str) -> anyhow::Result<Arc<Vec<crate::blend::Blend>>> {
+        self.blends
+            .get(org, || async {
+                let store = self.orgs.store(org).await?;
+                Ok(store.blends(org).await?.into_iter().map(|(b, _, _)| b).collect())
+            })
+            .await
+    }
+
+    /// The organisation's own themes and default themes.
+    pub async fn org_themes(&self, org: &str) -> anyhow::Result<Arc<crate::themes::OrgThemes>> {
+        self.themes.get(org, || async { self.orgs.store(org).await?.org_themes(org).await }).await
     }
 }
 

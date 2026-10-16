@@ -3,6 +3,7 @@ import type { FormEvent, ReactNode } from 'react'
 import { AUTH_REQUIRED_EVENT, api, setOrg, setViewAs } from './api'
 import type { AuthState, Permission } from './api'
 import LoginPage from './pages/LoginPage'
+import { useTheme } from './theme'
 import { TwoFactorSetup } from './components/Security'
 
 type Ctx = { auth: AuthState | null; refresh: () => Promise<void>; signOut: () => Promise<void> }
@@ -43,6 +44,11 @@ export function AuthGate({ children }: { children: ReactNode }) {
     window.addEventListener('message', onMessage)
     return () => { window.removeEventListener(AUTH_REQUIRED_EVENT, onRequired); window.removeEventListener('message', onMessage) }
   }, [refresh])
+
+  // the organisation's own themes come with signing in (and change with the organisation)
+  const { reload: reloadThemes } = useTheme()
+  const signedIn = Boolean(auth?.authenticated), orgId = auth?.org?.id
+  useEffect(() => { if (signedIn) reloadThemes() }, [signedIn, orgId, reloadThemes])
 
   if (!auth) return error ? <div className="page"><div className="error">Cannot reach the Magnum BI server: {error}</div></div> : null
   const needLogin = auth.required && !auth.authenticated
