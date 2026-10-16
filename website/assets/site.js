@@ -44,7 +44,7 @@
 
 
   // The setup prompt for coding agents (Claude Code, Cursor, Codex, ...): one copy, shown and copied on every page.
-  const REPO_URL = 'https://github.com/giobinda/magnum_bi'; // check: the public repository
+  const REPO_URL = 'https://github.com/giobinda/magnumbi';
   const AGENT_PROMPT = [
     'Set up Magnum BI (an open-source BI tool, currently in beta) on this machine and load its NYC taxi x weather demo.',
     '',

@@ -56,6 +56,7 @@
       <a href="index.html#roadmap">Roadmap</a>
       <a href="compare.html">Compare</a>
       <a href="docs.html" aria-current="page">Docs</a>
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
       <a class="btn small primary" href="#quick-start">Get started</a>
     </nav>
     <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
@@ -112,18 +113,22 @@
     <section id="quick-start">
       <h2>Quick start</h2>
       <h3>With Docker (fastest)</h3>
-      <p>All you need is <strong>Docker or Podman</strong> with Compose. Get <code>compose.yaml</code> from the repository and run:</p>
+      <p>All you need is <strong>Docker or Podman</strong> with Compose (and <strong>git</strong>). The code is on GitHub at <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">giobinda/magnumbi</a>. Get it and start Magnum BI:</p>
       <div class="code">
-<pre><code>MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d    <span class="c"># UI and API on http://localhost:8000</span>
+<pre><code>git clone https://github.com/giobinda/magnumbi.git
+cd magnumbi
+MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d    <span class="c"># UI and API on http://localhost:8000</span>
 docker compose logs magnum | grep one-time                 <span class="c"># your first sign-in's password</span>
 docker compose exec magnum magnum-bi demo --months 1       <span class="c"># optional: the NYC demo</span></code></pre>
       </div>
+      <p class="muted">No git? Download just the Compose file and run the same commands next to it: <code>curl -O https://raw.githubusercontent.com/giobinda/magnumbi/main/compose.yaml</code>. Or download the whole repository as a ZIP from GitHub (<em>Code › Download ZIP</em>).</p>
       <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>secrets</code> volume on first start: back it up.</p>
       <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
       <h3>From source</h3>
-      <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then, from the repository root:</p>
+      <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
       <div class="code">
-<pre><code>make install                              <span class="c"># frontend dependencies</span>
+<pre><code>git clone https://github.com/giobinda/magnumbi.git &amp;&amp; cd magnumbi
+make install                              <span class="c"># frontend dependencies</span>
 make db-up                                <span class="c"># local ScramDB on 127.0.0.1:55432</span>
 make seed                                 <span class="c"># sample_sales demo table (≈46k rows)</span>
 echo 'MAGNUM_SYSTEM_OWNERS=you@example.com' &gt; .env.local
@@ -577,6 +582,7 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
   <div class="wrap">
     <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
     <nav aria-label="Footer">
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
       <a href="index.html#features">Features</a>
       <a href="#quick-start">Quick start</a>
       <a href="#configuration">Configuration</a>
