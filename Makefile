@@ -61,7 +61,7 @@ test:               ## backend unit tests + frontend typecheck and tests
 	cargo test
 	cd frontend && npx tsc -b && npm test
 
-test-db: db-up       ## also the tests that need ScramDB, DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
+test-db: seed        ## also the tests that need ScramDB, DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
 	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) MAGNUM_TEST_DUCKDB_EXTENSIONS=$(CURDIR)/data/duckdb/_extensions cargo test
 
 lint:

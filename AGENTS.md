@@ -51,7 +51,7 @@ deploy/helm/magnum-bi/        the Helm chart (bundled or external ScramDB; check
 make db-up                      # dev ScramDB (Podman/Docker) on 127.0.0.1:55432
 make dev-backend                # API on :8000 (loads .env.local); make dev-frontend: UI on :5173
 make test                       # backend unit tests + frontend typecheck and Vitest
-make test-db                    # also the tests that need ScramDB / DuckDB extensions
+make test-db                    # also the tests that need ScramDB / DuckDB extensions (seeds sample_sales)
 make check                      # validate project YAML (models, blends, dashboards)
 make demo [ORG=x] [MONTHS=13]   # the NYC taxi x weather demo (downloads; backend/src/demo.rs)
 make lint                       # cargo clippy --all-targets + oxlint
@@ -61,7 +61,8 @@ helm lint deploy/helm/magnum-bi --set production=false          # after chart ch
                                 # helm template … | kubeconform -strict
 ```
 
-Tests that need services are skipped unless their variable is set:
+Tests that need services are skipped unless their variable is set (and the ScramDB ones expect
+the `sample_sales` table: `make seed`):
 
 - `MAGNUM_TEST_DATABASE_URL=postgresql://scramdb@127.0.0.1:55432/scramdb` for ScramDB;
 - `MAGNUM_TEST_POSTGRES_URL` for a real PostgreSQL;
