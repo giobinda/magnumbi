@@ -7,6 +7,8 @@ Magnum BI turns your data into clear, interactive dashboards. Analysts build the
 dropping; everyone else just opens them. One installation serves many organisations, each with
 its own people, data and look, and nothing ever leaks from one to another.
 
+**Website: https://giobinda.github.io/magnumbi/**
+
 ## Why Magnum BI
 
 **Fast.** The server is a single Rust program, and dashboards ask the database for answers, not
@@ -143,10 +145,10 @@ ReadWriteOnce volume. See `values.yaml` for the rest; any `MAGNUM_*` setting goe
 `secretEnv`.
 
 **Website.** `website/` is the public site: a landing page, the documentation and a comparison
-with other BI tools. It's static HTML, so any static host can serve it (Cloudflare Pages: root
-directory `website`, no build). Preview it with `python3 -m http.server 8080 -d website`, and
-see `website/README.md` for the domain and search engines. It's written from this README: when a
-user-facing feature changes, update both.
+with other BI tools, at https://giobinda.github.io/magnumbi/. It's static HTML, published on
+GitHub Pages by `.github/workflows/website.yml` when `website/` changes on `main`. Preview it
+with `python3 -m http.server 8080 -d website`, and see `website/README.md` for the domain and
+search engines. It's written from this README: when a user-facing feature changes, update both.
 
 **Releasing.** Bump `version` in `Cargo.toml`, then push a tag `vX.Y.Z` with the same version:
 `.github/workflows/publish.yml` publishes the image and the chart.
@@ -187,7 +189,7 @@ devtools/scramdb.sh         local ScramDB containers: the primary and one per or
 website/                    the public site: landing page, docs, comparison (static, no build)
 Dockerfile, compose.yaml    the image, and a one-machine stack with its own ScramDB
 deploy/helm/magnum-bi/      the Helm chart
-.github/workflows/          publish.yml: the image and chart on ghcr.io
+.github/workflows/          publish.yml: the image and chart on ghcr.io; website.yml: the site on Pages
 ```
 
 ## Architecture
