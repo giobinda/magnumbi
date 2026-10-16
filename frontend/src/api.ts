@@ -182,6 +182,9 @@ export const SIGN_IN_METHODS: SignInMethod[] = ['password', 'google', 'oidc', 'p
 export const SIGN_IN_LABELS: Record<SignInMethod, string> = {
   password: 'Password', google: 'Google', oidc: "Organisation's single sign-on", passkey: 'Passkeys', token: 'API tokens (agents)',
 }
+/** The NYC demo's setup (taxi trips x weather), as it goes. */
+export interface DemoStatus { running: boolean; org: string; step: string; done: number; total: number; log: string[]; error: string | null }
+
 /** An API token (never its secret, except once when created). */
 export interface ApiToken {
   id: string; name: string; user_email?: string; role: Role; scope: 'read' | 'write'
@@ -256,6 +259,8 @@ export const api = {
   setOrgDatabase: (org: string, dsn: string) =>
     call<{ display: string; version: string; dashboards_moved: number }>(
       `/api/platform/organisations/${encodeURIComponent(org)}/database`, json('PUT', { dsn })),
+  demoStatus: () => call<DemoStatus>('/api/platform/demo'),
+  startDemo: (org: string, months: number) => call<DemoStatus>('/api/platform/demo', json('POST', { org, months })),
   usage: (days: number) => call<UsageSummary>(`/api/usage?days=${days}`),
   cacheStats: () => call<CacheStats>('/api/cache'),
   clearCache: (model?: string) => call<{ cleared: number }>(`/api/cache${model ? `?model=${encodeURIComponent(model)}` : ''}`, { method: 'DELETE' }),

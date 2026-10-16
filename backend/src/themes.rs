@@ -19,8 +19,14 @@ const REF_DARK: [&str; 8] = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d5518
 // every slot >= 3:1 on white and >= 8 adjacent CVD ΔE
 const HIGH_CONTRAST: [&str; 7] = ["#256abf", "#d24e1c", "#0e8a5f", "#5b4bc4", "#a87400", "#c94a7a", "#007000"];
 
-pub const DEFAULT_LIGHT: &str = "magnum-light";
-pub const DEFAULT_DARK: &str = "magnum-dark";
+// Aloha: an aloha shirt on a Honolulu afternoon (lagoon, hibiscus, pineapple, ocean, plumeria,
+// palm, sunset, orchid); every slot >= 3.9:1 on its surface
+const ALOHA: [&str; 8] = ["#0a8a9e", "#d62839", "#a87800", "#1f5fa8", "#c9327d", "#2b8a3e", "#d4580a", "#7a3fa0"];
+// Aloha night: the same, after sunset; every slot >= 5.7:1 on its surface
+const ALOHA_NIGHT: [&str; 8] = ["#2ec4b6", "#ff6b6b", "#ffb703", "#5aa9ff", "#ff70a6", "#8ac926", "#fb8b24", "#b39cff"];
+
+pub const DEFAULT_LIGHT: &str = "aloha";
+pub const DEFAULT_DARK: &str = "aloha-night";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -131,8 +137,32 @@ fn t(id: &str, label: &str, mode: &str, palette: &[&str], radius: u8, c: [&str; 
 
 pub fn builtin() -> Vec<Theme> {
     vec![
+        // sand, a red Ferrari 308 for the accent, an aloha shirt for the charts
         t(
             DEFAULT_LIGHT,
+            "Aloha",
+            "light",
+            &ALOHA,
+            12,
+            [
+                "#fff6e9", "#fffdf8", "#fdeed6", "#efd9b8", "#2a1a12", "#6e4f3a", "#c8102e", "#fde3e1", "#13795b",
+                "#b3261e",
+            ],
+        ),
+        // a Pacific night: coral and turquoise
+        t(
+            DEFAULT_DARK,
+            "Aloha night",
+            "dark",
+            &ALOHA_NIGHT,
+            12,
+            [
+                "#0b1a2b", "#11243a", "#18304b", "#244463", "#f7efe2", "#b9c6d3", "#ff6b6b", "#3d2232", "#4cd38a",
+                "#ff8a80",
+            ],
+        ),
+        t(
+            "magnum-light",
             "Magnum light",
             "light",
             &REF_LIGHT,
@@ -143,7 +173,7 @@ pub fn builtin() -> Vec<Theme> {
             ],
         ),
         t(
-            DEFAULT_DARK,
+            "magnum-dark",
             "Magnum dark",
             "dark",
             &REF_DARK,
@@ -198,4 +228,50 @@ pub fn builtin() -> Vec<Theme> {
             ],
         ),
     ]
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// WCAG contrast ratio of two #rrggbb colours.
+    fn contrast(a: &str, b: &str) -> f64 {
+        let lum = |h: &str| {
+            let c: Vec<f64> = [1, 3, 5]
+                .iter()
+                .map(|i| f64::from(u8::from_str_radix(&h[*i..*i + 2], 16).unwrap()) / 255.0)
+                .map(|x| if x <= 0.04045 { x / 12.92 } else { ((x + 0.055) / 1.055).powf(2.4) })
+                .collect();
+            0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]
+        };
+        let (x, y) = (lum(a), lum(b));
+        (x.max(y) + 0.05) / (x.min(y) + 0.05)
+    }
+
+    #[test]
+    fn the_defaults_are_aloha_and_readable() {
+        let all = builtin();
+        for (id, mode) in [(DEFAULT_LIGHT, "light"), (DEFAULT_DARK, "dark")] {
+            let t = all.iter().find(|t| t.id == id).unwrap_or_else(|| panic!("{id} is built in"));
+            assert!(t.id.starts_with("aloha") && t.mode == mode, "{id}");
+            let c = &t.colors;
+            for (what, fg, bg, min) in [
+                ("text", &c.text, &c.bg, 4.5),
+                ("text", &c.text, &c.surface, 4.5),
+                ("muted text", &c.text_muted, &c.surface, 4.5),
+                ("muted text", &c.text_muted, &c.bg, 4.5),
+                ("links", &c.accent, &c.surface, 4.5),
+                ("good", &c.good, &c.surface, 3.0),
+                ("bad", &c.bad, &c.surface, 3.0),
+            ] {
+                assert!(contrast(fg, bg) >= min, "{id}: {what} {fg} on {bg} is {:.1}:1", contrast(fg, bg));
+            }
+            assert_eq!(t.palette.len(), 8);
+            for p in &t.palette {
+                assert!(contrast(p, &c.surface) >= 3.0, "{id}: chart colour {p} is {:.1}:1", contrast(p, &c.surface));
+            }
+        }
+        // the earlier defaults stay as they were (built-in themes are frozen)
+        assert!(all.iter().any(|t| t.id == "magnum-light" && t.colors.accent == "#4f6bed"));
+    }
 }

@@ -42,11 +42,27 @@ pub struct OrgDbs {
     primary: Store,
     key: Option<SecretKey>,
     open: Mutex<HashMap<String, Open>>,
+    /// tests: organisations given a store directly (no registered database)
+    #[cfg(test)]
+    pinned: std::sync::Mutex<HashMap<String, Store>>,
 }
 
 impl OrgDbs {
     pub fn new(primary: Store, key: Option<SecretKey>) -> OrgDbs {
-        OrgDbs { primary, key, open: Mutex::new(HashMap::new()) }
+        OrgDbs {
+            primary,
+            key,
+            open: Mutex::new(HashMap::new()),
+            #[cfg(test)]
+            pinned: Default::default(),
+        }
+    }
+
+    /// Tests: `org`'s data goes to `store` (rows carry the organisation, so the test database's
+    /// own stay apart), without registering a database.
+    #[cfg(test)]
+    pub fn pin(&self, org: &str, store: Store) {
+        self.pinned.lock().expect("pinned").insert(org.to_string(), store);
     }
 
     fn key(&self) -> Result<&SecretKey, OrgDbError> {
@@ -60,6 +76,10 @@ impl OrgDbs {
     pub async fn store(&self, org: &str) -> Result<Store, OrgDbError> {
         if org.is_empty() {
             return Ok(self.primary.clone());
+        }
+        #[cfg(test)]
+        if let Some(s) = self.pinned.lock().expect("pinned").get(org) {
+            return Ok(s.clone());
         }
         let mut open = self.open.lock().await;
         if let Some(o) = open.get(org).filter(|o| o.checked.elapsed() < RECHECK) {

@@ -12,6 +12,7 @@ mod connections;
 mod connectors;
 mod crypto;
 mod db;
+mod demo;
 mod error;
 mod materialize;
 mod netguard;
@@ -63,6 +64,16 @@ enum Command {
     User {
         #[command(subcommand)]
         command: UserCommand,
+    },
+    /// Set up the NYC demo: taxi trips and borough weather, connections and dashboards
+    /// (downloads about 60 MB per month; months already there are skipped)
+    Demo {
+        /// the organisation to set it up for (default: the platform workspace)
+        #[arg(long, default_value = "")]
+        org: String,
+        /// how many months of trips, up to the latest published (13: a month and the same month a year earlier)
+        #[arg(long, default_value_t = 13)]
+        months: u32,
     },
     /// Manage organisations' own ScramDB instances
     Org {
@@ -132,6 +143,17 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Check => check(&config),
+        Command::Demo { org, months } => {
+            let state = app_state(config).await?;
+            let progress = state.demo.clone();
+            let by = state.config.bootstrap_owners.first().cloned().unwrap_or_else(|| "magnum-bi demo".into());
+            let today = chrono::Utc::now().date_naive();
+            demo::run(&state, &org, months, &by, today, &demo::Sources::default(), &progress).await?;
+            let where_ =
+                if org.is_empty() { "the platform workspace".to_string() } else { format!("organisation {org}") };
+            println!("NYC demo ready in {where_}: dashboards nyc_taxi and nyc_taxi_weather");
+            Ok(())
+        }
         Command::Org { command: OrgCommand::SetDatabase { org } } => {
             let pool = db::make_pool(&config.database_url, 2)?;
             db::migrate(&pool, db::PRIMARY).await?;
@@ -243,6 +265,18 @@ async fn serve(config: Config) -> Result<()> {
     for p in &problems {
         tracing::warn!("not suitable for a shared deployment: {p}");
     }
+    let state = app_state(config).await?;
+    let addr = format!("{}:{}", state.config.host, state.config.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;
+    tracing::info!("Magnum BI on http://{addr}");
+    let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
+    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
+    Ok(())
+}
+
+/// The server's state: the primary database (migrated), the project, the guard, everything a
+/// request needs. Shared by `serve` and commands that act like the server (`demo`).
+async fn app_state(config: Config) -> Result<Arc<AppState>> {
     let pool = db::make_pool(&config.database_url, 16)?;
     if config.auto_migrate {
         db::migrate(&pool, db::PRIMARY)
@@ -264,7 +298,6 @@ async fn serve(config: Config) -> Result<()> {
     if config.bootstrap_owners.is_empty() && store.setting("platform").await?.is_none() {
         tracing::warn!("no system owners yet: set MAGNUM_SYSTEM_OWNERS=you@example.com");
     }
-    let addr = format!("{}:{}", config.host, config.port);
     tracing::info!(
         "storage: ScramDB at {}; sign-in: {}",
         db::redact(&config.database_url),
@@ -296,7 +329,7 @@ async fn serve(config: Config) -> Result<()> {
         tracing::warn!("organisations' connections may reach private networks (MAGNUM_ALLOW_PRIVATE_CONNECTIONS)");
     }
     let google = config.google.clone().map(auth::google::Google::new);
-    let state = Arc::new(AppState {
+    Ok(Arc::new(AppState {
         orgs: orgdb::OrgDbs::new(store.clone(), config.secret_key.clone()),
         usage: usage::Usage::start(store.clone(), config.usage_retention_days),
         store,
@@ -315,13 +348,9 @@ async fn serve(config: Config) -> Result<()> {
         blends: state::OrgBlends::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
+        demo: Default::default(),
         config,
-    });
-    let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;
-    tracing::info!("Magnum BI on http://{addr}");
-    let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
-    Ok(())
+    }))
 }
 
 async fn shutdown() {

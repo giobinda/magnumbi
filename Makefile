@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed nyc-taxi user dev-backend dev-frontend build serve check test test-db lint
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -35,9 +35,8 @@ migrate: db-up      ## apply migrations (the server also does this at startup)
 seed: db-up         ## (re)create the sample_sales demo table
 	$(RUN) seed-sample
 
-nyc-taxi:           ## demo data: 5 years of NYC taxi trips (3.3 GB download) and borough weather for an organisation: make nyc-taxi ORG=globex (needs uv)
-	uv run devtools/nyc_taxi.py data/duckdb/$(or $(ORG),globex)/nyc_taxi 2021-08 2026-07
-	uv run devtools/nyc_weather.py data/duckdb/$(or $(ORG),globex)/nyc_taxi 2021-08-01 2026-07-31
+demo: db-up         ## the NYC demo, taxi trips x weather: make demo [ORG=globex] [MONTHS=13] (about 60 MB a month)
+	$(RUN) demo --org "$(ORG)" --months $(or $(MONTHS),13)
 
 user: db-up         ## create an account / set its password: make user EMAIL=you@example.com
 	$(RUN) user set-password $(EMAIL)

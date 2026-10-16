@@ -41,6 +41,8 @@ pub struct AppState {
     pub oidc: crate::auth::oidc::Oidc,
     /// the relying party for passkeys (None: unavailable)
     pub passkeys: Option<webauthn_rs::Webauthn>,
+    /// the NYC demo's setup, when one runs (or ran) on this server
+    pub demo: crate::demo::Progress,
 }
 
 /// Each organisation's own blends (defined in the UI, kept in its database), cached briefly:

@@ -1,7 +1,6 @@
 # Semantic model: NYC yellow taxi trips (NYC Taxi & Limousine Commission open data).
-# Data: `make nyc-taxi ORG=globex` downloads five years (~208 million trips) and cleans them into that
-# organisation's DuckDB folder; then give the organisation a DuckDB connection `nyc_taxi` with the table
-# `trips = nyc_taxi/trips/*.parquet`, and import project/dashboards/nyc_taxi.yaml.
+# Data: `make demo` (or Organisations > Demo data) downloads and cleans the trips into the organisation's
+# DuckDB folder and creates the DuckDB connection `nyc_taxi` (table trips = nyc_taxi/trips/*.parquet).
 name: taxi
 label: NYC taxi trips
 description: Yellow taxi trips in New York City (NYC TLC trip records), one row per trip; times are New York local time

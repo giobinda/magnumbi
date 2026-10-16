@@ -259,6 +259,65 @@ pub async fn put_sign_in(
     Ok(Json(sign_in_response(&state, &caller, &next, &headers).await?))
 }
 
+// --------------------------------------------------------------------------- the NYC demo
+
+fn thirteen() -> u32 {
+    13
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DemoBody {
+    /// an organisation, or "" for the platform workspace
+    #[serde(default)]
+    org: String,
+    #[serde(default = "thirteen")]
+    months: u32,
+}
+
+/// System owners: how the demo setup is going (or went) on this server.
+pub async fn demo_status(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
+    caller.require("manage_orgs")?;
+    Ok(Json(json!(*state.demo.lock().expect("demo lock"))))
+}
+
+/// System owners: set up the NYC demo for an organisation (or the platform workspace), in the
+/// background (crate::demo). Follow it with GET.
+pub async fn start_demo(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    Body(b): Body<DemoBody>,
+) -> ApiResult<Json<Value>> {
+    caller.require("manage_orgs")?;
+    if !(1..=120).contains(&b.months) {
+        return Err(ApiError::bad_request("months: between 1 and 120"));
+    }
+    if !b.org.is_empty() && !caller.access.platform.organisations.contains_key(&b.org) {
+        return Err(ApiError::bad_request(format!("no organisation {:?}", b.org)));
+    }
+    // its database must be there first (dashboards and connections go in it)
+    state.orgs.store(&b.org).await?;
+    {
+        let mut st = state.demo.lock().expect("demo lock");
+        if st.running {
+            return Err(ApiError::Status(StatusCode::CONFLICT, "a demo setup is already running".into()));
+        }
+        *st = crate::demo::Status { running: true, org: b.org.clone(), step: "Starting".into(), ..Default::default() };
+    }
+    state
+        .usage
+        .record(Event { detail: Some(json!({"org": b.org, "months": b.months})), ..caller.event("demo_started") });
+    let (task_state, by) = (state.clone(), caller.email().to_string());
+    tokio::spawn(async move {
+        let progress = task_state.demo.clone();
+        let today = chrono::Utc::now().date_naive();
+        let _ =
+            crate::demo::run(&task_state, &b.org, b.months, &by, today, &crate::demo::Sources::default(), &progress)
+                .await;
+    });
+    Ok(Json(json!(*state.demo.lock().expect("demo lock"))))
+}
+
 #[derive(Deserialize)]
 pub struct ResetBody {
     email: String,
@@ -565,6 +624,23 @@ mod agent_tests {
         let status = resp.status();
         let bytes = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
         (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null))
+    }
+
+    #[tokio::test]
+    async fn demo_setup_is_for_system_owners_and_checked_first() {
+        let Some((app, _, cookie)) = app().await else { return };
+        let (s, st) = crate::api::tests::call(&app, &cookie, "GET", "/api/platform/demo", None).await;
+        assert_eq!(s, StatusCode::OK, "{st}");
+        assert_eq!(st["running"], json!(false));
+        for (body, why) in [
+            (json!({"org": "no-such-org", "months": 13}), "no-such-org"),
+            (json!({"org": "", "months": 0}), "months"),
+            (json!({"org": "", "months": 500}), "months"),
+        ] {
+            let (s, r) = crate::api::tests::call(&app, &cookie, "POST", "/api/platform/demo", Some(body)).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
+            assert!(r["detail"].as_str().unwrap().contains(why), "{r}");
+        }
     }
 
     #[tokio::test]
