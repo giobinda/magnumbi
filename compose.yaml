@@ -21,7 +21,7 @@ services:
     # no published port: only Magnum BI reaches it (this image runs without authentication)
 
   magnum:
-    image: ${MAGNUM_IMAGE:-localhost/magnum-bi:latest}
+    image: ${MAGNUM_IMAGE:-ghcr.io/giobinda/magnum-bi:latest}
     build: .
     restart: unless-stopped   # also retries until ScramDB is up
     depends_on:

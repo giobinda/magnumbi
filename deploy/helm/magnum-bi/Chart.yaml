@@ -4,7 +4,7 @@ description: Magnum BI, semantic models and dashboards on ScramDB, with a bundle
 type: application
 version: 0.1.0
 appVersion: "0.1.0"
-home: https://github.com/gbinda/magnum-bi
+home: https://github.com/giobinda/magnumbi
 license: AGPL-3.0-only
 keywords: [bi, dashboards, analytics, duckdb, bigquery, postgres, mcp]
 annotations:
