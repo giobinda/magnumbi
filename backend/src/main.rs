@@ -30,6 +30,7 @@ mod usage;
 
 use std::io::{BufRead, IsTerminal};
 use std::sync::Arc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use clap::{Parser, Subcommand};
@@ -278,6 +279,14 @@ async fn serve(config: Config) -> Result<()> {
 /// request needs. Shared by `serve` and commands that act like the server (`demo`).
 async fn app_state(config: Config) -> Result<Arc<AppState>> {
     let pool = db::make_pool(&config.database_url, 16)?;
+    if pool.get().await.is_err() {
+        tracing::info!("waiting for ScramDB at {}", db::redact(&config.database_url));
+        db::wait_for(Duration::from_secs(60), Duration::from_secs(1), || async {
+            pool.get().await.map(drop).map_err(anyhow::Error::from)
+        })
+        .await
+        .with_context(|| format!("ScramDB at {} didn't come up", db::redact(&config.database_url)))?;
+    }
     if config.auto_migrate {
         db::migrate(&pool, db::PRIMARY)
             .await
@@ -291,6 +300,21 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
     let seeded = store.seed_dashboards(&project.dashboards_dir()).await?;
     if seeded > 0 {
         tracing::info!("seeded {seeded} dashboard(s) from {}", project.dashboards_dir().display());
+    }
+    if let Some((email, password, generated)) =
+        config::first_admin(store.user_count().await?, &config.bootstrap_owners, config.initial_password.as_deref())
+    {
+        let hash = auth::password::hash(&password)?;
+        store.set_password(&email, None, &hash, None, true).await?;
+        if generated {
+            tracing::warn!(
+                "first start: sign in as {email} with the one-time password {password} (you'll choose your own)"
+            );
+        } else {
+            tracing::info!(
+                "first start: {email} can sign in with MAGNUM_INITIAL_PASSWORD (once: they'll choose their own)"
+            );
+        }
     }
     if store.user_count().await? == 0 {
         tracing::warn!("no accounts yet: create one with `magnum-bi user set-password you@example.com`");

@@ -6,7 +6,7 @@ one-line embedding. The backend is Rust (axum + tokio-postgres); the UI is React
 
 ## Quick start
 
-Prerequisites: Rust 1.88+, Node 20+, and Podman or Docker (for the local ScramDB).
+Prerequisites: Rust 1.89+, Node 20+, and Podman or Docker (for the local ScramDB).
 
 ```bash
 make install                                  # frontend dependencies
@@ -39,6 +39,46 @@ Blends below) are project files. Set it up in an organisation with its own Scram
 query cache. For a two-engine blend, load `nyc_taxi/weather/hourly.parquet` into PostgreSQL as
 `hourly` and point the `meteo` connection there. Temperature is per ~9 km cell; precipitation,
 snow and gusts come from a ~25 km grid, so neighbouring boroughs can share them.
+
+## Deploying
+
+**Docker image.** `docker build -t magnum-bi .` (or `podman build`) builds one image of about
+150 MB with the server, the CLI, the built UI and the project files. It runs as an unprivileged
+user (uid 10001) and keeps DuckDB files in `/data`.
+
+**Docker Compose: try it on one machine.** `compose.yaml` runs Magnum BI with its own ScramDB:
+
+```bash
+docker build -t localhost/magnum-bi .
+MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d     # UI and API on http://localhost:8000
+docker compose logs magnum | grep one-time                  # the first sign-in's password
+docker compose exec magnum magnum-bi demo --months 1        # optional: the NYC demo
+```
+
+With no accounts yet, the admin gets a one-time password, printed in the log (or set it with
+`MAGNUM_ADMIN_PASSWORD`), and chooses their own at first sign-in. `MAGNUM_HTTP_PORT` changes the
+port. The secret key is generated into the `secrets` volume on first start: back it up. For a
+shared server, put https in front and set `MAGNUM_PUBLIC_URL` and `MAGNUM_ENV=production`.
+
+**Kubernetes: the Helm chart** in `deploy/helm/magnum-bi`. Push the image to your registry, then:
+
+```bash
+# try it: bundled ScramDB, no ingress (kubectl port-forward svc/bi-magnum-bi 8000:80)
+helm install bi deploy/helm/magnum-bi --set image.repository=registry.example.com/magnum-bi \
+  --set production=false
+# for real: https address, ingress, your own ScramDB (database.existingSecret: key database-url)
+helm install bi deploy/helm/magnum-bi --set image.repository=registry.example.com/magnum-bi \
+  --set publicUrl=https://bi.example.com --set ingress.enabled=true \
+  --set admin.email=you@example.com --set database.existingSecret=bi-scramdb
+helm test bi
+```
+
+The chart generates the secret key on install and keeps it on upgrade (or use
+`secretKey.existingSecret`). The bundled ScramDB has no password, so a NetworkPolicy lets only
+Magnum BI reach it. The pod has a read-only root filesystem. The chart refuses settings that
+can't work, such as production without an https `publicUrl`, or several replicas on a
+ReadWriteOnce volume. See `values.yaml` for the rest; any `MAGNUM_*` setting goes in `env` or
+`secretEnv`.
 
 ## Project layout
 
@@ -401,6 +441,8 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 |---|---|---|
 | `MAGNUM_DATABASE_URL` | `postgresql://scramdb@127.0.0.1:5432/scramdb` | the primary ScramDB |
 | `MAGNUM_SECRET_KEY` | | seals organisations' connection strings (`magnum-bi gen-key`); required in production |
+| `MAGNUM_SECRET_KEY_FILE` | | read the key from this file instead; created (mode 0600) on first start if missing |
+| `MAGNUM_INITIAL_PASSWORD` | | first start, no accounts yet: the first system owner's one-time password (else generated and logged) |
 | `MAGNUM_USAGE_RETENTION_DAYS` | 400 | how long usage events are kept |
 | `MAGNUM_DUCKDB_DIR` | `data/duckdb` | DuckDB files, one directory per organisation |
 | `MAGNUM_DUCKDB_INSTALL_EXTENSIONS` | 1 | allow downloading DuckDB's `httpfs`, `avro` and `iceberg` extensions |

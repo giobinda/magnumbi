@@ -1,8 +1,8 @@
 //! Settings, from environment variables (see .env.local.example).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 
 #[derive(Debug, Clone)]
 pub struct GoogleConfig {
@@ -34,6 +34,9 @@ pub struct Config {
     pub google: Option<GoogleConfig>,
     /// system owners until the platform settings are saved for the first time
     pub bootstrap_owners: Vec<String>,
+    /// the first system owner's one-time password, when there are no accounts yet
+    /// (MAGNUM_INITIAL_PASSWORD; none: generated and logged once)
+    pub initial_password: Option<String>,
     pub auto_migrate: bool,
     pub session_hours: i64,
     /// seals each organisation's ScramDB connection string (crypto.rs)
@@ -102,9 +105,14 @@ impl Config {
             password_login: flag("MAGNUM_PASSWORD_LOGIN", true),
             google,
             bootstrap_owners: list("MAGNUM_SYSTEM_OWNERS"),
+            initial_password: env("MAGNUM_INITIAL_PASSWORD").filter(|p| !p.is_empty()),
             auto_migrate: flag("MAGNUM_DB_AUTO_MIGRATE", true),
             session_hours: env("MAGNUM_SESSION_HOURS").map(|h| h.parse()).transpose()?.unwrap_or(12),
-            secret_key: env("MAGNUM_SECRET_KEY").map(|k| crate::crypto::SecretKey::parse(&k)).transpose()?,
+            secret_key: match (env("MAGNUM_SECRET_KEY"), env("MAGNUM_SECRET_KEY_FILE")) {
+                (Some(k), _) => Some(crate::crypto::SecretKey::parse(&k)?),
+                (None, Some(path)) => Some(key_file(Path::new(&path))?),
+                (None, None) => None,
+            },
             usage_retention_days: env("MAGNUM_USAGE_RETENTION_DAYS").map(|d| d.parse()).transpose()?.unwrap_or(400),
             duckdb_dir: env("MAGNUM_DUCKDB_DIR").unwrap_or_else(|| "data/duckdb".into()).into(),
             duckdb_install_extensions: flag("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", true),
@@ -161,6 +169,40 @@ impl Config {
     }
 }
 
+/// MAGNUM_SECRET_KEY_FILE: the key in a file, made (owner-only) on the first start if missing.
+/// Containers keep it on its own volume, apart from the database.
+fn key_file(path: &Path) -> Result<crate::crypto::SecretKey> {
+    use std::io::Write;
+    if !path.exists() {
+        if let Some(dir) = path.parent() {
+            std::fs::create_dir_all(dir)?;
+        }
+        let mut opts = std::fs::OpenOptions::new();
+        opts.write(true).create_new(true);
+        #[cfg(unix)]
+        std::os::unix::fs::OpenOptionsExt::mode(&mut opts, 0o600);
+        let mut f = opts.open(path).with_context(|| format!("creating {}", path.display()))?;
+        f.write_all(crate::crypto::SecretKey::generate().as_bytes())?;
+        tracing::warn!(
+            "generated a new MAGNUM_SECRET_KEY in {}: back it up (without it, organisation databases and secrets \
+             must be entered again)",
+            path.display()
+        );
+    }
+    let text = std::fs::read_to_string(path).with_context(|| format!("reading {}", path.display()))?;
+    crate::crypto::SecretKey::parse(&text).with_context(|| format!("MAGNUM_SECRET_KEY_FILE {}", path.display()))
+}
+
+/// The first administrator: with no accounts yet, the first system owner gets a one-time password
+/// (the one given, else a generated one, to show once): (email, password, generated).
+pub fn first_admin(user_count: i64, owners: &[String], given: Option<&str>) -> Option<(String, String, bool)> {
+    let email = owners.first().filter(|_| user_count == 0)?;
+    Some(match given.filter(|p| !p.is_empty()) {
+        Some(p) => (email.clone(), p.to_string(), false),
+        None => (email.clone(), crate::store::random_token(18), true),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -190,5 +232,46 @@ mod tests {
         let g = allowed.connection_guard();
         assert!(g.allow_private);
         assert_eq!(g.allowed_hosts, ["warehouse.corp", "10.0.0.5"]);
+    }
+
+    #[test]
+    fn secret_key_from_a_file_made_on_first_start() {
+        let dir = std::env::temp_dir().join(format!("magnum-key-{}", uuid::Uuid::new_v4().simple()));
+        let path = dir.join("secrets/key");
+        let p = path.to_str().unwrap();
+        let first = config(&[("MAGNUM_SECRET_KEY_FILE", p)]);
+        assert!(first.secret_key.is_some(), "generated");
+        let written = std::fs::read_to_string(&path).unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            assert_eq!(std::fs::metadata(&path).unwrap().permissions().mode() & 0o777, 0o600, "owner only");
+        }
+        // the next start reads the same key
+        let again = config(&[("MAGNUM_SECRET_KEY_FILE", p)]);
+        assert_eq!(std::fs::read_to_string(&path).unwrap(), written);
+        let sealed = first.secret_key.as_ref().unwrap().seal("x", "c").unwrap();
+        assert_eq!(again.secret_key.as_ref().unwrap().open(&sealed, "c").unwrap(), "x");
+        // MAGNUM_SECRET_KEY wins; a bad file is an error, not a silent new key
+        std::fs::write(&path, "not a key").unwrap();
+        assert!(Config::from_lookup(|k| (k == "MAGNUM_SECRET_KEY_FILE").then(|| p.to_string())).is_err());
+        let key = crate::crypto::SecretKey::generate();
+        let both = config(&[("MAGNUM_SECRET_KEY_FILE", p), ("MAGNUM_SECRET_KEY", &key)]);
+        assert!(both.secret_key.is_some());
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn the_first_administrator() {
+        let owners = vec!["admin@example.com".to_string()];
+        // no accounts yet: the owner gets the given password, or a generated one (shown once)
+        let (email, pw, generated) = first_admin(0, &owners, Some("a given passphrase")).unwrap();
+        assert_eq!((email.as_str(), pw.as_str(), generated), ("admin@example.com", "a given passphrase", false));
+        let (_, pw, generated) = first_admin(0, &owners, None).unwrap();
+        assert!(generated && pw.len() >= 16);
+        assert!(first_admin(0, &owners, Some("")).unwrap().2, "empty: generated");
+        // accounts exist, or nobody to give it to: nothing
+        assert!(first_admin(1, &owners, None).is_none());
+        assert!(first_admin(0, &[], Some("x")).is_none());
     }
 }

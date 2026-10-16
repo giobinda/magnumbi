@@ -1,0 +1,20 @@
+Magnum BI is starting ({{ if .Values.production }}production{{ else }}development{{ end }} mode).
+
+{{- if .Values.ingress.enabled }}
+Open {{ .Values.publicUrl | default (printf "http://%s" (include "magnum.host" .)) }}
+{{- else }}
+Reach it with:
+  kubectl -n {{ .Release.Namespace }} port-forward svc/{{ include "magnum.name" . }} 8000:{{ .Values.service.port }}
+and open http://localhost:8000
+{{- end }}
+
+Sign in as {{ .Values.admin.email }}{{ if .Values.admin.password }} with admin.password{{ else }} with the one-time password in the log:
+  kubectl -n {{ .Release.Namespace }} logs deploy/{{ include "magnum.name" . }} | grep "first start"{{ end }}
+(you'll choose your own password).
+
+Back up the secret key (it encrypts organisations' database addresses and connection secrets):
+  kubectl -n {{ .Release.Namespace }} get secret {{ .Values.secretKey.existingSecret | default (include "magnum.name" .) }} -o jsonpath='{.data.secret-key}'
+{{- if .Values.scramdb.enabled }}
+
+The bundled ScramDB suits trying it out and small installs; for more, run your own and set database.url.
+{{- end }}
