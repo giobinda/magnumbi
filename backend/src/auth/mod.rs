@@ -140,8 +140,9 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
     if query.is_some_and(|q| q.split('&').any(|p| p == "dry_run=1" || p == "dry_run=true")) {
         return true; // checks without saving
     }
+    // MCP: its tools are read-only or not one by one (api/mcp.rs)
     *method == axum::http::Method::POST
-        && (matches!(path, "/api/query" | "/api/query/sql" | "/api/period")
+        && (matches!(path, "/api/query" | "/api/query/sql" | "/api/period" | "/api/mcp")
             || (path.starts_with("/api/dashboards/") && (path.ends_with("/query") || path.contains("/filters/values"))))
 }
 

@@ -196,7 +196,9 @@ function ApiTokens() {
       {created && (
         <div className="ok token-once">Copy it now, it won't be shown again:<br /><code className="mono">{created}</code>
           <div className="row"><button type="button" onClick={() => navigator.clipboard?.writeText(created)}>Copy</button>
-            <button type="button" className="link" onClick={() => setCreated(null)}>Done</button></div></div>
+            <button type="button" className="link" onClick={() => setCreated(null)}>Done</button></div>
+          <McpSetup token={created} />
+        </div>
       )}
       {tokens.length > 0 ? (
         <ul className="passkey-list">{tokens.map(t => (
@@ -219,5 +221,26 @@ function ApiTokens() {
       </div>
       {err && <div className="error">{err}</div>}
     </section>
+  )
+}
+
+/** How to connect an MCP client (Claude Code, Cursor, Claude Desktop) with a new token. */
+function McpSetup({ token }: { token: string }) {
+  const url = `${location.origin}/api/mcp`
+  const snippets: [string, string][] = [
+    ['Claude Code', `claude mcp add --transport http magnum-bi ${url} --header "Authorization: Bearer ${token}"`],
+    ['Cursor (mcp.json)', JSON.stringify({ mcpServers: { 'magnum-bi': { url, headers: { Authorization: `Bearer ${token}` } } } }, null, 2)],
+    ['Claude Desktop (claude_desktop_config.json)', JSON.stringify({ mcpServers: { 'magnum-bi': { command: 'npx',
+      args: ['-y', 'mcp-remote', url, '--header', `Authorization: Bearer ${token}`] } } }, null, 2)],
+  ]
+  return (
+    <details className="small mcp-setup">
+      <summary>Connect an AI agent (MCP) with it</summary>
+      <p>Magnum BI's MCP endpoint: <code className="mono">{url}</code>. The agent can then explore models, run queries and, with a
+        read &amp; write token, edit dashboards, blends and members, always as you.</p>
+      {snippets.map(([label, text]) => (
+        <div key={label}><b>{label}</b><pre className="mono">{text}</pre></div>
+      ))}
+    </details>
   )
 }

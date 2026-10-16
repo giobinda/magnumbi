@@ -32,18 +32,26 @@ impl ApiError {
     }
 }
 
-impl IntoResponse for ApiError {
-    fn into_response(self) -> Response {
+impl ApiError {
+    /// The status and JSON body the API answers with (internal errors logged with a reference).
+    pub fn into_parts(self) -> (StatusCode, Value) {
         match self {
-            ApiError::Status(code, detail) => (code, Json(json!({"detail": detail}))).into_response(),
-            ApiError::Body(code, body) => (code, Json(body)).into_response(),
+            ApiError::Status(code, detail) => (code, json!({"detail": detail})),
+            ApiError::Body(code, body) => (code, body),
             ApiError::Internal(e) => {
                 let reference = crate::store::random_token(4);
                 tracing::error!(reference, "internal error: {e:#}");
                 let detail = format!("internal error (ref {reference}); a system owner can look it up in the logs");
-                (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({"detail": detail}))).into_response()
+                (StatusCode::INTERNAL_SERVER_ERROR, json!({"detail": detail}))
             }
         }
+    }
+}
+
+impl IntoResponse for ApiError {
+    fn into_response(self) -> Response {
+        let (code, body) = self.into_parts();
+        (code, Json(body)).into_response()
     }
 }
 

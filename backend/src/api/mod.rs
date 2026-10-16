@@ -5,6 +5,7 @@ mod auth;
 mod blends;
 mod connections;
 mod dashboards;
+mod mcp;
 mod models;
 mod tokens;
 
@@ -60,6 +61,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/auth/oidc/callback", get(auth::oidc_callback));
     let protected = Router::new()
         .route("/api/models", get(models::list))
+        .route("/api/mcp", post(mcp::endpoint))
         .route("/api/tokens", get(tokens::list).post(tokens::create))
         .route("/api/tokens/{id}", axum::routing::delete(tokens::revoke))
         .route("/api/blends", get(blends::list))

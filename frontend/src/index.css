@@ -314,3 +314,4 @@ input.wide { width: 100%; }
 @media (max-width: 600px) { .sign-in-settings .grid2 { grid-template-columns: 1fr; } }
 .token-once code { overflow-wrap: anywhere; user-select: all; }
 .security-card .row.wrap { flex-wrap: wrap; }
+.mcp-setup pre { white-space: pre-wrap; overflow-wrap: anywhere; background: var(--surface-2); padding: 6px 8px; border-radius: var(--radius); font-size: 11px; }
