@@ -49,6 +49,9 @@ the planned steps stay cheap.
   Connect provider, which can only vouch for the organisation's own domains. Its client secret is
   sealed for "<org>/oidc".
 
+- Themes: an organisation's own themes and default themes are kept in its ScramDB and only join
+  that organisation's view.
+
 ## Planned (not built yet)
 
 - Organisation-specific models (today models are platform YAML shared by all organisations).

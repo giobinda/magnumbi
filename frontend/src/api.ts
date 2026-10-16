@@ -1,3 +1,4 @@
+import type { Theme } from './theme'
 // Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
 
 // time = TIMESTAMP (UTC instant); datetime = naive local date-time (e.g. store-local)
@@ -182,6 +183,10 @@ export const SIGN_IN_METHODS: SignInMethod[] = ['password', 'google', 'oidc', 'p
 export const SIGN_IN_LABELS: Record<SignInMethod, string> = {
   password: 'Password', google: 'Google', oidc: "Organisation's single sign-on", passkey: 'Passkeys', token: 'API tokens (agents)',
 }
+/** An organisation's own themes and its default light and dark theme. */
+export interface OrgThemes { themes: Theme[]; default_light?: string | null; default_dark?: string | null }
+export interface OrgThemesResponse extends OrgThemes { version: string; available: Theme[] }
+
 /** The NYC demo's setup (taxi trips x weather), as it goes. */
 export interface DemoStatus { running: boolean; org: string; step: string; done: number; total: number; log: string[]; error: string | null }
 
@@ -259,6 +264,14 @@ export const api = {
   setOrgDatabase: (org: string, dsn: string) =>
     call<{ display: string; version: string; dashboards_moved: number }>(
       `/api/platform/organisations/${encodeURIComponent(org)}/database`, json('PUT', { dsn })),
+  orgThemes: () => call<OrgThemesResponse>('/api/org-themes'),
+  saveOrgThemes: (doc: OrgThemes, version?: string) => {
+    const init = json('PUT', doc)
+    if (version) init.headers = { ...(init.headers as Record<string, string>), 'if-match': version }
+    return call<{ ok: boolean; version: string }>('/api/org-themes', init)
+  },
+  importThemeCss: (css: string, base?: string) => call<Theme>('/api/themes/import', json('POST', { css, base })),
+  themeCss: (id: string) => call<string>(`/api/themes/${encodeURIComponent(id)}/css`),
   demoStatus: () => call<DemoStatus>('/api/platform/demo'),
   startDemo: (org: string, months: number) => call<DemoStatus>('/api/platform/demo', json('POST', { org, months })),
   usage: (days: number) => call<UsageSummary>(`/api/usage?days=${days}`),

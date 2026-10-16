@@ -7,6 +7,7 @@ mod connections;
 mod dashboards;
 mod mcp;
 mod models;
+mod themes;
 mod tokens;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -39,7 +40,7 @@ use crate::store::Store;
 pub fn router(state: Shared) -> Router {
     let open = Router::new()
         .route("/api/health", get(|| async { axum::Json(json!({"ok": true})) }))
-        .route("/api/themes", get(themes))
+        .route("/api/themes", get(themes::list))
         .route("/api/auth/me", get(auth::me))
         .route("/api/auth/methods", post(auth::methods))
         .route("/api/auth/login", post(auth::login))
@@ -62,6 +63,9 @@ pub fn router(state: Shared) -> Router {
     let protected = Router::new()
         .route("/api/models", get(models::list))
         .route("/api/mcp", post(mcp::endpoint))
+        .route("/api/org-themes", get(themes::get_org).put(themes::put_org))
+        .route("/api/themes/import", post(themes::import))
+        .route("/api/themes/{id}/css", get(themes::css))
         .route("/api/tokens", get(tokens::list).post(tokens::create))
         .route("/api/tokens/{id}", axum::routing::delete(tokens::revoke))
         .route("/api/blends", get(blends::list))
@@ -118,12 +122,6 @@ async fn frontend(State(state): State<Shared>, request: Request) -> Response {
         Ok(r) => r.into_response(),
         Err(e) => ApiError::Internal(anyhow::anyhow!("serving the UI: {e}")).into_response(),
     }
-}
-
-async fn themes(State(state): State<Shared>) -> axum::Json<Value> {
-    let project = state.project.current();
-    axum::Json(json!({"themes": project.themes, "default_light": crate::themes::DEFAULT_LIGHT,
-                      "default_dark": crate::themes::DEFAULT_DARK}))
 }
 
 /// JSON bodies with API-style errors ({"detail": ...}) instead of plain-text rejections.
@@ -405,6 +403,7 @@ pub mod tests {
             ip_limiter: crate::auth::password::LoginLimiter::new(20),
             hashing: tokio::sync::Semaphore::new(crate::state::hashing_permits()),
             blends: crate::state::OrgBlends::default(),
+            themes: Default::default(),
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
             demo: Default::default(),

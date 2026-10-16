@@ -283,10 +283,17 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     let mut project = project;
     if scope.role.is_some() {
         let org = scope.org.clone().unwrap_or_default();
-        match state.blends.get(&state.orgs, &org).await {
+        match state.org_blends(&org).await {
             Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),
             Ok(_) => {}
             Err(e) => tracing::warn!(org, "organisation's blends unavailable: {e:#}"),
+        }
+        match state.org_themes(&org).await {
+            Ok(t) if !t.themes.is_empty() || t.default_light.is_some() || t.default_dark.is_some() => {
+                project = Arc::new(project.with_org_themes(&t))
+            }
+            Ok(_) => {}
+            Err(e) => tracing::warn!(org, "organisation's themes unavailable: {e:#}"),
         }
     }
     let caller = Caller { session, scope, role, access, access_errors, project, refresh };
