@@ -1,0 +1,46 @@
+# Magnum BI and its database, in one command:
+#
+#   docker compose up -d          (or: podman compose up -d)
+#
+# Then open http://localhost:8000 and sign in as admin@example.com with the one-time password
+# printed by `docker compose logs magnum` (you'll choose your own). To pick the email and password
+# up front: MAGNUM_ADMIN_EMAIL=you@example.com MAGNUM_ADMIN_PASSWORD=... docker compose up -d
+# Demo data (NYC taxi trips x weather): Organisations > Demo data, or
+#   docker compose exec magnum magnum-bi demo
+#
+# For a shared deployment, put it behind https, set MAGNUM_PUBLIC_URL to that address and
+# MAGNUM_ENV=production (or use the Helm chart in deploy/helm).
+name: magnum-bi
+
+services:
+  scramdb:
+    image: docker.io/scramdb/scramdb:latest
+    restart: unless-stopped
+    volumes:
+      - scramdb:/var/lib/scramdb
+    # no published port: only Magnum BI reaches it (this image runs without authentication)
+
+  magnum:
+    image: ${MAGNUM_IMAGE:-localhost/magnum-bi:latest}
+    build: .
+    restart: unless-stopped   # also retries until ScramDB is up
+    depends_on:
+      - scramdb
+    ports:
+      - "${MAGNUM_HTTP_PORT:-8000}:8000"
+    environment:
+      MAGNUM_DATABASE_URL: postgresql://scramdb@scramdb:5432/scramdb
+      # made on the first start, on its own volume: back it up
+      MAGNUM_SECRET_KEY_FILE: /secrets/key
+      MAGNUM_SYSTEM_OWNERS: ${MAGNUM_ADMIN_EMAIL:-admin@example.com}
+      MAGNUM_INITIAL_PASSWORD: ${MAGNUM_ADMIN_PASSWORD:-}
+      MAGNUM_PUBLIC_URL: ${MAGNUM_PUBLIC_URL:-http://localhost:8000}
+      MAGNUM_ENV: ${MAGNUM_ENV:-development}
+    volumes:
+      - magnum-data:/data
+      - magnum-secrets:/secrets
+
+volumes:
+  scramdb:
+  magnum-data:
+  magnum-secrets:

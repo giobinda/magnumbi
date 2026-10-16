@@ -38,6 +38,8 @@ backend/migrations/org/      each organisation's ScramDB } new numbered file, ne
 frontend/src/      React + Vite + ECharts; api.ts mirrors the API types
 project/           models/, blends/, dashboards/ (YAML; dashboards are seeded on first start)
 devtools/          scramdb.sh (local ScramDB containers)
+Dockerfile, compose.yaml      the image (UI + server + project) and a one-machine stack
+deploy/helm/magnum-bi/        the Helm chart (bundled or external ScramDB; checks in secret.yaml)
 ```
 
 ## Commands
@@ -51,6 +53,9 @@ make check                      # validate project YAML (models, blends, dashboa
 make demo [ORG=x] [MONTHS=13]   # the NYC taxi x weather demo (downloads; backend/src/demo.rs)
 make lint                       # cargo clippy --all-targets + oxlint
 cargo fmt                       # rustfmt.toml: max_width 120
+docker build -t localhost/magnum-bi . && docker compose up -d   # the packaged stack on :8000
+helm lint deploy/helm/magnum-bi --set production=false          # after chart changes, also
+                                # helm template … | kubeconform -strict
 ```
 
 Tests that need services are skipped unless their variable is set:

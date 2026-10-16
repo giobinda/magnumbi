@@ -58,6 +58,23 @@ pub fn redact(url: &str) -> String {
     }
 }
 
+/// Retry `attempt` every `every` until it succeeds or `limit` has passed (then its last error):
+/// at start-up the database container may still be coming up.
+pub async fn wait_for<T, F, Fut>(limit: std::time::Duration, every: std::time::Duration, mut attempt: F) -> Result<T>
+where
+    F: FnMut() -> Fut,
+    Fut: std::future::Future<Output = Result<T>>,
+{
+    let started = std::time::Instant::now();
+    loop {
+        match attempt().await {
+            Ok(v) => return Ok(v),
+            Err(e) if started.elapsed() + every > limit => return Err(e),
+            Err(_) => tokio::time::sleep(every).await,
+        }
+    }
+}
+
 fn statements(sql: &str) -> Vec<String> {
     let without_comments: String =
         sql.lines().map(|l| l.split("--").next().unwrap_or("")).collect::<Vec<_>>().join("\n");
@@ -102,6 +119,26 @@ pub async fn migrate(pool: &Pool, migrations: Migrations) -> Result<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn waits_for_the_database_to_come_up() {
+        let tries = std::sync::atomic::AtomicU32::new(0);
+        let up_on_third = || async {
+            let n = tries.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            if n < 2 { anyhow::bail!("connection refused") } else { Ok(n) }
+        };
+        let wait = std::time::Duration::from_millis(5);
+        assert_eq!(wait_for(std::time::Duration::from_secs(2), wait, up_on_third).await.unwrap(), 2);
+        // never up: the last error, once the time is over
+        let started = std::time::Instant::now();
+        let e = wait_for(std::time::Duration::from_millis(50), wait, || async {
+            Err::<(), _>(anyhow::anyhow!("still down"))
+        })
+        .await
+        .unwrap_err();
+        assert!(e.to_string().contains("still down"));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+    }
 
     #[test]
     fn splits_statements_without_comments() {

@@ -1,0 +1,80 @@
+# Magnum BI on Kubernetes. The smallest install (bundled ScramDB, no ingress):
+#   helm install bi deploy/helm/magnum-bi --set production=false
+# A real one: an https address in front, and (better) your own ScramDB:
+#   helm install bi deploy/helm/magnum-bi --set publicUrl=https://bi.example.com \
+#     --set ingress.enabled=true --set admin.email=you@example.com
+
+image:
+  repository: localhost/magnum-bi   # where you pushed the image built from the Dockerfile
+  tag: ""                           # default: the chart's appVersion
+  pullPolicy: IfNotPresent
+imagePullSecrets: []
+
+# production: MAGNUM_ENV=production (the server refuses to start without an https publicUrl)
+production: true
+# the address people use, e.g. https://bi.example.com (cookies, sign-in callbacks, passkeys)
+publicUrl: ""
+
+admin:
+  # the first system owner; with no accounts yet they get a one-time password: this one, or a
+  # generated one printed in the pod's log (they choose their own at first sign-in)
+  email: admin@example.com
+  password: ""
+
+# encrypts organisations' database addresses and connection secrets; generated on install and
+# kept across upgrades. Back it up (kubectl get secret <release>-magnum-bi -o yaml), or bring your
+# own: a Secret with the key `secret-key` (from `magnum-bi gen-key`).
+secretKey:
+  existingSecret: ""
+
+# the primary ScramDB: empty = the bundled one below; else a postgresql:// URL, or a Secret
+# with the key `database-url`
+database:
+  url: ""
+  existingSecret: ""
+
+# a ScramDB inside the release, for trying and small installs. It runs without authentication:
+# the NetworkPolicy lets only Magnum BI reach it (needs a CNI that enforces NetworkPolicies).
+scramdb:
+  enabled: true
+  image: docker.io/scramdb/scramdb:latest
+  storage: 20Gi
+  storageClass: ""
+  resources: {}
+  networkPolicy: true
+
+# DuckDB files and extensions (and the demo data). One replica unless this is ReadWriteMany.
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+  accessMode: ReadWriteOnce
+
+replicaCount: 1
+
+service:
+  type: ClusterIP
+  port: 80
+
+ingress:
+  enabled: false
+  className: ""
+  annotations: {}
+  host: ""        # default: publicUrl's host
+  tls: []         # e.g. [{secretName: bi-tls, hosts: [bi.example.com]}]
+
+# more MAGNUM_* settings (see the README's Configuration), e.g. MAGNUM_GOOGLE_CLIENT_ID
+env: {}
+# environment from Secrets: [{name: MAGNUM_GOOGLE_CLIENT_SECRET, secret: google, key: client-secret}]
+secretEnv: []
+
+resources:
+  requests:
+    cpu: 250m
+    memory: 512Mi
+  limits:
+    memory: 4Gi
+
+nodeSelector: {}
+tolerations: []
+affinity: {}
