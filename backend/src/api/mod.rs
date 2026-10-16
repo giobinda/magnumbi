@@ -384,12 +384,19 @@ pub mod tests {
         let config =
             crate::config::Config::from_lookup(|k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone())).unwrap();
         let pool = crate::db::make_pool(&url, 8).unwrap();
-        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
         let store = Store::new(pool);
-        if store.user(OWNER).await.unwrap().is_none() {
-            let hash = crate::auth::password::hash("test-only-password").unwrap();
-            store.set_password(OWNER, Some("Owner"), &hash, None, false).await.unwrap();
-        }
+        // once per test run: on a new database, tests starting together would race to create
+        // the owner's account
+        static SETUP: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+        SETUP
+            .get_or_init(|| async {
+                crate::db::migrate(&store.pool, crate::db::PRIMARY).await.unwrap();
+                if store.user(OWNER).await.unwrap().is_none() {
+                    let hash = crate::auth::password::hash("test-only-password").unwrap();
+                    store.set_password(OWNER, Some("Owner"), &hash, None, false).await.unwrap();
+                }
+            })
+            .await;
         let session = store.create_session_as(OWNER, "password", chrono::Duration::hours(1), None).await.unwrap();
         let state = Arc::new(AppState {
             orgs: crate::orgdb::OrgDbs::new(store.clone(), config.secret_key.clone()),

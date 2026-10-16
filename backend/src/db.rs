@@ -83,13 +83,15 @@ fn statements(sql: &str) -> Vec<String> {
 
 pub async fn migrate(pool: &Pool, migrations: Migrations) -> Result<usize> {
     let client = pool.get().await.context("can't connect to ScramDB")?;
-    client
-        .batch_execute(
-            "CREATE TABLE IF NOT EXISTS magnum_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-        )
-        .await?;
+    // the lock comes first: on a new database, replicas (or tests) starting together would
+    // otherwise race to create the table, and ScramDB's IF NOT EXISTS doesn't survive that
     client.batch_execute(&format!("SELECT pg_advisory_lock({MIGRATION_LOCK})")).await?;
     let result = async {
+        client
+            .batch_execute(
+                "CREATE TABLE IF NOT EXISTS magnum_migrations (version TEXT PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+            )
+            .await?;
         let mut applied = 0;
         for (version, sql) in migrations {
             let done =

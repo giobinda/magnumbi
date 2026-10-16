@@ -47,6 +47,10 @@ jobs:
         run: cargo clippy --all-targets -- -D warnings
       - name: Wait for ScramDB
         run: timeout 60 bash -c 'until (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; do sleep 1; done'
+      - name: Sample data (some tests query it)
+        run: cargo run -q -- seed-sample
+        env:
+          MAGNUM_DATABASE_URL: postgresql://scramdb@127.0.0.1:55432/scramdb
       - name: Tests
         run: cargo test
       - name: Project files
