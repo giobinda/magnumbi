@@ -19,7 +19,7 @@ use serde::de::DeserializeOwned;
 use serde_json::{Value, json};
 
 use super::dashboards::WriteParams;
-use super::{Body, admin, blends, connections, dashboards, models};
+use super::{Body, admin, blends, connections, dashboards, models, themes};
 use crate::auth::{Auth, Caller};
 use crate::error::{ApiError, ApiResult};
 use crate::state::Shared;
@@ -227,6 +227,56 @@ fn tools() -> Vec<Tool> {
             description: "Replace the organisation's member list (the whole of it: read it first). Pass the version you read; dry_run to check only.",
         },
         Tool {
+            name: "list_themes",
+            perm: "view",
+            writes: false,
+            schema: || obj(json!({}), &[]),
+            description: "The themes here (built-in, project and the organisation's own) and the default light and dark theme.",
+        },
+        Tool {
+            name: "export_theme_css",
+            perm: "view",
+            writes: false,
+            schema: || obj(json!({"id": {"type": "string"}}), &["id"]),
+            description: "A theme as CSS design tokens (--mbi-accent, --mbi-chart-1, ...) plus helper classes (.mbi-card, \
+                          .mbi-button-primary, ...), for a company's own site or design system.",
+        },
+        Tool {
+            name: "import_theme_css",
+            perm: "manage_members",
+            writes: false,
+            schema: || {
+                obj(
+                    json!({"css": {"type": "string", "description": "CSS with --mbi-* tokens (as export_theme_css writes)"},
+                    "base": {"type": "string", "description": "the theme filling in tokens the CSS leaves out"}}),
+                    &["css"],
+                )
+            },
+            description: "Turn CSS design tokens into a theme (checked, not saved): give it an id and label, then save_org_themes.",
+        },
+        Tool {
+            name: "get_org_themes",
+            perm: "manage_members",
+            writes: false,
+            schema: || obj(json!({}), &[]),
+            description: "The organisation's own themes, its default light and dark theme, the version (needed to save) and \
+                          the themes it can start from.",
+        },
+        Tool {
+            name: "save_org_themes",
+            perm: "manage_members",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"themes": {"type": "object", "description": "{themes: [theme, ...], default_light?, default_dark?}: the whole set (read it first)"},
+                    "version": {"type": "string"}, "dry_run": {"type": "boolean"}}),
+                    &["themes"],
+                )
+            },
+            description: "Replace the organisation's own themes and its defaults (the whole set). Pass the version you read; \
+                          dry_run to check only. Theme ids of built-in themes are taken.",
+        },
+        Tool {
             name: "usage_summary",
             perm: "manage_members",
             writes: false,
@@ -393,6 +443,33 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
             let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
             admin::put_members(s(), a(), p, if_match(opt(&args, "version")?), Body(arg(&args, "members")?)).await?
         }
+        "list_themes" => {
+            caller.require("view")?;
+            let p = &caller.project;
+            Json(json!({"themes": p.themes, "default_light": p.theme_defaults.0, "default_dark": p.theme_defaults.1}))
+        }
+        "export_theme_css" => {
+            caller.require("view")?;
+            let id: String = arg(&args, "id")?;
+            let t = caller
+                .project
+                .themes
+                .iter()
+                .find(|t| t.id == id)
+                .ok_or_else(|| ApiError::not_found(format!("no theme {id:?}")))?;
+            Json(json!({"id": t.id, "css": crate::themes::to_css(t)}))
+        }
+        "import_theme_css" => {
+            let body = serde_json::from_value(json!({"css": args["css"], "base": args.get("base")}))
+                .map_err(|e| ApiError::bad_request(e.to_string()))?;
+            let Json(t) = themes::import(a(), Body(body)).await?;
+            Json(json!(t))
+        }
+        "get_org_themes" => themes::get_org(s(), a()).await?,
+        "save_org_themes" => {
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            themes::put_org(s(), a(), p, if_match(opt(&args, "version")?), Body(arg(&args, "themes")?)).await?
+        }
         "usage_summary" => {
             let days = serde_json::from_value(json!({"days": opt::<i64>(&args, "days")?.unwrap_or(30)}))
                 .map_err(|e| ApiError::bad_request(e.to_string()))?;
@@ -537,6 +614,38 @@ mod tests {
         let history = tool(&app, &rw, "dashboard_history", json!({"id": id})).await;
         assert!(history["structuredContent"]["history"].as_array().unwrap().len() >= 2);
         assert_eq!(tool(&app, &rw, "delete_dashboard", json!({"id": id})).await["isError"], json!(false));
+
+        // themes: list, CSS out and in, the organisation's own (a dry run here: the shared test
+        // database's platform workspace keeps its themes)
+        let themes = tool(&app, &ro, "list_themes", json!({})).await;
+        assert_eq!(themes["structuredContent"]["default_light"], json!("aloha"), "{themes}");
+        let css = tool(&app, &ro, "export_theme_css", json!({"id": "aloha"})).await;
+        let css_text = css["structuredContent"]["css"].as_str().unwrap().to_string();
+        assert!(css_text.contains("--mbi-accent: #c8102e;"), "{css}");
+        let imported = tool(
+            &app,
+            &rw,
+            "import_theme_css",
+            json!({"css": css_text.replace("#c8102e", "#0055a5"), "base": "aloha"}),
+        )
+        .await;
+        assert_eq!(imported["structuredContent"]["colors"]["accent"], json!("#0055a5"), "{imported}");
+        let mut theme = imported["structuredContent"].clone();
+        theme["id"] = json!("from-agent");
+        theme["label"] = json!("From an agent");
+        let mine = tool(&app, &rw, "get_org_themes", json!({})).await;
+        assert!(mine["structuredContent"]["version"].is_string(), "{mine}");
+        let saved = tool(
+            &app,
+            &rw,
+            "save_org_themes",
+            json!({"themes": {"themes": [theme], "default_light": "from-agent"}, "dry_run": true}),
+        )
+        .await;
+        assert_eq!(saved["structuredContent"]["dry_run"], json!(true), "{saved}");
+        assert!(
+            !ro_names.contains(&"save_org_themes".to_string()) && ro_names.contains(&"export_theme_css".to_string())
+        );
 
         // mistakes come back as tool errors (the agent can read them and retry)
         let bad = tool(&app, &rw, "describe_model", json!({"name": "nope"})).await;
