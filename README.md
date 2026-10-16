@@ -63,6 +63,7 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     compiler.rs             semantic query → SQL
     blend.rs                blends: per-engine parts, then the join on ScramDB
     api/tokens.rs           API tokens for agents and scripts
+    api/mcp.rs              MCP endpoint: tools for AI agents over the API
     orgdb.rs                each organisation's own ScramDB (routing, registration)
     cache.rs, materialize.rs  results as typed tables in ScramDB (the query cache, blends)
     usage.rs                usage metrics
@@ -281,6 +282,24 @@ Agents (MCP clients, scripts, CI, notebooks) use the same API as the UI, with an
   /api/tokens?all=true`), and everything a token does is in the usage log as `token:<name>`;
 - tokens are a sign-in method in the policies ("API tokens"): the platform or an organisation
   can switch them off.
+
+**MCP** (Model Context Protocol): `POST /api/mcp` lets Claude Code, Cursor, Claude Desktop and other
+MCP clients use Magnum BI as a tool, with an API token. Making a token under **Security** shows the
+setup for each client, e.g. Claude Code:
+
+```bash
+claude mcp add --transport http magnum-bi https://bi.example.com/api/mcp --header "Authorization: Bearer mbi_..."
+```
+
+Tools (`api/mcp.rs`): `list_models`, `describe_model`, `run_query`, `preview_sql`, `list_dashboards`,
+`get_dashboard`, `validate_dashboard`, `save_dashboard`, `delete_dashboard`, `dashboard_history`,
+`list_blends`, `save_blend`, `delete_blend`, `list_connections`, `save_connection`,
+`delete_connection`, `get_members`, `save_members`, `usage_summary`. Each calls the API handler
+a browser would, as the token's person, so permissions, row filters, dry runs and version checks
+are the API's own. Agents see only the tools they may use; read-only tokens get no writing tools.
+Every tool call is in the usage log. The endpoint is stateless JSON-RPC (streamable HTTP transport
+answering in JSON; protocol versions 2025-03-26 to 2025-11-25); checked with the official MCP
+Inspector.
 
 Two safety nets for changes made by agents (and people):
 
