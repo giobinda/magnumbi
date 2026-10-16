@@ -26,6 +26,9 @@ function cssVar(name: string, fallback: string) {
   return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback
 }
 
+/** Values in order, numbers as numbers ('9' before '10'): the order colours are given in. */
+const byValue = (a: string, b: string) => a.localeCompare(b, undefined, { numeric: true })
+
 export function buildOption(result: QueryResult, type: ChartType, opts: Record<string, unknown>, palette: string[]): Option {
   const text = cssVar('--text-muted', '#667085'), grid = cssVar('--border', '#e4e7ec')
   const cols = result.columns
@@ -44,6 +47,8 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
   if (type === 'pie') {
     const d = dimIdx[0], m = meaIdx[0]
     if (d === undefined || m === undefined) return { ...base, title: { text: 'Pie needs 1 dimension + 1 measure', textStyle: { fontSize: 12, color: text } } }
+    const names = result.rows.map(r => formatValue(r[d], cols[d]))
+    const ordered = [...names].sort(byValue)
     return {
       ...base,
       tooltip: { trigger: 'item', valueFormatter: (v: number) => formatNumber(v, cols[m].format) },
@@ -51,7 +56,8 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
       series: [{
         type: 'pie', radius: ['40%', '70%'], center: ['50%', '45%'], itemStyle: { borderColor: cssVar('--surface', '#fff'), borderWidth: 2 },
         label: { show: false }, emphasis: { label: { show: true, formatter: '{b}\n{d}%', fontWeight: 600, color: text } },
-        data: result.rows.map(r => ({ name: formatValue(r[d], cols[d]), value: r[m] })),
+        // colours by value, like split series: a value has one colour across a dashboard's charts
+        data: result.rows.map((r, i) => ({ name: names[i], value: r[m], itemStyle: { color: base.color[ordered.indexOf(names[i])] } })),
       }],
       __drill: { column: cols[d], raw: result.rows.map(r => r[d]) },
     }
@@ -97,7 +103,7 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
   }
   // split series in value order (numbers as numbers), so a value keeps its colour from chart to chart
   const series = [...seriesMap.values()]
-  if (pivot) series.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
+  if (pivot) series.sort((a, b) => byValue(a.name, b.name))
   // a previous-period series: its measure's colour, half-way to the background (lighter on light
   // themes, darker on dark ones), and dashed on lines
   const colorOf = new Map<string, string>()

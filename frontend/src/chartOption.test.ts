@@ -91,4 +91,10 @@ describe('a second dimension', () => {
     const hours = buildOption(result([borough, condition, measure('trips')], [['x', '10', 1], ['x', '9', 1]]), 'bar', {}, palette)
     expect((hours.series as Data[]).map(s => s.name)).toEqual(['9', '10'])
   })
+
+  it('colours pie slices the same way: by value, whatever their size order', () => {
+    const o = buildOption(result([condition, measure('trips')], [['Cloudy', 9], ['Clear', 3], ['Rain', 1]]), 'pie', {}, palette)
+    const slices = (o.series as { data: { name: string; itemStyle?: { color: string } }[] }[])[0].data
+    expect(slices.map(d => [d.name, d.itemStyle?.color])).toEqual([['Cloudy', '#222'], ['Clear', '#111'], ['Rain', '#333']])
+  })
 })
