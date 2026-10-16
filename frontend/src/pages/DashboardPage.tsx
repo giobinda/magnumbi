@@ -14,7 +14,8 @@ import { useAuth, useCan } from '../auth'
 import type { OrgRef } from '../api'
 import { periodFromUrl } from '../period'
 import TileView from '../components/TileView'
-import { useModels } from '../hooks'
+import { useModels, usePhone } from '../hooks'
+import { phoneLayout } from '../phoneLayout'
 
 const Grid = WidthProvider(GridLayout)
 
@@ -39,6 +40,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const id = params.id ?? ''
   const navigate = useNavigate()
   const { models, error: modelsError } = useModels()
+  const phone = usePhone()
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [yamlText, setYamlText] = useState('')
   const [yamlDraft, setYamlDraft] = useState<string | null>(null)
@@ -142,7 +144,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   }
 
   const onLayoutChange = (layout: Layout[]) => {
-    if (!editing || !dash) return
+    if (!editing || !dash || phone) return // the phone layout is for display, never saved
     const changed = layout.some(l => {
       const t = dash.tiles.find(x => x.id === l.i)
       return t && (t.layout.x !== l.x || t.layout.y !== l.y || t.layout.w !== l.w || t.layout.h !== l.h)
@@ -163,7 +165,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   if (error) return <div className="page"><div className="error">{error}</div><Link to="/">← Dashboards</Link></div>
   if (!dash) return <div className="page"><div className="empty">Loading…</div></div>
 
-  const layout: Layout[] = dash.tiles.map(t => ({ i: t.id, ...t.layout, minW: 2, minH: 2 }))
+  const layout: Layout[] = phone ? phoneLayout(dash.tiles) : dash.tiles.map(t => ({ i: t.id, ...t.layout, minW: 2, minH: 2 }))
   const showFilters = !embed || new URLSearchParams(location.search).get('filters') !== '0'
 
   return (
@@ -234,7 +236,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))} />}
           {dash.tiles.length === 0 && <div className="empty big">This dashboard has no tiles yet. {!embed && can('edit') && <button className="link" onClick={() => { setEditing(true); setEditTile('new') }}>Add one</button>}</div>}
           <Grid className={editing ? 'grid editing' : 'grid'} layout={layout} cols={12} rowHeight={64} margin={[12, 12]}
-            isDraggable={editing} isResizable={editing} draggableHandle=".tile-head" draggableCancel="button,select,input"
+            isDraggable={editing && !phone} isResizable={editing && !phone} draggableHandle=".tile-head" draggableCancel="button,select,input"
             onLayoutChange={onLayoutChange} compactType="vertical">
             {dash.tiles.map(t => (
               <div key={t.id}>

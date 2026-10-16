@@ -1,0 +1,71 @@
+# Tests and checks on every push to main and every pull request: the backend (with ScramDB,
+# PostgreSQL and DuckDB's extensions, so nothing is skipped), the project files, and the frontend.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["website/**"]
+  pull_request:
+    paths-ignore: ["website/**"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      scramdb:
+        image: docker.io/scramdb/scramdb:latest
+        ports: ["55432:5432"]
+      postgres:
+        image: docker.io/library/postgres:16
+        env:
+          POSTGRES_PASSWORD: ci
+        ports: ["55440:5432"]
+        options: --health-cmd pg_isready --health-interval 5s --health-retries 12
+    env:
+      MAGNUM_TEST_DATABASE_URL: postgresql://scramdb@127.0.0.1:55432/scramdb
+      MAGNUM_TEST_POSTGRES_URL: postgresql://postgres:ci@127.0.0.1:55440/postgres
+      MAGNUM_TEST_DUCKDB_EXTENSIONS: /tmp/duckdb-extensions
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.0"   # pinned: a new release's lints shouldn't fail an unchanged branch
+          components: clippy, rustfmt
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format
+        run: cargo fmt --check
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+      - name: Wait for ScramDB
+        run: timeout 60 bash -c 'until (echo > /dev/tcp/127.0.0.1/55432) 2>/dev/null; do sleep 1; done'
+      - name: Tests
+        run: cargo test
+      - name: Project files
+        run: cargo run -q -- check
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npx tsc -b
+      - run: npm test
+      - run: npx oxlint src
+      - run: npm run build

@@ -263,8 +263,9 @@ async fn serve(config: Config) -> Result<()> {
     if config.deployed && !problems.is_empty() {
         bail!("MAGNUM_ENV=production refuses to start: {}", problems.join("; "));
     }
-    for p in &problems {
-        tracing::warn!("not suitable for a shared deployment: {p}");
+    // development (the default): fine on one computer, so a note rather than a warning
+    if !problems.is_empty() {
+        tracing::info!("development mode, fine on this computer; before sharing it: {}", problems.join("; "));
     }
     let state = app_state(config).await?;
     let addr = format!("{}:{}", state.config.host, state.config.port);

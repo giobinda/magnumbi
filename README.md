@@ -119,6 +119,7 @@ Build your own with `docker build -t magnum-bi .` (or `podman build`).
 ```bash
 MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d     # UI and API on http://localhost:8000
 docker compose logs magnum | grep one-time                  # the first sign-in's password
+docker compose exec magnum magnum-bi seed-sample           # sample data for the Sales overview dashboard
 docker compose exec magnum magnum-bi demo --months 1        # optional: the NYC demo
 ```
 

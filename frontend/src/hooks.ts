@@ -19,6 +19,19 @@ export function useModels() {
   return { models: state?.models ?? [], modelErrors: state?.errors ?? {}, error, loaded: state !== null }
 }
 
+/** True on a phone-sized screen (the same width as the CSS's phone rules), following resizes. */
+export function usePhone() {
+  const query = '(max-width: 760px)'
+  const [phone, setPhone] = useState(() => matchMedia(query).matches)
+  useEffect(() => {
+    const m = matchMedia(query)
+    const onChange = () => setPhone(m.matches)
+    m.addEventListener('change', onChange)
+    return () => m.removeEventListener('change', onChange)
+  }, [])
+  return phone
+}
+
 /** Runs a free-form query whenever its JSON changes (debounced, previous request aborted). */
 export function useQuery(q: Query | null, debounceMs = 250) {
   return useLoader(q ? JSON.stringify(q) : '', (k, signal) => api.query(JSON.parse(k), signal), debounceMs)

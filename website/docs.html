@@ -119,6 +119,7 @@
 cd magnumbi
 MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d    <span class="c"># UI and API on http://localhost:8000</span>
 docker compose logs magnum | grep one-time                 <span class="c"># your first sign-in's password</span>
+docker compose exec magnum magnum-bi seed-sample          <span class="c"># sample data for the Sales overview dashboard</span>
 docker compose exec magnum magnum-bi demo --months 1       <span class="c"># optional: the NYC demo</span></code></pre>
       </div>
       <p class="muted">No git? Download just the Compose file and run the same commands next to it: <code>curl -O https://raw.githubusercontent.com/giobinda/magnumbi/main/compose.yaml</code>. Or download the whole repository as a ZIP from GitHub (<em>Code › Download ZIP</em>).</p>

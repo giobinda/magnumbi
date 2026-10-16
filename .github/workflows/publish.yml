@@ -79,6 +79,12 @@ jobs:
           helm lint deploy/helm/magnum-bi --set production=false
           helm lint deploy/helm/magnum-bi --set publicUrl=https://bi.example.com
 
+      - name: The generated secret key is one the server accepts (32 bytes, base64)
+        run: |
+          key=$(helm template bi deploy/helm/magnum-bi --set production=false --show-only templates/secret.yaml \
+            | sed -n 's/^  secret-key: \([^ ]*\).*/\1/p')
+          test "$(echo "$key" | base64 -d | base64 -d | wc -c)" = 32
+
       - name: Publish
         if: startsWith(github.ref, 'refs/tags/v')
         env:
