@@ -1,8 +1,69 @@
 # Magnum BI
 
-A lightweight BI tool: semantic models and dashboards as YAML, queries on
-[ScramDB](https://scramdb.com), a drag-and-drop explorer, drill-down, period comparison, and
-one-line embedding. The backend is Rust (axum + tokio-postgres); the UI is React.
+**Dashboards your whole company can use: fast, simple, and safe to share between teams and
+customers.**
+
+Magnum BI turns your data into clear, interactive dashboards. Analysts build them by dragging and
+dropping; everyone else just opens them. One installation serves many organisations, each with
+its own people, data and look, and nothing ever leaks from one to another.
+
+## Why Magnum BI
+
+**Fast.** The server is a single Rust program, and dashboards ask the database for answers, not
+raw data: the work happens where your data lives. Results can be cached, so the second person to
+open a dashboard gets it instantly. On the NYC demo, a tile that combines 3.5 million taxi trips
+with the weather, compared with a year earlier, takes about 2 seconds, then no time at all from
+the cache.
+
+**Easy to use.**
+- **For viewers:** open a dashboard, pick a period, click a bar to drill down (region, then
+  store). Every chart can compare with the previous period or the previous year, without anyone
+  writing a formula.
+- **For analysts:** **Explore** is drag and drop. Choose measures and dimensions and the chart
+  appears; save it to a dashboard. Measures are defined once, so "revenue" means the same thing
+  on every dashboard.
+- **Combine sources:** join data from different systems in one chart (for example, sales from
+  your warehouse with the weather) without copying databases around.
+- **Your company's colours:** build a theme visually, with readability checks, or import your
+  design team's tokens. Export the same colours as CSS for your own website.
+- **Put dashboards anywhere:** embed one in your intranet or product with a single line of HTML.
+
+**Many organisations, fully separate (multi-tenant).** Run one Magnum BI for several
+departments, subsidiaries or customers.
+- Each organisation has its own members, dashboards, data connections, themes and sign-in rules.
+- Each can keep its dashboards and cache in its own database, with its own passwords and keys,
+  sealed so that only that organisation can use them.
+- If one organisation's database is down, the others don't notice.
+- **Row filters** restrict what a person sees ("only the North region"). They always narrow and
+  never widen, and they apply everywhere the same data appears.
+- Roles go from Viewer to Org admin, and admins can preview the tool "as" a lower role to check
+  what people see.
+
+**Secure sign-in, your way.** Passwords with authenticator codes, passkeys (Face ID, Touch ID,
+Windows Hello), Google, or your organisation's own single sign-on (Microsoft Entra ID, Okta,
+Keycloak, …), with groups mapped to roles. The platform sets the rules; each organisation can
+only make them stricter.
+
+**Works with the data you already have:** PostgreSQL, BigQuery (with a cost cap on every query),
+ScramDB, and files (Parquet, CSV, JSON, Avro, Iceberg) on your servers, S3 or Google Cloud
+Storage through DuckDB. Every connection is read-only.
+
+**Ready for AI assistants.** Claude and other assistants can create and update dashboards,
+explore data and manage members through the built-in MCP server. They work with the same
+permissions as the person who gave them access, and can preview a change before saving it.
+
+**Under control.** Every dashboard keeps its version history. Usage metrics show who looks at
+what, how long queries take and which fail. Models and dashboards can live as YAML files in git,
+reviewed like code, next to what analysts build in the browser.
+
+**Quick to install, free to keep.** One small Docker image: `docker compose up` on a laptop, or
+the Helm chart on Kubernetes (see [Deploying](#deploying)). It's open source under the AGPL-3.0.
+
+## For developers
+
+Semantic models and dashboards as YAML, queries on [ScramDB](https://scramdb.com) and other
+engines, a drag-and-drop explorer, drill-down, period comparison, and one-line embedding. The
+backend is Rust (axum + tokio-postgres); the UI is React.
 
 ## Quick start
 
@@ -81,6 +142,12 @@ can't work, such as production without an https `publicUrl`, or several replicas
 ReadWriteOnce volume. See `values.yaml` for the rest; any `MAGNUM_*` setting goes in `env` or
 `secretEnv`.
 
+**Website.** `website/` is the public site: a landing page, the documentation and a comparison
+with other BI tools. It's static HTML, so any static host can serve it (Cloudflare Pages: root
+directory `website`, no build). Preview it with `python3 -m http.server 8080 -d website`, and
+see `website/README.md` for the domain and search engines. It's written from this README: when a
+user-facing feature changes, update both.
+
 **Releasing.** Bump `version` in `Cargo.toml`, then push a tag `vX.Y.Z` with the same version:
 `.github/workflows/publish.yml` publishes the image and the chart.
 
@@ -117,31 +184,37 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     store.rs, db.rs         tables and migrations
 frontend/                   React + Vite + ECharts + react-grid-layout
 devtools/scramdb.sh         local ScramDB containers: the primary and one per organisation
+website/                    the public site: landing page, docs, comparison (static, no build)
+Dockerfile, compose.yaml    the image, and a one-machine stack with its own ScramDB
+deploy/helm/magnum-bi/      the Helm chart
+.github/workflows/          publish.yml: the image and chart on ghcr.io
 ```
 
 ## Architecture
 
 ```mermaid
 flowchart TB
-  UI["Browser: React UI"]
+  UI["Browser: React UI, embeds"]
+  AGENT["AI assistants and scripts<br/>MCP · API tokens"]
   subgraph MB["Magnum BI: one binary, one URL"]
     MW["Hardening: CSRF origin check · body limits · security headers"]
-    AUTH["Sessions: password (Argon2id) · Google (OIDC)"]
+    AUTH["Sign-in: password + authenticator codes · passkeys · Google<br/>organisation SSO (OIDC) · API tokens; policies per platform and organisation"]
     ACC["Access: organisations · roles · row filters"]
-    SEM["Semantic layer: YAML models → SQL"]
-    CON["Connectors"]
+    SEM["Semantic layer: YAML models → SQL per engine · blends"]
+    CON["Connectors (read-only)"]
     MW --> AUTH --> ACC --> SEM --> CON
   end
-  PRIMARY[("Primary ScramDB<br/>users · sessions · platform settings · organisations & members<br/>platform templates · usage metrics")]
-  ORGA[("ScramDB of org A<br/>dashboards + history · query cache")]
-  ORGB[("ScramDB of org B<br/>dashboards + history · query cache")]
-  DATA[("Data sources<br/>ScramDB today; more connectors later")]
+  PRIMARY[("Primary ScramDB<br/>users · sessions · passkeys · API tokens · platform settings<br/>organisations, members and sign-in policies · usage metrics")]
+  ORGA[("ScramDB of org A<br/>dashboards + history · connections · blends · themes<br/>query cache · blend joins")]
+  ORGB[("ScramDB of org B<br/>(same, for org B)")]
+  DATA[("Each organisation's data<br/>ScramDB · PostgreSQL · BigQuery<br/>DuckDB: Parquet, CSV, JSON, Avro, Iceberg (local, S3, GCS)")]
   UI -- "same origin · HttpOnly session cookie" --> MW
+  AGENT -- "/api/mcp · /api (bearer token)" --> MW
   AUTH <--> PRIMARY
   ACC <--> PRIMARY
-  SEM <-- "cached results" --> ORGA
+  SEM <-- "cached results · blend joins" --> ORGA
   SEM <--> ORGB
-  CON -- "read-only transactions" --> DATA
+  CON --> DATA
 ```
 
 - **One service, one URL.** The server serves the built UI and `/api`, so the browser only ever
@@ -150,7 +223,8 @@ flowchart TB
   identity (users, sessions), platform settings, organisations with their members, roles and row
   filters, platform templates, and the usage metrics of the whole platform.
 - **One ScramDB instance per organisation** holds what is only that organisation's: its
-  dashboards (with every saved version) and its query cache. System owners register each
+  dashboards (with every saved version), connections, blends, themes and query cache, and it
+  runs the joins for its blends. System owners register each
   instance on the Organisations page; the connection string is tested, the instance migrated,
   the organisation's existing dashboards moved there, and the string stored sealed with
   `MAGNUM_SECRET_KEY` (AES-256-GCM, bound to the organisation). It fails closed: an organisation
