@@ -1,0 +1,593 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Magnum BI documentation: quick start, models, dashboards &amp; API</title>
+  <meta name="description" content="Documentation for Magnum BI, the open-source BI tool: quick start, YAML models, dashboards, data connections, blends, caching, embedding, roles, configuration and security.">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://magnumbi.example/docs.html">
+  <meta name="theme-color" content="#fff6e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1a2b" media="(prefers-color-scheme: dark)">
+  <meta name="author" content="Giovanni Andrea Binda">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Magnum BI">
+  <meta property="og:title" content="Magnum BI documentation">
+  <meta property="og:description" content="Quick start, YAML models, dashboards, connections, blends, embedding, roles and security for the open-source BI tool Magnum BI.">
+  <meta property="og:url" content="https://magnumbi.example/docs.html">
+  <meta property="og:image" content="https://magnumbi.example/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Magnum BI: Ferrari-fast. Aloha-easy. Detective-sharp.">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="stylesheet" href="assets/style.css">
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "TechArticle",
+    "headline": "Magnum BI documentation",
+    "url": "https://magnumbi.example/docs.html",
+    "inLanguage": "en",
+    "about": {"@id": "https://magnumbi.example/#software"},
+    "author": {"@type": "Person", "name": "Giovanni Andrea Binda"},
+    "image": "https://magnumbi.example/assets/og-image.png"
+  }
+  </script>
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <a class="beta" href="docs.html#roadmap" title="Magnum BI is in beta">Beta</a>
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html#features">Features</a>
+      <a href="index.html#how">How it works</a>
+      <a href="index.html#teams">For teams</a>
+      <a href="index.html#roadmap">Roadmap</a>
+      <a href="compare.html">Compare</a>
+      <a href="docs.html" aria-current="page">Docs</a>
+      <a class="btn small primary" href="#quick-start">Get started</a>
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<div class="wrap docs">
+  <aside class="toc" aria-label="On this page">
+    <details open>
+      <summary>On this page</summary>
+      <h4>Getting started</h4>
+      <ol>
+        <li><a href="#overview">Overview</a></li>
+        <li><a href="#quick-start">Quick start</a></li>
+        <li><a href="#agent-setup">Set up with an agent</a></li>
+        <li><a href="#layout">Project layout</a></li>
+        <li><a href="#ui-code-api">UI, code &amp; API</a></li>
+      </ol>
+      <h4>Building</h4>
+      <ol>
+        <li><a href="#models">Models</a></li>
+        <li><a href="#dashboards">Dashboards</a></li>
+        <li><a href="#connections">Data connections</a></li>
+        <li><a href="#blends">Blends</a></li>
+        <li><a href="#cache">Query cache</a></li>
+        <li><a href="#embedding">Embedding</a></li>
+        <li><a href="#themes">Themes &amp; brand colours</a></li>
+        <li><a href="#agents">AI agents &amp; MCP</a></li>
+      </ol>
+      <h4>Running it</h4>
+      <ol>
+        <li><a href="#organisations">Organisations &amp; roles</a></li>
+        <li><a href="#sign-in">Sign-in</a></li>
+        <li><a href="#deploying">Deploying</a></li>
+        <li><a href="#configuration">Configuration</a></li>
+        <li><a href="#security">Security</a></li>
+        <li><a href="#demo">NYC taxi demo</a></li>
+        <li><a href="#roadmap">Beta &amp; roadmap</a></li>
+        <li><a href="#license">License</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main" class="doc">
+
+    <section id="overview">
+      <h1>Magnum BI documentation</h1>
+      <p class="muted" style="font-size:1.1rem">Everything you need to install Magnum BI, describe your data, and build dashboards people enjoy using.</p>
+      <p>Magnum BI is a lightweight BI tool that installs with one <code>docker compose up</code> or a Helm chart. You write <strong>semantic models</strong> and <strong>dashboards</strong> as YAML files; people explore them in a drag-and-drop UI with drill-down, period comparison and one-line embedding. Coding agents can set it up for you, and AI assistants can work in it through its <a href="#agents">MCP endpoint</a>. The backend is Rust (axum + tokio-postgres), the UI is React, and configuration, dashboards and the query cache live in <a href="https://scramdb.com" target="_blank" rel="noopener">ScramDB</a>.</p>
+      <div class="note beta-note"><strong>Beta.</strong> Magnum BI is under active development. It works and is tested, but configuration, APIs and file formats may still change between versions, and there's no upgrade guarantee yet. Try it, build on it, and tell us what breaks; for production use, pin a version and read the changes before upgrading. See <a href="#roadmap">Beta &amp; roadmap</a>.</div>
+      <div class="note"><strong>In short:</strong> one server, one URL. Manage it from the web interface, keep it as code in git, or script it through the API — every path goes through the same rules, so your setup never ends up in two different states.</div>
+    </section>
+
+    <section id="quick-start">
+      <h2>Quick start</h2>
+      <h3>With Docker (fastest)</h3>
+      <p>All you need is <strong>Docker or Podman</strong> with Compose. Get <code>compose.yaml</code> from the repository and run:</p>
+      <div class="code">
+<pre><code>MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d    <span class="c"># UI and API on http://localhost:8000</span>
+docker compose logs magnum | grep one-time                 <span class="c"># your first sign-in's password</span>
+docker compose exec magnum magnum-bi demo --months 1       <span class="c"># optional: the NYC demo</span></code></pre>
+      </div>
+      <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>secrets</code> volume on first start: back it up.</p>
+      <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
+      <h3>From source</h3>
+      <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then, from the repository root:</p>
+      <div class="code">
+<pre><code>make install                              <span class="c"># frontend dependencies</span>
+make db-up                                <span class="c"># local ScramDB on 127.0.0.1:55432</span>
+make seed                                 <span class="c"># sample_sales demo table (≈46k rows)</span>
+echo 'MAGNUM_SYSTEM_OWNERS=you@example.com' &gt; .env.local
+make key                                  <span class="c"># generates MAGNUM_SECRET_KEY</span>
+make user EMAIL=you@example.com           <span class="c"># choose a password</span>
+make dev-backend                          <span class="c"># API on :8000</span>
+make dev-frontend                         <span class="c"># UI on :5173 (in another terminal)</span></code></pre>
+      </div>
+      <p>Open <code>http://localhost:5173</code> and sign in. The <strong>Sales overview</strong> dashboard runs on the sample data — try clicking a region to drill into its stores.</p>
+      <h3>Useful commands</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Command</th><th>What it does</th></tr></thead>
+          <tbody>
+            <tr><td><code>make serve</code></td><td>Builds everything and runs one process serving the API and UI on <code>:8000</code>.</td></tr>
+            <tr><td><code>docker compose up -d --build</code></td><td>Runs the packaged stack from your checkout instead of the published image.</td></tr>
+            <tr><td><code>make check</code></td><td>Validates your project files (connections, models, dashboards).</td></tr>
+            <tr><td><code>make test</code></td><td>Backend tests, frontend typecheck and frontend tests.</td></tr>
+            <tr><td><code>make test-db</code></td><td>Also runs the tests that need ScramDB (and PostgreSQL, if configured).</td></tr>
+            <tr><td><code>make org-db ORG=acme PORT=55433</code></td><td>Gives an organisation its own local ScramDB.</td></tr>
+            <tr><td><code>make demo [ORG=globex] [MONTHS=13]</code></td><td>Loads the <a href="#demo">NYC taxi × weather demo</a> in one step.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="note"><strong>Trying organisations?</strong> Create one on the <em>Organisations</em> page (e.g. <code>acme</code>), then give it a database with <code>make org-db</code> or <em>Database › Set…</em> on that page.</div>
+    </section>
+
+    <section id="agent-setup">
+      <h2>Set up with a coding agent</h2>
+      <p>Magnum BI is built to be installed and configured by coding agents such as Claude Code, Cursor or Codex. It ships as one Docker image with a Compose file and a Helm chart, the repository has an <code>AGENTS.md</code> with the house rules and every command, and every setting is an environment variable or a YAML file. An agent can go from an empty folder to a running demo with almost no help.</p>
+      <p>Copy this prompt into your agent. It checks for Docker, starts Magnum BI with its own ScramDB, loads the NYC demo and gives you the URL and your first sign-in. It asks before installing or downloading anything, and falls back to building from source if Docker isn't an option.</p>
+      <p><button class="btn primary" type="button" data-copy-agent-prompt>📋 Copy the setup prompt</button></p>
+      <div class="code">
+        <span class="label">Prompt for your coding agent</span>
+<pre class="prompt"><code data-agent-prompt>Set up Magnum BI on this machine: clone the repository, read AGENTS.md and README.md, and follow the quick start.</code></pre>
+      </div>
+      <div class="note"><strong>After setup:</strong> make an API token under <em>Security › API tokens</em> and connect the agent over <a href="#agents">MCP</a>. It can then build dashboards, blends and themes for you, with your permissions and nothing more.</div>
+    </section>
+
+    <section id="layout">
+      <h2>Project layout</h2>
+      <p>Your content lives in <code>project/</code>. Keep it in git.</p>
+      <div class="code">
+<pre><code>project/
+  models/*.yaml       <span class="c"># semantic models: dimensions, measures, drill paths</span>
+  blends/*.yaml       <span class="c"># models joined on shared fields, across connections</span>
+  dashboards/*.yaml   <span class="c"># dashboards seeded on first start (file name = id)</span>
+  themes/*.yaml       <span class="c"># optional extra themes</span>
+  access.yaml         <span class="c"># optional: initial organisations and members</span>
+backend/              <span class="c"># Rust API server and CLI</span>
+frontend/             <span class="c"># React + Vite + ECharts</span>
+devtools/             <span class="c"># local ScramDB containers</span>
+Dockerfile, compose.yaml  <span class="c"># the image and a one-machine stack</span>
+deploy/helm/magnum-bi/    <span class="c"># the Helm chart</span>
+AGENTS.md             <span class="c"># the guide for coding agents (CLAUDE.md imports it)</span></code></pre>
+      </div>
+    </section>
+
+    <section id="ui-code-api">
+      <h2>UI, code &amp; API</h2>
+      <p>Magnum BI is designed so you can pick the right tool for each job without creating two versions of the truth. The web interface is just a client of the HTTP API, and changes from files, clicks and scripts are all validated by the same server code.</p>
+      <h3>What you can manage where</h3>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Object</th><th>Web UI</th><th>YAML in git</th><th>API / CLI</th></tr></thead>
+          <tbody>
+            <tr><td>Models</td><td>Browse</td><td>✓ <code>models/</code> (source of truth)</td><td>Read: <code>GET /api/models</code></td></tr>
+            <tr><td>Dashboards</td><td>✓ Designer + YAML view</td><td>✓ <code>dashboards/</code> (seeded on first start)</td><td>✓ <code>/api/dashboards/{id}</code>, <code>…/yaml</code>, <code>…/history</code></td></tr>
+            <tr><td>Blends</td><td>✓ Blends page</td><td>✓ <code>blends/</code></td><td>✓ <code>/api/blends/{name}</code></td></tr>
+            <tr><td>Themes</td><td>✓ Pick; Org admins: <em>Themes</em> editor, CSS export/import</td><td>✓ <code>themes/</code></td><td>✓ <code>/api/org-themes</code>; read: <code>GET /api/themes</code></td></tr>
+            <tr><td>Connections</td><td>✓ Connections page, with Test</td><td>—</td><td>✓ <code>/api/connections/{name}</code>, <code>…/test</code></td></tr>
+            <tr><td>Members, roles, filters</td><td>✓ Members page</td><td><code>access.yaml</code> (initial setup)</td><td>✓ <code>/api/members</code></td></tr>
+            <tr><td>Organisations</td><td>✓ Organisations page</td><td><code>access.yaml</code> (initial setup)</td><td>✓ <code>/api/platform</code>; CLI <code>magnum-bi org set-database</code></td></tr>
+            <tr><td>Accounts</td><td>✓ Members, Security</td><td>—</td><td>CLI <code>magnum-bi user set-password | disable | enable</code></td></tr>
+            <tr><td>API tokens</td><td>✓ Security › API tokens</td><td>—</td><td>✓ <code>/api/tokens</code></td></tr>
+            <tr><td>Sign-in policies</td><td>✓ Organisations › Sign-in, Members › Sign-in</td><td>—</td><td>✓ API</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>How consistency is kept</h3>
+      <ul>
+        <li><strong>One store per object.</strong> Dashboards are stored as YAML text. The designer and the YAML view are two views of the same thing: saving in either updates both.</li>
+        <li><strong>Same validation everywhere.</strong> A dashboard, blend or connection is checked identically whether it's saved from the UI, a file or the API. Invalid changes are refused with an explanation.</li>
+        <li><strong>History.</strong> Every dashboard save is kept as a version with its author, whichever way it was made.</li>
+        <li><strong>Checked before deploy.</strong> Run <code>magnum-bi check</code> (or <code>make check</code>) in CI to validate connections, models, themes and dashboards before they go live.</li>
+        <li><strong>Metrics in code.</strong> Models are only defined in YAML, so the meaning of a metric changes through review, not through a browser.</li>
+      </ul>
+      <h3>Using the API</h3>
+      <p>The API lives under <code>/api</code> on the same address as the UI. Scripts, CI jobs and agents use an <strong>API token</strong> (<code>Authorization: Bearer mbi_…</code>, see <a href="#agents">AI agents &amp; MCP</a>); the browser uses its session. Your role applies to the API exactly as it does to the UI.</p>
+      <div class="code">
+        <span class="label">Export a dashboard, edit it, check it, put it back</span>
+<pre><code>H='Authorization: Bearer mbi_…'
+curl -H "$H" -D headers.txt https://bi.example.com/api/dashboards/sales_overview/yaml &gt; sales_overview.yaml
+<span class="c"># …edit the file…</span>
+curl -H "$H" -X PUT --data-binary @sales_overview.yaml \
+     'https://bi.example.com/api/dashboards/sales_overview/yaml?dry_run=1'   <span class="c"># warnings, nothing saved</span>
+curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview.yaml \
+     https://bi.example.com/api/dashboards/sales_overview/yaml               <span class="c"># 409 if someone changed it meanwhile</span></code></pre>
+      </div>
+      <div class="note"><strong>Coming next:</strong> <em>plan / apply</em> from git, so a repository can continuously drive organisations and dashboards on a running server. Today, YAML dashboards and <code>access.yaml</code> are loaded on first start; after that, the server is the source of truth and the API is the way to sync.</div>
+    </section>
+
+    <section id="models">
+      <h2>Models</h2>
+      <p>A model describes one table: which columns you group by (<strong>dimensions</strong>), which numbers you add up (<strong>measures</strong>), and how to drill (<strong>hierarchies</strong>).</p>
+      <div class="code">
+        <span class="label">project/models/sales.yaml</span>
+<pre><code>name: sales
+connection: warehouse          <span class="c"># each organisation's own "warehouse"</span>
+table: sample_sales            <span class="c"># unqualified: the connection decides where</span>
+dimensions:
+  - {name: sold_at, type: time}  <span class="c"># string | number | boolean | date | time | datetime</span>
+  - {name: region}
+  - {name: store, aggregation: count_distinct}
+measures:
+  - {name: revenue, type: sum, sql: amount, format: currency}
+  - {name: transactions, type: count}
+  - {name: revenue_per_unit, type: number, sql: SUM(amount) / NULLIF(SUM(qty), 0)}
+hierarchies:
+  location: [region, store]    <span class="c"># drill path</span>
+cache: 15m                     <span class="c"># optional</span></code></pre>
+      </div>
+      <ul>
+        <li>A model can <code>extends:</code> another and add fields.</li>
+        <li>Queries support time grains (<code>sold_at:month</code>), ad-hoc aggregations (<code>sum(amount)</code>, <code>count_distinct(store)</code>), filters, Top/Bottom N, and sorting by change (<code>-revenue__change</code>).</li>
+        <li>Only declared fields can be queried, and every value is safely escaped. SQL written inside a model (<code>sql:</code>) is trusted configuration.</li>
+      </ul>
+      <div class="note"><strong>One model, many organisations.</strong> Models only <em>name</em> a connection. Each organisation's <code>warehouse</code> decides where the data really is, so the same model serves everyone from their own data.</div>
+    </section>
+
+    <section id="dashboards">
+      <h2>Dashboards</h2>
+      <p>A dashboard is a list of tiles, each with its own query and position, plus optional filters and a dashboard-wide period.</p>
+      <div class="code">
+        <span class="label">project/dashboards/sales_overview.yaml</span>
+<pre><code>title: Sales overview
+period:
+  model: sales
+  field: sold_at
+  current: {last_n_days: 30}   <span class="c"># or {preset: month_to_date}, or {from: …, to: …}</span>
+  compare: previous_period     <span class="c"># or previous_year, or {from: 2025-09-01}</span>
+filters:
+  - {model: sales, field: category, label: Category}
+tiles:
+  - id: revenue
+    title: Revenue
+    type: kpi
+    query: {model: sales, measures: [revenue]}
+    layout: {x: 0, y: 0, w: 3, h: 2}
+  - id: revenue_by_day
+    title: Daily revenue
+    type: line
+    query: {model: sales, dimensions: ["sold_at:day"], measures: [revenue]}
+    layout: {x: 0, y: 2, w: 8, h: 5}</code></pre>
+      </div>
+      <p>You can also build and edit dashboards in the UI. Every saved version is kept. Dashboards in the platform workspace act as <strong>templates</strong>: <em>Publish…</em> copies one into organisations.</p>
+      <h3>Charts</h3>
+      <ul>
+        <li>KPIs, lines, areas, bars (vertical, horizontal or stacked), pies, scatter plots and tables, drawn with ECharts in the theme's palette.</li>
+        <li><strong>Two measures, two scales.</strong> A line or bar chart of two measures (say, daily trips and temperature) puts the second on its own right-hand axis, named and coloured after it.</li>
+        <li><strong>Period comparison you can read.</strong> The previous period is drawn dashed, in a lighter (or, on dark themes, darker) shade of its measure's colour, on the same scale.</li>
+        <li>A dashboard can pin a theme with <code>theme: &lt;id&gt;</code>.</li>
+      </ul>
+      <p class="muted">Viewers never send raw queries: they ask for a saved tile with their filter values, period and drill clicks, and the server rebuilds the query.</p>
+    </section>
+
+    <section id="connections">
+      <h2>Data connections</h2>
+      <p>Each organisation manages its own connections on the <strong>Connections</strong> page. Use <strong>Test</strong> to check settings before saving. Secrets (passwords, keys) are encrypted and never shown again.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Type</th><th>Where a table is found</th><th>Notes</th></tr></thead>
+          <tbody>
+            <tr><td>ScramDB, PostgreSQL</td><td>The connection's <code>schema</code></td><td>Read-only transactions, statement timeout, verified TLS.</td></tr>
+            <tr><td>BigQuery</td><td>The connection's <code>project</code> + <code>dataset</code></td><td>Every query is dry-run first and refused above <code>max_bytes_billed</code>.</td></tr>
+            <tr><td>DuckDB</td><td>Files you list under <code>tables:</code>, or a <code>.duckdb</code> file</td><td>Parquet, CSV, JSON, Avro, Iceberg; local or on S3, GCS, HTTPS.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p>DuckDB runs each query in a fresh, locked-down sandbox: only the organisation's own folders and storage prefixes are reachable, with no writes or settings changes. Example table: <code>orders = iceberg:s3://acme-lake/warehouse/retail/orders</code>.</p>
+    </section>
+
+    <section id="blends">
+      <h2>Blends: join models across engines</h2>
+      <p>A blend joins models on the fields they share — even when the data lives in different databases. Define one in <code>project/blends/</code>, or in the UI on <strong>Blends</strong>.</p>
+      <div class="code">
+        <span class="label">project/blends/taxi_weather.yaml</span>
+<pre><code>name: taxi_weather
+label: Taxi trips × weather
+base: taxi                             <span class="c"># every row starts from it</span>
+joins:
+  - model: weather
+    on:
+      - pickup_borough = borough
+      - pickup_at:hour = observed_at:hour  <span class="c"># dates match at a grain</span>
+cache: 1h</code></pre>
+      </div>
+      <p>Use a blend like any model; its fields are named <code>model.field</code> (e.g. <code>taxi.trips</code>). Behind the scenes it works in two steps:</p>
+      <ol>
+        <li><strong>Aggregate per engine.</strong> Each model gets its own query on its own connection, grouped by the join keys.</li>
+        <li><strong>Join on ScramDB.</strong> The partial results are joined in the organisation's ScramDB, then grouping, sorting, Top N and period comparison work as usual.</li>
+      </ol>
+      <p class="muted">Limits: measures must add up (count, sum, min, max, avg), each part may return up to 1,000,000 rows, and queries that would double-count are refused with an explanation. The SQL preview in Explore shows every part and the join.</p>
+    </section>
+
+    <section id="cache">
+      <h2>Query cache</h2>
+      <p>The cache is what makes Magnum BI feel instant: a repeated question is answered from <a href="https://scramdb.com" target="_blank" rel="noopener">ScramDB</a> instead of going back to your warehouse. It's built to be fast <em>and</em> isolated per tenant.</p>
+      <p>Turn it on per model with <code>cache: 15m</code> (any duration up to 30 days). It's off by default, so live data stays live.</p>
+      <h3>Isolated per organisation</h3>
+      <ul>
+        <li><strong>Its own instance.</strong> Each organisation's cache lives in that organisation's own ScramDB instance, next to its dashboards. Nothing is shared between tenants.</li>
+        <li><strong>Failures stay contained.</strong> An unreachable instance only affects its own organisation (it fails closed), never sign-in or other organisations.</li>
+        <li><strong>Filtered per person.</strong> Entries are keyed by organisation, connection and the compiled SQL — which already contains the person's row filters and the period. People share a result only when they'd get the same rows anyway.</li>
+      </ul>
+      <h3>Built for speed</h3>
+      <ul>
+        <li><strong>Typed tables, not blobs.</strong> Each result is stored as a real table (<code>magnum_cache.r_…</code>), the same mechanism that powers <a href="#blends">blends</a>.</li>
+        <li><strong>Real-world numbers.</strong> On the <a href="#demo">NYC taxi demo</a> (208 million rows), a month takes about 1 s and all five years about 5 s; a cross-engine blend about 2 s. Cached, they're instant.</li>
+        <li><strong>Managed for you.</strong> Up to 2,000 results per instance, least recently used dropped first. Org admins see and clear the cache on <strong>Usage</strong>; builders can bypass it with the <code>x-magnum-refresh: 1</code> header.</li>
+      </ul>
+      <div class="note"><strong>Development tip:</strong> locally, several organisations may share one ScramDB instance (rows carry the organisation id). In production, give each organisation its own instance for full isolation.</div>
+    </section>
+
+    <section id="embedding">
+      <h2>Embedding</h2>
+      <p>Add a dashboard to any web page with one script and one tag:</p>
+      <div class="code">
+<pre><code>&lt;script src="https://bi.example.com/embed.js"&gt;&lt;/script&gt;
+&lt;magnum-dashboard dashboard="sales_overview" filters="category=Footwear"&gt;&lt;/magnum-dashboard&gt;</code></pre>
+      </div>
+      <p>Or use an iframe on <code>/embed/&lt;id&gt;</code>. Allow host pages with <code>MAGNUM_FRAME_ANCESTORS</code>; for embeds on other sites, set <code>MAGNUM_COOKIE_SAMESITE=none</code> and serve over https.</p>
+    </section>
+
+    <section id="themes">
+      <h2>Themes &amp; brand colours</h2>
+      <p>The default themes are <strong>Aloha</strong> (light) and <strong>Aloha night</strong> (dark), the ones this site uses. Everyone can pick any theme for themselves. Built-in themes never change, so a theme id always looks the same; projects can add more in <code>project/themes/</code>.</p>
+      <p>Each organisation can also have <strong>its own themes</strong>, made by its Org admins on the <strong>Themes</strong> page:</p>
+      <ul>
+        <li><strong>Visual editor.</strong> Colours, chart palette, corners and font, with a live preview and contrast checks (WCAG: text 4.5:1, chart colours 3:1). Start from any theme.</li>
+        <li><strong>Organisation defaults.</strong> Pick the light and dark theme everyone in the organisation gets unless they chose another.</li>
+        <li><strong>Export CSS.</strong> Any theme as design tokens (<code>--mbi-accent</code>, <code>--mbi-surface</code>, <code>--mbi-chart-1</code> …) plus helper classes (<code>.mbi-card</code>, <code>.mbi-button-primary</code>, <code>.mbi-kpi</code> …) for your own site or design system.</li>
+        <li><strong>Import CSS.</strong> Your design team pastes tokens back, edited or from their own system, and the editor opens with them. Only validated token values are read; the rest is ignored.</li>
+      </ul>
+      <p class="muted">Organisation themes live in the organisation's own ScramDB and are available through <code>/api/org-themes</code>, with dry runs and version checks like other documents.</p>
+    </section>
+
+    <section id="agents">
+      <h2>AI agents &amp; MCP</h2>
+      <p>Agents, scripts, CI jobs and notebooks use the same API as the UI, so they get the same rules, permissions and audit trail as people do.</p>
+      <h3>API tokens</h3>
+      <p>Make one under <strong>Security › API tokens</strong>, then send it as <code>Authorization: Bearer mbi_…</code>.</p>
+      <ul>
+        <li>It acts for the person who made it, in their organisation, with at most their role (or a lower one you choose). Row filters and organisation isolation apply as usual.</li>
+        <li><strong>Read-only</strong> (reading, queries, dry runs) or <strong>read &amp; write</strong>. It always expires: 90 days by default, at most 365. The secret is shown once; only a hash is stored.</li>
+        <li>Tokens can't make other tokens or change how anyone signs in. Revoke one, or disable the account, and it stops at once. Org admins see and revoke every token in their organisation.</li>
+        <li>Everything a token does is in the usage log as <code>token:&lt;name&gt;</code>. Policies can switch tokens off for the platform or an organisation.</li>
+      </ul>
+      <h3>MCP endpoint</h3>
+      <p><code>POST /api/mcp</code> lets Claude Code, Cursor, Claude Desktop and other MCP clients use Magnum BI as a tool. Making a token shows the setup for each client, for example:</p>
+      <div class="code">
+        <span class="label">Claude Code</span>
+<pre><code>claude mcp add --transport http magnum-bi https://bi.example.com/api/mcp \
+  --header "Authorization: Bearer mbi_…"</code></pre>
+      </div>
+      <p>The agent can then list and describe models, run queries and preview their SQL, read, validate, save and delete dashboards (with history), and manage blends, connections, members and themes. Give it your company's CSS design tokens and it can turn them into the organisation's default theme. It can also read usage summaries. Agents only see the tools their token allows; read-only tokens get no writing tools. Each tool calls the same API handler a browser would, so permissions and checks are the API's own.</p>
+      <h3>Safety nets for changes</h3>
+      <ul>
+        <li><strong>Dry runs.</strong> Add <code>?dry_run=1</code> when saving a dashboard, blend, members list or organisation themes: everything is checked and warnings come back (for example, a tile on a field that doesn't exist), but nothing is saved.</li>
+        <li><strong>Versions.</strong> Reads return a <code>version</code>. Send it back as <code>If-Match</code> and a save is refused (409, with the current version) if someone changed it meanwhile, instead of silently overwriting their work. Overwritten and deleted dashboards stay in their history.</li>
+      </ul>
+    </section>
+
+    <section id="organisations">
+      <h2>Organisations &amp; roles</h2>
+      <p>Each organisation has its own members, connections and dashboards, none visible to other organisations. Each can have its own ScramDB instance for dashboards and cache; if it's unreachable, only that organisation is affected.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Role</th><th>Can</th></tr></thead>
+          <tbody>
+            <tr><td>Viewer</td><td>View dashboards, use their filters and the period picker</td></tr>
+            <tr><td>User</td><td>+ drill down, embed</td></tr>
+            <tr><td>Power user</td><td>+ create / edit / delete dashboards, Explore, see SQL and YAML</td></tr>
+            <tr><td>Org admin</td><td>+ manage members, roles and personal filters</td></tr>
+            <tr><td>System owner</td><td>Everything, in every organisation</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <ul>
+        <li>People join as listed members, or automatically by email domain with a default (non-admin) role.</li>
+        <li><strong>Row filters</strong> only narrow what someone sees. Anything misconfigured fails closed.</li>
+        <li>Anyone can preview a lower role (“view as”), never a higher one.</li>
+        <li><strong>Usage</strong> shows Org admins sign-ins, queries, dashboard views, cache hits and failures for their organisation, and system owners for the whole platform. Recording never slows a request down.</li>
+      </ul>
+    </section>
+
+    <section id="sign-in">
+      <h2>Sign-in</h2>
+      <p>The sign-in page asks for the email first, then offers the ways that person's organisation allows. Every method ends in the same secure server-side session (an HttpOnly cookie).</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Method</th><th>How it works</th></tr></thead>
+          <tbody>
+            <tr><td><strong>Password</strong><br><span class="muted">on by default</span></td><td>At least 10 characters, Argon2id hashes, 15-minute lockout after 5 failures. Set from the server (<code>magnum-bi user set-password</code>), by an Org admin as a one-time password, or by the person under <em>Security</em>.</td></tr>
+            <tr><td><strong>Authenticator codes</strong></td><td>Two-factor codes (TOTP) from any authenticator app after the password, set up under <em>Security</em> with a QR code, plus 10 one-time recovery codes.</td></tr>
+            <tr><td><strong>Passkeys</strong></td><td>Touch ID, Windows Hello, phones and security keys (WebAuthn), added under <em>Security</em>.</td></tr>
+            <tr><td><strong>Google</strong><br><span class="muted">optional</span></td><td>Set <code>MAGNUM_GOOGLE_CLIENT_ID</code> and <code>MAGNUM_GOOGLE_CLIENT_SECRET</code>. Only Google-verified emails are accepted.</td></tr>
+            <tr><td><strong>Your organisation's single sign-on</strong></td><td>Any OpenID Connect provider: Microsoft Entra ID, Okta, Keycloak, Auth0, Google Workspace and more. Org admins set it up under <em>Members › Sign-in</em> and map provider groups to roles. It only signs in addresses on the organisation's own domains.</td></tr>
+            <tr><td><strong>API tokens</strong></td><td>For agents and scripts; see <a href="#agents">AI agents &amp; MCP</a>.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Policies</h3>
+      <p>Which methods people may use, and whether passwords need an authenticator code, is set at three levels: the platform, the platform for one organisation, and the organisation itself. Organisations choose within the platform's rules and can only tighten them. Policies are checked at sign-in and on every request: a stricter policy signs out sessions that no longer meet it.</p>
+      <p class="muted">An account whose password was issued by an Org admin is bound to that organisation: with that password it can never act as a system owner or in another organisation. Disable an account (and end its sessions) with <code>magnum-bi user disable &lt;email&gt;</code>.</p>
+    </section>
+
+    <section id="deploying">
+      <h2>Deploying</h2>
+      <h3>Docker image</h3>
+      <p>Releases are published as <code>ghcr.io/giobinda/magnum-bi</code> (<code>latest</code> and <code>X.Y.Z</code>; <code>edge</code> follows the main branch). It's one image of about 150 MB with the server, the CLI, the built UI and the project files. It runs as an unprivileged user and keeps DuckDB files in <code>/data</code>. Build your own with <code>docker build -t magnum-bi .</code>.</p>
+      <h3>Docker Compose: one machine</h3>
+      <p><code>compose.yaml</code> runs Magnum BI with its own ScramDB (see <a href="#quick-start">Quick start</a>). <code>MAGNUM_HTTP_PORT</code> changes the port. On first start, with no accounts yet, the admin gets a one-time password, printed in the log or set with <code>MAGNUM_ADMIN_PASSWORD</code>. For a shared server, put https in front and set <code>MAGNUM_PUBLIC_URL</code> and <code>MAGNUM_ENV=production</code>.</p>
+      <h3>Kubernetes: the Helm chart</h3>
+      <p>Published as <code>oci://ghcr.io/giobinda/charts/magnum-bi</code>:</p>
+      <div class="code">
+<pre><code><span class="c"># try it: bundled ScramDB, no ingress (kubectl port-forward svc/bi-magnum-bi 8000:80)</span>
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi --set production=false
+
+<span class="c"># for real: https address, ingress, your own ScramDB (a Secret with the key database-url)</span>
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi \
+  --set publicUrl=https://bi.example.com --set ingress.enabled=true \
+  --set admin.email=you@example.com --set database.existingSecret=bi-scramdb
+helm test bi</code></pre>
+      </div>
+      <ul>
+        <li><strong>Secret key handled for you.</strong> The chart generates it on install and keeps it on upgrade, or brings your own with <code>secretKey.existingSecret</code>.</li>
+        <li><strong>Locked down.</strong> The bundled ScramDB is reachable only from Magnum BI (a NetworkPolicy), and the pod has a read-only root filesystem.</li>
+        <li><strong>Refuses what can't work.</strong> For example production without an https <code>publicUrl</code>, or several replicas on a ReadWriteOnce volume.</li>
+        <li>Any <code>MAGNUM_*</code> setting goes in <code>env</code> or <code>secretEnv</code>; see the chart's <code>values.yaml</code>.</li>
+      </ul>
+      <p class="muted">The server waits up to a minute for ScramDB at start instead of failing, so the order containers start in doesn't matter.</p>
+    </section>
+
+    <section id="configuration">
+      <h2>Configuration</h2>
+      <p>Everything is set with environment variables. For local development, put them in <code>.env.local</code>.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Variable</th><th>Default</th><th>Purpose</th></tr></thead>
+          <tbody>
+            <tr><td><code>MAGNUM_DATABASE_URL</code></td><td><code>postgresql://scramdb@127.0.0.1:5432/scramdb</code></td><td>The primary ScramDB</td></tr>
+            <tr><td><code>MAGNUM_SECRET_KEY</code></td><td></td><td>Encrypts connection strings (<code>magnum-bi gen-key</code>); required in production</td></tr>
+            <tr><td><code>MAGNUM_SECRET_KEY_FILE</code></td><td></td><td>Read the key from this file instead; created (mode 0600) on first start if missing</td></tr>
+            <tr><td><code>MAGNUM_INITIAL_PASSWORD</code></td><td></td><td>First start with no accounts: the first system owner's one-time password (otherwise generated and logged)</td></tr>
+            <tr><td><code>MAGNUM_PUBLIC_URL</code></td><td></td><td>Public https address</td></tr>
+            <tr><td><code>MAGNUM_ENV</code></td><td><code>development</code></td><td><code>production</code> / <code>staging</code> refuse unsafe settings</td></tr>
+            <tr><td><code>MAGNUM_SYSTEM_OWNERS</code></td><td></td><td>Comma-separated emails, until organisations are first saved</td></tr>
+            <tr><td><code>MAGNUM_HOST</code> / <code>MAGNUM_PORT</code></td><td><code>127.0.0.1</code> / <code>8000</code></td><td>Listen address</td></tr>
+            <tr><td><code>MAGNUM_PASSWORD_LOGIN</code></td><td><code>1</code></td><td>Password sign-in on/off</td></tr>
+            <tr><td><code>MAGNUM_GOOGLE_CLIENT_ID</code> / <code>_SECRET</code> / <code>_HD</code></td><td></td><td>Google sign-in</td></tr>
+            <tr><td><code>MAGNUM_SESSION_HOURS</code></td><td><code>12</code></td><td>Session lifetime</td></tr>
+            <tr><td><code>MAGNUM_COOKIE_SAMESITE</code></td><td><code>lax</code></td><td><code>none</code> for cross-site embeds (https only)</td></tr>
+            <tr><td><code>MAGNUM_FRAME_ANCESTORS</code></td><td><code>'self'</code></td><td>Which pages may embed dashboards</td></tr>
+            <tr><td><code>MAGNUM_TRUSTED_ORIGINS</code></td><td></td><td>Extra origins allowed to send POST/PUT/DELETE</td></tr>
+            <tr><td><code>MAGNUM_CLIENT_IP_HEADER</code></td><td></td><td>Behind a proxy: header holding the client address</td></tr>
+            <tr><td><code>MAGNUM_DUCKDB_DIR</code></td><td><code>data/duckdb</code></td><td>DuckDB files, one folder per organisation</td></tr>
+            <tr><td><code>MAGNUM_DUCKDB_INSTALL_EXTENSIONS</code></td><td><code>1</code></td><td>Allow downloading DuckDB extensions</td></tr>
+            <tr><td><code>MAGNUM_ALLOW_PRIVATE_CONNECTIONS</code></td><td><code>1</code> (<code>0</code> in production)</td><td>Let connections reach private networks</td></tr>
+            <tr><td><code>MAGNUM_CONNECTION_ALLOWED_HOSTS</code></td><td></td><td>Private hosts connections may reach anyway</td></tr>
+            <tr><td><code>MAGNUM_USAGE_RETENTION_DAYS</code></td><td><code>400</code></td><td>How long usage events are kept</td></tr>
+            <tr><td><code>MAGNUM_DB_AUTO_MIGRATE</code></td><td><code>1</code></td><td>Migrate ScramDB at startup</td></tr>
+            <tr><td><code>MAGNUM_PROJECT_DIR</code> / <code>MAGNUM_FRONTEND_DIST</code></td><td><code>project</code> / <code>frontend/dist</code></td><td>Paths</td></tr>
+            <tr><td><code>MAGNUM_LOG</code></td><td><code>magnum_bi=info</code></td><td>Log filter</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="security">
+      <h2>Security</h2>
+      <ul>
+        <li><strong>Server-enforced.</strong> Every rule is checked by the server; the UI only hides what a role can't use.</li>
+        <li><strong>Safe connections.</strong> Organisations' connections can't reach the platform's internals: private, loopback and cloud-metadata addresses are refused outside development unless allowlisted, and DNS answers are pinned.</li>
+        <li><strong>Sign-in protection.</strong> 5 failures lock an account and 20 lock a client address for 15 minutes. Failed sign-ins are recorded.</li>
+        <li><strong>CSRF.</strong> State-changing requests must come from Magnum BI's own origin, on top of <code>SameSite=Lax</code> HttpOnly cookies.</li>
+        <li><strong>Headers.</strong> Strict CSP, <code>nosniff</code>, referrer policy, HSTS on https, <code>no-store</code> on the API.</li>
+        <li><strong>Limits.</strong> Request bodies up to 1 MB, YAML files up to 512 KB.</li>
+        <li><strong>Quiet errors.</strong> Database details are only shown to roles allowed to see SQL; others get a reference to look up in the server log.</li>
+        <li><strong>Sealed secrets.</strong> Connection credentials, single sign-on client secrets and authenticator secrets are encrypted with AES-256-GCM, bound to their organisation.</li>
+        <li><strong>Strong sign-in.</strong> Authenticator codes, passkeys and single sign-on, with policies that can require two factors. API tokens are scoped, expiring and revocable.</li>
+      </ul>
+    </section>
+
+    <section id="demo">
+      <h2>Bigger demo: NYC taxi trips × weather</h2>
+      <p>Want to see it at scale? One command sets up New York yellow taxi trips (NYC TLC open data, about 3.5 million trips a month) with the hourly weather in each borough:</p>
+      <div class="code"><pre><code>make demo                          <span class="c"># platform workspace, 13 months</span>
+make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years</span></code></pre></div>
+      <p>System owners can also run it from <strong>Organisations › Demo data</strong>, with progress shown as it goes. It:</p>
+      <ol>
+        <li>finds the latest published month and downloads and cleans each month with DuckDB (about 60 MB a month; months already there are skipped, so running it again only adds new ones);</li>
+        <li>fetches the weather and creates the DuckDB connections <code>nyc_taxi</code> and <code>meteo</code>;</li>
+        <li>imports the dashboards <code>nyc_taxi</code> and <code>nyc_taxi_weather</code>, set to the latest month and the same month a year earlier.</li>
+      </ol>
+      <p>Run it in an organisation with its own ScramDB to get the query cache. For a two-engine blend, load the weather into PostgreSQL and point the <code>meteo</code> connection there.</p>
+      <p class="muted">A tile takes about a second for a month; a blend of a month of trips with the weather, compared with a year earlier, about 2 s. Cached, they're instant. Weather data: Open-Meteo, ERA5 reanalysis, CC BY 4.0.</p>
+    </section>
+
+    <section id="roadmap">
+      <h2>Beta &amp; roadmap</h2>
+      <p>Magnum BI is in <strong>beta</strong>. The features on this page work and are covered by tests, but some details may still change before a stable release: configuration variables, API shapes and YAML formats in particular. Pin a version, read the changes before upgrading, and please report anything that breaks.</p>
+      <p>Next, roughly in order:</p>
+      <ul>
+        <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
+        <li><strong>Federated queries</strong> across connections, joined in the organisation's ScramDB.</li>
+        <li><strong>Formulas:</strong> a calculated-field language, shared per organisation.</li>
+        <li><strong>Share links:</strong> QR codes and guest links for people without an account.</li>
+        <li><strong>Configuration as code:</strong> <em>plan / apply</em> organisations and dashboards from git.</li>
+        <li><strong>TLS to ScramDB</strong> for the platform's own databases (data connections already support it).</li>
+      </ul>
+    </section>
+
+    <section id="license">
+      <h2>License</h2>
+      <p>Magnum BI is © 2026 Giovanni Andrea Binda and free software under the <a href="https://www.gnu.org/licenses/agpl-3.0.html">GNU Affero General Public License v3.0</a> (<code>AGPL-3.0-only</code>), with two additional terms. The full text is in <code>LICENSE</code> and <code>NOTICE</code> in the repository.</p>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>If you…</th><th>Then</th></tr></thead>
+          <tbody>
+            <tr><td>Use it in your company, even a profitable one</td><td>Go ahead. Nothing to ask or pay.</td></tr>
+            <tr><td>Install and run it for clients</td><td>Go ahead.</td></tr>
+            <tr><td>Change it for your own use</td><td>Go ahead. You don't have to publish changes you only use yourself.</td></tr>
+            <tr><td>Offer a modified version to others over a network (e.g. a hosted service)</td><td>Publish your changes under the AGPL — or get a commercial license.</td></tr>
+            <tr><td>Fork it</td><td>Keep the “Powered by Magnum BI” credit visible and give the fork its own name.</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <h3>Additional terms</h3>
+      <ul>
+        <li><strong>Attribution.</strong> The notice “Powered by Magnum BI · © Giovanni Andrea Binda” in the app's footer must stay reasonably visible in every copy and modified version. Embedded dashboards are exempt.</li>
+        <li><strong>Trademarks.</strong> The license doesn't cover the Magnum BI name or logo. You can say your product is based on Magnum BI, but not use the name for a product, service or fork without permission (<code>TRADEMARKS.md</code>). To ask, write to <a href="mailto:gbinda@pm.me">gbinda@pm.me</a>.</li>
+      </ul>
+      <div class="note"><strong>Commercial license.</strong> If the AGPL doesn't suit you, for example for a closed-source hosted service, a commercial license is available from Giovanni Andrea Binda: <a href="mailto:gbinda@pm.me">gbinda@pm.me</a>.</div>
+    </section>
+
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <nav aria-label="Footer">
+      <a href="index.html#features">Features</a>
+      <a href="#quick-start">Quick start</a>
+      <a href="#configuration">Configuration</a>
+      <a href="#security">Security</a>
+      <a href="compare.html">Compare</a>
+      <a href="index.html#name">Behind the name</a>
+    </nav>
+    <span>Made with aloha · © 2026 Giovanni Andrea Binda · <a href="docs.html#license">AGPL-3.0</a> · <a href="mailto:gbinda@pm.me">gbinda@pm.me</a></span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

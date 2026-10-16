@@ -5,3 +5,4 @@ frontend/dist/
 .env.local
 testcreds.txt
 .git/
+website/

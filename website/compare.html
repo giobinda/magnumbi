@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Open-source Tableau, Looker &amp; Power BI alternative | Magnum BI</title>
+  <meta name="description" content="How Magnum BI, a free open-source BI tool, compares with Tableau, Power BI, Looker, Superset, Metabase and ThoughtSpot.">
+  <meta name="keywords" content="Tableau alternative, Looker alternative, Power BI alternative, Superset alternative, Metabase alternative, ThoughtSpot alternative, open source BI tool, self-hosted BI, BI comparison">
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <link rel="canonical" href="https://magnumbi.example/compare.html">
+  <meta name="theme-color" content="#fff6e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1a2b" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Magnum BI">
+  <meta property="og:title" content="Magnum BI vs Tableau, Looker, Power BI, Superset, Metabase &amp; ThoughtSpot">
+  <meta property="og:description" content="An open-source, self-hosted BI tool with metrics and dashboards as code. See how it compares, and when another tool is the better fit.">
+  <meta property="og:url" content="https://magnumbi.example/compare.html">
+  <meta property="og:image" content="https://magnumbi.example/assets/og-image.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Magnum BI: Ferrari-fast. Aloha-easy. Detective-sharp.">
+  <meta property="og:locale" content="en_US">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="assets/favicon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="assets/apple-touch-icon.png">
+  <link rel="manifest" href="site.webmanifest">
+  <link rel="stylesheet" href="assets/style.css">
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@graph": [
+      {
+        "@type": "BreadcrumbList",
+        "itemListElement": [
+          {"@type": "ListItem", "position": 1, "name": "Magnum BI", "item": "https://magnumbi.example/"},
+          {"@type": "ListItem", "position": 2, "name": "Compare", "item": "https://magnumbi.example/compare.html"}
+        ]
+      },
+      {
+        "@type": "FAQPage",
+        "mainEntity": [
+          {
+            "@type": "Question",
+            "name": "Is Magnum BI a free alternative to Tableau, Looker or Power BI?",
+            "acceptedAnswer": {"@type": "Answer", "text": "Yes. Magnum BI is open source under the GNU AGPL v3.0 and free to self-host, including for commercial work. It focuses on governed metrics defined as YAML, drag-and-drop dashboards, drill-down, period comparison, row-level filters and one-line embedding."}
+          },
+          {
+            "@type": "Question",
+            "name": "How is Magnum BI different from Apache Superset and Metabase?",
+            "acceptedAnswer": {"@type": "Answer", "text": "Magnum BI is a single stateless Rust server, shipped as one Docker image with a Compose file and a Helm chart. Models and dashboards are plain YAML that can be reviewed in git, and every change, from the UI, files or the API, goes through the same validation. Each organisation gets its own isolated ScramDB instance for dashboards and query cache."}
+          },
+          {
+            "@type": "Question",
+            "name": "Which databases does Magnum BI connect to?",
+            "acceptedAnswer": {"@type": "Answer", "text": "PostgreSQL, ScramDB, BigQuery and DuckDB, including Parquet, CSV, JSON, Avro and Apache Iceberg files on S3, GCS or HTTPS. Snowflake and MySQL are planned."}
+          },
+          {
+            "@type": "Question",
+            "name": "Is Magnum BI ready for production?",
+            "acceptedAnswer": {"@type": "Answer", "text": "Magnum BI is in beta. Its features work and are tested, but configuration, APIs and file formats may still change before a stable release, so pin a version and read the changes before upgrading."}
+          },
+          {
+            "@type": "Question",
+            "name": "Does Magnum BI work with AI agents?",
+            "acceptedAnswer": {"@type": "Answer", "text": "Yes. Coding agents can install it from one prompt, and its built-in MCP endpoint lets Claude, Cursor and other MCP clients run queries and build dashboards with scoped, expiring API tokens."}
+          }
+        ]
+      }
+    ]
+  }
+  </script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <a class="beta" href="docs.html#roadmap" title="Magnum BI is in beta">Beta</a>
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html#ui-and-code">UI &amp; code</a>
+      <a href="index.html#speed">Speed &amp; security</a>
+      <a href="index.html#features">Features</a>
+      <a href="compare.html" aria-current="page">Compare</a>
+      <a href="docs.html">Docs</a>
+      <a class="btn small primary" href="docs.html#quick-start">Get started</a>
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="hero compare-hero">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">🌺 Compare BI tools</span>
+        <h1>An open-source alternative to Tableau, Looker, Power&nbsp;BI and Superset</h1>
+        <p class="lead">Magnum BI is a lightweight, self-hosted business intelligence tool, now in beta: metrics and dashboards as code, a friendly drag-and-drop UI, and an API (and MCP endpoint) for everything. Here's how it compares with the tools you're probably looking at, and when one of them is the better fit.</p>
+        <div class="cta">
+          <a class="btn primary" href="docs.html#quick-start">Try Magnum BI</a>
+          <a class="btn" href="#table">Jump to the table</a>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="table">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>At a glance</h2>
+        <p>A short, fair summary. Every tool here is good at something; pick the one that fits how your team works.</p>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead>
+            <tr><th>Tool</th><th>License</th><th>Where it runs</th><th>Where metrics are defined</th><th>Strongest at</th></tr>
+          </thead>
+          <tbody>
+            <tr><td><strong>Magnum BI</strong> <span class="muted">(beta)</span></td><td>Open source (AGPL-3.0)</td><td>Self-hosted: Docker image, Compose or Helm chart</td><td>YAML models in git</td><td>BI as code, multi-tenant and embedded dashboards</td></tr>
+            <tr><td><a href="#tableau">Tableau</a></td><td>Commercial</td><td>Desktop app, Tableau Cloud or Server</td><td>Workbooks and published data sources</td><td>Rich visual exploration</td></tr>
+            <tr><td><a href="#power-bi">Power BI</a></td><td>Commercial</td><td>Windows desktop app and Microsoft cloud</td><td>DAX in semantic models</td><td>Microsoft-centric organisations</td></tr>
+            <tr><td><a href="#looker">Looker</a></td><td>Commercial</td><td>Google Cloud</td><td>LookML in git</td><td>Governed metrics on Google Cloud</td></tr>
+            <tr><td><a href="#superset">Apache Superset</a></td><td>Open source (Apache-2.0)</td><td>Self-hosted Python app, or managed</td><td>Datasets and SQL in the UI</td><td>Large chart library, SQL-savvy teams</td></tr>
+            <tr><td><a href="#metabase">Metabase</a></td><td>Open source (AGPL) plus paid editions</td><td>Self-hosted Java app, or Metabase Cloud</td><td>Models and metrics in the UI</td><td>Quick self-serve questions</td></tr>
+            <tr><td><a href="#thoughtspot">ThoughtSpot</a></td><td>Commercial</td><td>Cloud</td><td>Models and worksheets</td><td>Search and AI-driven analytics</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p class="muted small-print">Summaries reflect publicly available information as of 2026; check each vendor's site for current details. Product names are trademarks of their owners and are used here only to describe compatibility and differences.</p>
+    </div>
+  </section>
+
+  <section class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Why teams pick Magnum BI</h2>
+      </div>
+      <div class="grid three">
+        <div class="card"><h3>Free and self-hosted</h3><p>No per-seat licences. Run it on your own infrastructure; your data stays in your databases and is only read.</p></div>
+        <div class="card"><h3>Metrics as code</h3><p>Like LookML, but plain YAML: define “revenue” once, review it in a pull request, validate it in CI.</p></div>
+        <div class="card"><h3>Click, code or API</h3><p>The UI, YAML files and scripts all go through one API with the same rules, so nothing drifts apart.</p></div>
+        <div class="card"><h3>Fast and light</h3><p>One small, stateless Rust server in a Docker image, plus an opt-in cache on ScramDB that answers repeat questions instantly.</p></div>
+        <div class="card"><h3>Built for many tenants</h3><p>Each organisation has its own members, connections, dashboards and isolated database, plus row-level filters.</p></div>
+        <div class="card"><h3>One-line embedding</h3><p>Put a live dashboard in your product or intranet with a single HTML tag.</p></div>
+        <div class="card"><h3>Agent-ready</h3><p>Set up by a coding agent from one prompt, then driven over MCP with scoped, expiring API tokens.</p></div>
+        <div class="card"><h3>Modern sign-in</h3><p>Passkeys, authenticator codes and each organisation's own single sign-on, with policies per organisation.</p></div>
+        <div class="card"><h3>Your brand colours</h3><p>Organisation themes with contrast checks, exported to and imported from CSS design tokens.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap compare-list">
+
+      <article id="tableau">
+        <h2>Magnum BI vs Tableau</h2>
+        <p>Tableau is a polished commercial tool for visual analysis, built around a desktop authoring app and Tableau Cloud or Server. Magnum BI is free and self-hosted, and keeps the definitions behind every chart in reviewed YAML instead of individual workbooks, so the same “revenue” shows up on every dashboard.</p>
+        <p class="muted"><strong>Choose Tableau if</strong> you need its very wide range of chart types and free-form visual exploration. <strong>Choose Magnum BI if</strong> you want governed metrics, version control and no licence fees.</p>
+      </article>
+
+      <article id="power-bi">
+        <h2>Magnum BI vs Power BI</h2>
+        <p>Power BI fits organisations that already live in Microsoft 365 and Azure, with reports authored in a Windows desktop app and shared through the Microsoft cloud. Magnum BI runs anywhere a single binary runs, works entirely in the browser, and defines measures in readable YAML rather than DAX.</p>
+        <p class="muted"><strong>Choose Power BI if</strong> your company is standardised on Microsoft. <strong>Choose Magnum BI if</strong> you want a self-hosted, cloud-neutral tool your engineers can manage as code.</p>
+      </article>
+
+      <article id="looker">
+        <h2>Magnum BI vs Looker</h2>
+        <p>Looker popularised the semantic layer in git with LookML. Magnum BI follows the same idea, models that say what your numbers mean, kept in version control, but with plain YAML files, an open-source license and self-hosting instead of a Google Cloud subscription.</p>
+        <p class="muted"><strong>Choose Looker if</strong> you're all-in on Google Cloud and need its mature ecosystem. <strong>Choose Magnum BI if</strong> you like the LookML approach but want it open source and on your own servers.</p>
+      </article>
+
+      <article id="superset">
+        <h2>Magnum BI vs Apache Superset</h2>
+        <p>Superset is a popular open-source BI platform with a large chart library and a SQL editor. A production setup typically adds a metadata database, a cache and background workers. Magnum BI is one stateless Rust server (one Docker image, or a Helm chart); models and dashboards are YAML in git, and each organisation's dashboards and cache live in their own ScramDB instance.</p>
+        <p class="muted"><strong>Choose Superset if</strong> you want the widest choice of charts and a built-in SQL IDE. <strong>Choose Magnum BI if</strong> you want metrics as code, multi-tenancy and a lighter footprint.</p>
+      </article>
+
+      <article id="metabase">
+        <h2>Magnum BI vs Metabase</h2>
+        <p>Metabase is known for making it easy for anyone to ask questions of a database, with an open-source edition and paid tiers. Magnum BI puts more weight on governance: metrics are defined once in reviewed YAML, every change goes through one API, and every dashboard save is kept with its author.</p>
+        <p class="muted"><strong>Choose Metabase if</strong> ad-hoc questions from non-technical users are the priority. <strong>Choose Magnum BI if</strong> you want dashboards and metrics under version control, with the same rules for clicks, files and scripts.</p>
+      </article>
+
+      <article id="thoughtspot">
+        <h2>Magnum BI vs ThoughtSpot</h2>
+        <p>ThoughtSpot focuses on search and AI-driven analytics over cloud data warehouses, presented in liveboards. Magnum BI is an open-source, self-hosted tool built around drag-and-drop dashboards, drill-down and period comparison.</p>
+        <p class="muted"><strong>Choose ThoughtSpot if</strong> natural-language search is central to how people use data. <strong>Choose Magnum BI if</strong> you want an open, self-hosted alternative with dashboards as code.</p>
+      </article>
+
+    </div>
+  </section>
+
+  <section id="faq" class="alt">
+    <div class="wrap">
+      <div class="section-head">
+        <h2>Questions</h2>
+      </div>
+      <div class="grid two">
+        <div class="card"><h3>Is Magnum BI really free?</h3><p>Yes. It's open source under the GNU AGPL v3.0 and free to self-host, including for commercial work. A commercial license is available if you're building a closed-source product on it.</p></div>
+        <div class="card"><h3>Which databases does it connect to?</h3><p>PostgreSQL, ScramDB, BigQuery and DuckDB, including Parquet, CSV, JSON, Avro and Iceberg files on S3, GCS or HTTPS. Snowflake and MySQL are planned.</p></div>
+        <div class="card"><h3>How is it different from Superset and Metabase?</h3><p>It's a single stateless Rust server in one Docker image, models and dashboards are YAML in git, and each organisation gets its own isolated database for dashboards and cache.</p></div>
+        <div class="card"><h3>Is it ready for production?</h3><p>Magnum BI is in beta. Its features work and are tested, but configuration, APIs and file formats may still change before a stable release. Pin a version and read the changes before upgrading.</p></div>
+        <div class="card"><h3>Does it work with AI agents?</h3><p>Yes. Coding agents can install it from <a href="index.html#agents">one prompt</a>, and its MCP endpoint lets Claude, Cursor and others run queries and build dashboards with scoped, expiring tokens.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section class="cta-band">
+    <div class="wrap">
+      <h2><span class="aloha">Aloha!</span> See for yourself</h2>
+      <p class="muted">Comes with a sample sales dataset and a ready-made dashboard. You'll be cracking your first case in minutes.</p>
+      <div class="cta">
+        <a class="btn primary" href="docs.html#quick-start">Read the quick start</a>
+        <a class="btn" href="index.html">Back to the overview</a>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <nav aria-label="Footer">
+      <a href="index.html#features">Features</a>
+      <a href="compare.html">Compare</a>
+      <a href="docs.html">Docs</a>
+      <a href="docs.html#quick-start">Quick start</a>
+      <a href="index.html#name">Behind the name</a>
+    </nav>
+    <span>Made with aloha · © 2026 Giovanni Andrea Binda · <a href="docs.html#license">AGPL-3.0</a> · <a href="mailto:gbinda@pm.me">gbinda@pm.me</a></span>
+  </div>
+</footer>
+
+<script src="assets/site.js"></script>
+</body>
+</html>

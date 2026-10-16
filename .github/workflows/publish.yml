@@ -9,7 +9,9 @@ on:
   push:
     branches: [main]
     tags: ["v*.*.*"]
+    paths-ignore: ["website/**"]   # the site isn't in the image (tags always publish)
   pull_request:
+    paths-ignore: ["website/**"]
   workflow_dispatch:
 
 permissions:
