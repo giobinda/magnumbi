@@ -1,5 +1,5 @@
 title: NYC taxi × weather
-description: Does the weather change how New Yorkers ride? Every tile blends taxi trips (DuckDB) with the weather in the pickup borough during the pickup hour (PostgreSQL), joined on ScramDB.
+description: Does the weather change how New Yorkers ride? Every tile blends taxi trips with the weather in the pickup borough during the pickup hour. Each is aggregated on its own connection, then joined on ScramDB.
 
 # Built on the blend taxi_weather (project/blends): fields are written model.field.
 # Weather tiles keep trips that have weather (an unknown pickup borough has none): the

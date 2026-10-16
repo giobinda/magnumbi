@@ -82,18 +82,22 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
     const key = String(raw)
     if (!catKey.has(key)) { catKey.set(key, categoriesRaw.length); categoriesRaw.push(raw) }
   }
-  // 2 dims + 1 measure -> one series per 2nd-dim value (not combined with period comparison)
-  const pivot = d1 !== undefined && meaIdx.length === 1 && !comparing
+  // 2 dims + 1 measure -> one series per 2nd-dim value. A period comparison isn't plotted then:
+  // a previous series per value would be too many (it stays in tables and KPIs)
+  const current = meaIdx.filter(m => cols[m].compare !== 'previous')
+  const pivot = d1 !== undefined && current.length === 1
   for (const r of result.rows) {
     const ci = catKey.get(String(d0 !== undefined ? r[d0] : 'Total'))!
-    for (const m of meaIdx) {
+    for (const m of pivot ? current : meaIdx) {
       const sKey = pivot ? String(r[d1!]) : cols[m].name
       const sName = pivot ? formatValue(r[d1!], cols[d1!]) : cols[m].label
       if (!seriesMap.has(sKey)) seriesMap.set(sKey, { name: sName, measure: cols[m], previous: cols[m].compare === 'previous', data: Array(categoriesRaw.length).fill(null) })
       seriesMap.get(sKey)!.data[ci] = r[m] as number
     }
   }
+  // split series in value order (numbers as numbers), so a value keeps its colour from chart to chart
   const series = [...seriesMap.values()]
+  if (pivot) series.sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }))
   // a previous-period series: its measure's colour, half-way to the background (lighter on light
   // themes, darker on dark ones), and dashed on lines
   const colorOf = new Map<string, string>()
@@ -155,7 +159,7 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
         `${esc(ps[0]?.axisValueLabel ?? '')}<br/>` + ps.map(p => {
           const s = series[p.seriesIndex]
           const v = `${p.marker}${esc(p.seriesName)}: <b>${p.value == null ? '–' : esc(formatNumber(p.value, s.measure.format))}</b>`
-          const ch = !s.previous && comparing ? changeOf(s.measure.name, horizontal ? n - 1 - p.dataIndex : p.dataIndex) : undefined
+          const ch = !s.previous && comparing && !pivot ? changeOf(s.measure.name, horizontal ? n - 1 - p.dataIndex : p.dataIndex) : undefined
           return typeof ch === 'number' ? `${v} <span style="opacity:.75">(${esc(formatChange(ch))})</span>` : v
         }).join('<br/>'),
     },

@@ -52,6 +52,13 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .topnav a.active:not(.brand) { color: var(--text); background: var(--surface-2); }
 .topnav .brand { font-weight: 800; font-size: 17px; color: var(--text); margin-right: 16px; letter-spacing: -.3px; }
 .topnav .brand span { color: var(--accent); }
+/* phones: the links and controls wrap onto more rows (never a page wider than the screen), and
+   the taller bar scrolls away with the page */
+@media (max-width: 760px) {
+  .topnav { flex-wrap: wrap; height: auto; padding: 6px 12px 10px; row-gap: 2px; position: relative; }
+  .topnav a { padding: 6px 8px; }
+  .nav-right { flex-wrap: wrap; gap: 8px; margin-left: 0; width: 100%; }
+}
 
 .page { padding: 20px 24px 40px; max-width: 1600px; margin: 0 auto; }
 .page.full { max-width: none; padding: 16px; }

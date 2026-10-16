@@ -5,6 +5,8 @@
 # Then open http://localhost:8000 and sign in as admin@example.com with the one-time password
 # printed by `docker compose logs magnum` (you'll choose your own). To pick the email and password
 # up front: MAGNUM_ADMIN_EMAIL=you@example.com MAGNUM_ADMIN_PASSWORD=... docker compose up -d
+# Sample data for the Sales overview dashboard:
+#   docker compose exec magnum magnum-bi seed-sample
 # Demo data (NYC taxi trips x weather): Organisations > Demo data, or
 #   docker compose exec magnum magnum-bi demo
 #

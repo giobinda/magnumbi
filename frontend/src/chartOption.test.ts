@@ -64,3 +64,31 @@ describe('period colours', () => {
     expect(prev.color).toBe(shade('#0f6cbd', '#ffffff', 0.5)) // towards the background (white outside a browser)
   })
 })
+
+describe('a second dimension', () => {
+  const borough: Column = { name: 'borough', field: 'borough', label: 'Borough', kind: 'dimension', type: 'string' }
+  const condition: Column = { name: 'condition', field: 'condition', label: 'Condition', kind: 'dimension', type: 'string' }
+  type Data = { name: string; data: (number | null)[] }
+
+  it('splits into one series per value, also with a period comparison', () => {
+    const rows: (string | number)[][] = [['Manhattan', 'Clear', 10], ['Manhattan', 'Rain', 3], ['Queens', 'Clear', 2]]
+    const plain = buildOption(result([borough, condition, measure('trips')], rows), 'bar', { stacked: true }, palette)
+    const compared = buildOption(
+      result([borough, condition, measure('trips'), measure('trips', 'number', 'previous'), measure('trips', 'number', 'change')],
+        rows.map(r => [...r, 1, 0.5])),
+      'bar', { stacked: true }, palette,
+    )
+    for (const o of [plain, compared]) {
+      const series = (o.series as Data[]).map(s => [s.name, s.data])
+      expect(series).toEqual([['Clear', [10, 2]], ['Rain', [3, null]]])
+    }
+  })
+
+  it('orders the series by value, so a value keeps its colour from chart to chart', () => {
+    const byTrips = buildOption(result([borough, condition, measure('trips')], [['Manhattan', 'Rain', 9], ['Manhattan', 'Clear', 3], ['Manhattan', 'Cloudy', 1]]), 'bar', {}, palette)
+    const byHour = buildOption(result([borough, condition, measure('trips')], [['Manhattan', 'Cloudy', 9], ['Manhattan', 'Rain', 3], ['Manhattan', 'Clear', 1]]), 'line', {}, palette)
+    for (const o of [byTrips, byHour]) expect((o.series as Data[]).map(s => s.name)).toEqual(['Clear', 'Cloudy', 'Rain'])
+    const hours = buildOption(result([borough, condition, measure('trips')], [['x', '10', 1], ['x', '9', 1]]), 'bar', {}, palette)
+    expect((hours.series as Data[]).map(s => s.name)).toEqual(['9', '10'])
+  })
+})
