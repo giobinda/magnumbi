@@ -81,6 +81,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/members/password", post(admin::reset_password))
         .route("/api/platform", get(admin::get_platform).put(admin::put_platform))
         .route("/api/platform/dashboards/{id}/publish", post(admin::publish))
+        .route("/api/platform/demo", get(admin::demo_status).post(admin::start_demo))
         .route("/api/platform/organisations/{org}/database", axum::routing::put(admin::set_org_database))
         .route("/api/usage", get(admin::usage_summary))
         .route("/api/connections", get(connections::list))
@@ -406,6 +407,7 @@ pub mod tests {
             blends: crate::state::OrgBlends::default(),
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
+            demo: Default::default(),
             config,
         });
         Some((super::router(state.clone()), state, format!("magnum_session={session}")))

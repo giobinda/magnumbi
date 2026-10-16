@@ -369,11 +369,9 @@ mod tests {
         }
 
         // the platform workspace is the system owners': exempt
-        assert!(
-            reg.save(&store, "", &format!("p{}", uuid::Uuid::new_v4().simple()), scramdb(&url), None, None)
-                .await
-                .is_ok()
-        );
+        let platform = format!("p{}", uuid::Uuid::new_v4().simple());
+        assert!(reg.save(&store, "", &platform, scramdb(&url), None, None).await.is_ok());
+        store.delete_connection("", &platform).await.unwrap();
         store.delete_connection(&org, "w").await.unwrap();
     }
 

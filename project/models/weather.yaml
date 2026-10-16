@@ -1,7 +1,7 @@
 # Semantic model: hourly weather in each NYC taxi borough (Open-Meteo, ERA5 reanalysis; CC BY 4.0).
-# Data: `make nyc-taxi` writes nyc_taxi/weather/hourly.parquet; the demo keeps it in PostgreSQL (another
-# engine than the trips' DuckDB) as weather.hourly, read through the organisation's PostgreSQL
-# connection `meteo` (schema: weather). Joined with `taxi` in the blend taxi_weather (project/blends).
+# Data: `make demo` (or Organisations > Demo data) writes nyc_taxi/weather/hourly.parquet and creates the
+# DuckDB connection `meteo` (table hourly). Point `meteo` at PostgreSQL instead to blend two engines.
+# Joined with `taxi` in the blend taxi_weather (project/blends).
 name: weather
 label: NYC weather (hourly)
 description: Hourly weather per borough of the taxi zones (Manhattan, Brooklyn, Queens, Bronx, Staten Island, EWR), New York local time

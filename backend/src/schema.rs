@@ -306,7 +306,7 @@ pub enum Preset {
 }
 
 /// The current window. Exactly one of: last_n_days, preset, or from/to (inclusive dates).
-#[derive(Debug, Clone, Deserialize, Serialize)]
+#[derive(Debug, Clone, Default, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct PeriodRange {
     #[serde(default)]

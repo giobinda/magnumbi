@@ -8,12 +8,12 @@ export interface Theme {
 }
 
 const PREF_KEY = 'magnum.theme'  // the viewer's own choice ("auto" = follow the system)
-const FALLBACK: Theme = {  // until /api/themes answers (same values as magnum-light)
-  id: 'magnum-light', label: 'Magnum light', mode: 'light', builtin: true, radius: 10,
+const FALLBACK: Theme = {  // until /api/themes answers (same values as aloha)
+  id: 'aloha', label: 'Aloha', mode: 'light', builtin: true, radius: 12,
   font: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-  palette: ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#4a3aa7', '#e34948'],
-  colors: { bg: '#f6f7f9', surface: '#ffffff', surface_2: '#f1f3f6', border: '#e3e6eb', text: '#1d2330', text_muted: '#5c6676',
-    accent: '#4f6bed', accent_soft: '#e9edff', good: '#006300', bad: '#c4314b' },
+  palette: ['#0a8a9e', '#d62839', '#a87800', '#1f5fa8', '#c9327d', '#2b8a3e', '#d4580a', '#7a3fa0'],
+  colors: { bg: '#fff6e9', surface: '#fffdf8', surface_2: '#fdeed6', border: '#efd9b8', text: '#2a1a12', text_muted: '#6e4f3a',
+    accent: '#c8102e', accent_soft: '#fde3e1', good: '#13795b', bad: '#b3261e' },
 }
 
 type Ctx = {
@@ -47,6 +47,8 @@ function apply(t: Theme) {
     '--bg': c.bg, '--surface': c.surface, '--surface-2': c.surface_2, '--border': c.border, '--text': c.text,
     '--text-muted': c.text_muted, '--accent': c.accent, '--accent-soft': c.accent_soft, '--on-accent': onColor(c.accent),
     '--good': c.good, '--danger': c.bad, '--radius': `${t.radius}px`, '--font': t.font,
+    // a sunset stripe from the palette (shown by themes that want it: see index.css)
+    '--stripe': `linear-gradient(90deg, ${t.palette.slice(0, 7).join(', ')})`,
   }
   for (const [k, v] of Object.entries(vars)) r.style.setProperty(k, v)
   r.dataset.mode = t.mode
@@ -56,7 +58,7 @@ function apply(t: Theme) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themes, setThemes] = useState<Theme[]>([])
-  const [defaults, setDefaults] = useState({ light: 'magnum-light', dark: 'magnum-dark' })
+  const [defaults, setDefaults] = useState({ light: 'aloha', dark: 'aloha-night' })
   const [preference, setPref] = useState(readPref)
   const [override, setOverride] = useState<string | null>(null)
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)

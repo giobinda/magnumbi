@@ -26,20 +26,19 @@ For one process serving the API and the built UI on :8000, run `make serve`. Run
 for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
-**A bigger demo: NYC taxi trips.** `make nyc-taxi ORG=globex` downloads five years of New York
-yellow taxi trips (NYC TLC open data, 3.3 GB) and cleans them into ~208 million rows of Parquet
-in that organisation's DuckDB folder (`devtools/nyc_taxi.py`, needs `uv`). Then, in that
-organisation: **Connections › New**, DuckDB, name `nyc_taxi`, table
-`trips = nyc_taxi/trips/*.parquet`; and import `project/dashboards/nyc_taxi.yaml` as dashboard
-`nyc_taxi` (model `taxi`). Tiles take about a second on a month and ~5 s on all five years,
-then come from the organisation's query cache. The same target fetches hourly weather per
-borough for those five years (`devtools/nyc_weather.py`: Open-Meteo, ERA5 reanalysis, CC BY 4.0);
-the demo reads it from PostgreSQL, another engine than the trips: load
-`nyc_taxi/weather/hourly.parquet` into a table `weather.hourly` and add a PostgreSQL connection
-`meteo` (schema `weather`). The blend `taxi_weather` (see Blends below) joins trips and weather on
-borough + hour (both New York local time); the dashboard's last three tiles use it.
-Temperature is per ~9 km cell; precipitation, snow and gusts come from a ~25 km grid, so
-neighbouring boroughs can share them.
+**The NYC demo: taxi trips × weather.** One step sets up New York yellow taxi trips (NYC TLC
+open data, about 3.5 million trips a month) with the hourly weather in each borough (Open-Meteo,
+ERA5 reanalysis, CC BY 4.0): `make demo` (platform workspace) or `make demo ORG=globex MONTHS=60`,
+or, as a system owner, **Organisations › Demo data**. It finds the latest published month,
+downloads and cleans each month with DuckDB into the organisation's DuckDB folder (about 60 MB a
+month; months already there are skipped, so running it again only adds new ones), fetches the
+weather, creates the DuckDB connections `nyc_taxi` and `meteo`, and imports the dashboards
+`nyc_taxi` and `nyc_taxi_weather` showing the latest month (13 months by default: that month and
+the same month a year earlier). The models `taxi` and `weather` and the blend `taxi_weather` (see
+Blends below) are project files. Set it up in an organisation with its own ScramDB to get the
+query cache. For a two-engine blend, load `nyc_taxi/weather/hourly.parquet` into PostgreSQL as
+`hourly` and point the `meteo` connection there. Temperature is per ~9 km cell; precipitation,
+snow and gusts come from a ~25 km grid, so neighbouring boroughs can share them.
 
 ## Project layout
 
@@ -62,6 +61,7 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     access.rs               organisations, roles, row filters
     compiler.rs             semantic query → SQL
     blend.rs                blends: per-engine parts, then the join on ScramDB
+    demo.rs                 the NYC demo: download, clean, connections, dashboards
     api/tokens.rs           API tokens for agents and scripts
     api/mcp.rs              MCP endpoint: tools for AI agents over the API
     orgdb.rs                each organisation's own ScramDB (routing, registration)
@@ -72,7 +72,6 @@ backend/                    Rust: the API server and CLI (crate `magnum-bi`)
     store.rs, db.rs         tables and migrations
 frontend/                   React + Vite + ECharts + react-grid-layout
 devtools/scramdb.sh         local ScramDB containers: the primary and one per organisation
-devtools/nyc_*.py           demo data: NYC taxi trips and borough weather
 ```
 
 ## Architecture
