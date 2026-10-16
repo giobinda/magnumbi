@@ -9,6 +9,10 @@ its own people, data and look, and nothing ever leaks from one to another.
 
 **Website: https://giobinda.github.io/magnumbi/**
 
+> **Early alpha.** It works and is tested, but configuration, APIs and file formats will change
+> between versions, with no upgrade path guaranteed yet. Try it and pilot it; it isn't ready for
+> production. If you build on it, pin a version.
+
 ## Why Magnum BI
 
 **Fast.** The server is a single Rust program, and dashboards ask the database for answers, not

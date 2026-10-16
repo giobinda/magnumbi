@@ -58,7 +58,7 @@
           {
             "@type": "Question",
             "name": "Is Magnum BI ready for production?",
-            "acceptedAnswer": {"@type": "Answer", "text": "Magnum BI is in beta. Its features work and are tested, but configuration, APIs and file formats may still change before a stable release, so pin a version and read the changes before upgrading."}
+            "acceptedAnswer": {"@type": "Answer", "text": "Not yet: Magnum BI is an early alpha. Its features work and are tested, but configuration, APIs and file formats will change, with no upgrade path guaranteed between versions. Try it, pilot it, and pin a version if you build on it."}
           },
           {
             "@type": "Question",
@@ -77,7 +77,7 @@
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
-    <a class="beta" href="docs.html#roadmap" title="Magnum BI is in beta">Beta</a>
+    <a class="alpha" href="docs.html#roadmap" title="Magnum BI is an early alpha">Alpha</a>
     <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
@@ -101,7 +101,7 @@
       <div>
         <span class="eyebrow">🌺 Compare BI tools</span>
         <h1>An open-source alternative to Tableau, Looker, Power&nbsp;BI and Superset</h1>
-        <p class="lead">Magnum BI is a lightweight, self-hosted business intelligence tool, now in beta: metrics and dashboards as code, a friendly drag-and-drop UI, and an API (and MCP endpoint) for everything. Here's how it compares with the tools you're probably looking at, and when one of them is the better fit.</p>
+        <p class="lead">Magnum BI is a lightweight, self-hosted business intelligence tool, now in early alpha: metrics and dashboards as code, a friendly drag-and-drop UI, and an API (and MCP endpoint) for everything. Here's how it compares with the tools you're probably looking at, and when one of them is the better fit.</p>
         <div class="cta">
           <a class="btn primary" href="docs.html#quick-start">Try Magnum BI</a>
           <a class="btn" href="#table">Jump to the table</a>
@@ -122,7 +122,7 @@
             <tr><th>Tool</th><th>License</th><th>Where it runs</th><th>Where metrics are defined</th><th>Strongest at</th></tr>
           </thead>
           <tbody>
-            <tr><td><strong>Magnum BI</strong> <span class="muted">(beta)</span></td><td>Open source (AGPL-3.0)</td><td>Self-hosted: Docker image, Compose or Helm chart</td><td>YAML models in git</td><td>BI as code, multi-tenant and embedded dashboards</td></tr>
+            <tr><td><strong>Magnum BI</strong> <span class="muted">(alpha)</span></td><td>Open source (AGPL-3.0)</td><td>Self-hosted: Docker image, Compose or Helm chart</td><td>YAML models in git</td><td>BI as code, multi-tenant and embedded dashboards</td></tr>
             <tr><td><a href="#tableau">Tableau</a></td><td>Commercial</td><td>Desktop app, Tableau Cloud or Server</td><td>Workbooks and published data sources</td><td>Rich visual exploration</td></tr>
             <tr><td><a href="#power-bi">Power BI</a></td><td>Commercial</td><td>Windows desktop app and Microsoft cloud</td><td>DAX in semantic models</td><td>Microsoft-centric organisations</td></tr>
             <tr><td><a href="#looker">Looker</a></td><td>Commercial</td><td>Google Cloud</td><td>LookML in git</td><td>Governed metrics on Google Cloud</td></tr>
@@ -206,7 +206,7 @@
         <div class="card"><h3>Is Magnum BI really free?</h3><p>Yes. It's open source under the GNU AGPL v3.0 and free to self-host, including for commercial work. A commercial license is available if you're building a closed-source product on it.</p></div>
         <div class="card"><h3>Which databases does it connect to?</h3><p>PostgreSQL, ScramDB, BigQuery and DuckDB, including Parquet, CSV, JSON, Avro and Iceberg files on S3, GCS or HTTPS. Snowflake and MySQL are planned.</p></div>
         <div class="card"><h3>How is it different from Superset and Metabase?</h3><p>It's a single stateless Rust server in one Docker image, models and dashboards are YAML in git, and each organisation gets its own isolated database for dashboards and cache.</p></div>
-        <div class="card"><h3>Is it ready for production?</h3><p>Magnum BI is in beta. Its features work and are tested, but configuration, APIs and file formats may still change before a stable release. Pin a version and read the changes before upgrading.</p></div>
+        <div class="card"><h3>Is it ready for production?</h3><p>Not yet: Magnum BI is an early alpha. Its features work and are tested, but configuration, APIs and file formats will change, with no upgrade path guaranteed between versions. Try it, pilot it, and pin a version if you build on it.</p></div>
         <div class="card"><h3>Does it work with AI agents?</h3><p>Yes. Coding agents can install it from <a href="index.html#agents">one prompt</a>, and its MCP endpoint lets Claude, Cursor and others run queries and build dashboards with scoped, expiring tokens.</p></div>
       </div>
     </div>

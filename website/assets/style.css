@@ -413,19 +413,19 @@ td code { white-space: nowrap; }
 a.chip { color: var(--text); }
 a.chip:hover { text-decoration: none; border-color: var(--accent); color: var(--accent); }
 
-/* beta badge next to the brand, and the beta note in the docs */
-.beta {
+/* alpha badge next to the brand, and the alpha note in the docs */
+.alpha {
   font-size: .7rem; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
   color: var(--accent); border: 1.5px solid var(--accent); border-radius: 999px; padding: 2px 8px; margin-left: -12px;
 }
-.beta:hover { text-decoration: none; background: var(--accent-soft); }
-.note.beta-note { border-color: color-mix(in srgb, var(--p3) 55%, var(--border)); background: color-mix(in srgb, var(--p3) 12%, var(--surface)); }
-.note.beta-note strong:first-child { color: var(--text); }
+.alpha:hover { text-decoration: none; background: var(--accent-soft); }
+.note.alpha-note { border-color: color-mix(in srgb, var(--p3) 55%, var(--border)); background: color-mix(in srgb, var(--p3) 12%, var(--surface)); }
+.note.alpha-note strong:first-child { color: var(--text); }
 pre.prompt { white-space: pre-wrap; }
 .brand { white-space: nowrap; }
 @media (max-width: 480px) {
   .site-header .wrap { gap: 14px; }
-  .beta { margin-left: -6px; }
+  .alpha { margin-left: -6px; }
 }
 @media (max-width: 400px) { .site-header .brand span::after { content: none; } }
 

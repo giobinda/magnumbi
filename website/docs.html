@@ -45,7 +45,7 @@
 <header class="site-header">
   <div class="wrap">
     <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
-    <a class="beta" href="docs.html#roadmap" title="Magnum BI is in beta">Beta</a>
+    <a class="alpha" href="docs.html#roadmap" title="Magnum BI is an early alpha">Alpha</a>
     <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
       <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
     </button>
@@ -94,7 +94,7 @@
         <li><a href="#configuration">Configuration</a></li>
         <li><a href="#security">Security</a></li>
         <li><a href="#demo">NYC taxi demo</a></li>
-        <li><a href="#roadmap">Beta &amp; roadmap</a></li>
+        <li><a href="#roadmap">Alpha &amp; roadmap</a></li>
         <li><a href="#license">License</a></li>
       </ol>
     </details>
@@ -106,7 +106,7 @@
       <h1>Magnum BI documentation</h1>
       <p class="muted" style="font-size:1.1rem">Everything you need to install Magnum BI, describe your data, and build dashboards people enjoy using.</p>
       <p>Magnum BI is a lightweight BI tool that installs with one <code>docker compose up</code> or a Helm chart. You write <strong>semantic models</strong> and <strong>dashboards</strong> as YAML files; people explore them in a drag-and-drop UI with drill-down, period comparison and one-line embedding. Coding agents can set it up for you, and AI assistants can work in it through its <a href="#agents">MCP endpoint</a>. The backend is Rust (axum + tokio-postgres), the UI is React, and configuration, dashboards and the query cache live in <a href="https://scramdb.com" target="_blank" rel="noopener">ScramDB</a>.</p>
-      <div class="note beta-note"><strong>Beta.</strong> Magnum BI is under active development. It works and is tested, but configuration, APIs and file formats may still change between versions, and there's no upgrade guarantee yet. Try it, build on it, and tell us what breaks; for production use, pin a version and read the changes before upgrading. See <a href="#roadmap">Beta &amp; roadmap</a>.</div>
+      <div class="note alpha-note"><strong>Alpha.</strong> Magnum BI is an early alpha, under active development. It works and is tested, but configuration, APIs and file formats will change between versions, and there's no upgrade path guaranteed yet. Try it, pilot it, and tell us what breaks; it isn't ready for production. If you build on it, pin a version and read the changes before upgrading. See <a href="#roadmap">Alpha &amp; roadmap</a>.</div>
       <div class="note"><strong>In short:</strong> one server, one URL. Manage it from the web interface, keep it as code in git, or script it through the API — every path goes through the same rules, so your setup never ends up in two different states.</div>
     </section>
 
@@ -539,8 +539,8 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
     </section>
 
     <section id="roadmap">
-      <h2>Beta &amp; roadmap</h2>
-      <p>Magnum BI is in <strong>beta</strong>. The features on this page work and are covered by tests, but some details may still change before a stable release: configuration variables, API shapes and YAML formats in particular. Pin a version, read the changes before upgrading, and please report anything that breaks.</p>
+      <h2>Alpha &amp; roadmap</h2>
+      <p>Magnum BI is an early <strong>alpha</strong>. The features on this page work and are covered by tests, but expect changes before a stable release: configuration variables, API shapes and YAML formats in particular, without an upgrade path guaranteed. It's for trying out and pilots, not yet for production. Pin a version, read the changes before upgrading, and please report anything that breaks.</p>
       <p>Next, roughly in order:</p>
       <ul>
         <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
