@@ -40,6 +40,8 @@ jobs:
           toolchain: "1.98.0"   # pinned: a new release's lints shouldn't fail an unchanged branch
           components: clippy, rustfmt
       - uses: Swatinem/rust-cache@v2
+        with:
+          cache-on-failure: true   # else a failing run rebuilds everything next time (~40 min)
 
       - name: Format
         run: cargo fmt --check
