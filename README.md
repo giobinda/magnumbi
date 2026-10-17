@@ -577,12 +577,11 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next two).
+- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next one).
 - Share links / QR codes, guest links for people without an account.
 - Apply from git: `plan` / `apply` of organisations (members, connections, sign-in rules) and
   dashboards to a running server. Models, dashboards and blends are already YAML in git, and
   API tokens already cover automation.
-- ThoughtSpot liveboard import (from the earlier Python version).
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
 
 ## License
