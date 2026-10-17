@@ -5,5 +5,5 @@ frontend/dist/
 .DS_Store
 .env.local
 project/access.yaml
-data/
+/data/
 testcreds.txt
