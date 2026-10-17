@@ -304,7 +304,7 @@ td code { white-space: nowrap; }
 }
 .note strong:first-child { color: var(--accent); }
 @media (max-width: 920px) {
-  .docs { grid-template-columns: 1fr; gap: 24px; padding-top: 24px; }
+  .docs { grid-template-columns: minmax(0, 1fr); gap: 24px; padding-top: 24px; }
   .toc { position: static; max-height: none; border: 1px solid var(--border); border-radius: var(--radius); padding: 16px; }
   .toc details summary { cursor: pointer; font-weight: 600; }
 }
@@ -437,3 +437,6 @@ pre.prompt { white-space: pre-wrap; }
 }
 .btn.agent-btn:hover { border-color: transparent; }
 .cta-hint { font-size: .88rem; color: var(--text-muted); margin: 12px 0 0; }
+
+/* phones: long inline code (addresses, settings) wraps */
+.doc :not(pre) > code { overflow-wrap: anywhere; }

@@ -56,6 +56,7 @@
       <a href="index.html#roadmap">Roadmap</a>
       <a href="compare.html">Compare</a>
       <a href="docs.html" aria-current="page">Docs</a>
+      <a href="guides/infrastructure.html">Guides</a>
       <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
       <a class="btn small primary" href="#quick-start">Get started</a>
     </nav>
@@ -125,7 +126,8 @@ docker compose exec magnum magnum-bi seed-sample          <span class="c"># samp
 docker compose exec magnum magnum-bi demo --months 1       <span class="c"># optional: the NYC demo</span></code></pre>
       </div>
       <p class="muted">No git? Download just the Compose file and run the same commands next to it: <code>curl -O https://raw.githubusercontent.com/giobinda/magnumbi/main/compose.yaml</code>. Or download the whole repository as a ZIP from GitHub (<em>Code › Download ZIP</em>).</p>
-      <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>secrets</code> volume on first start: back it up.</p>
+      <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>magnum-secrets</code> volume on first start: back it up.</p>
+      <div class="note"><strong>Step-by-step guides:</strong> <a href="guides/infrastructure.html">running Magnum BI</a> (Compose, Kubernetes, https, backups), <a href="guides/platform-owner.html">setting up organisations</a> (for platform owners) and <a href="guides/org-admin.html">setting up your organisation</a> (for Org admins: data, models, dashboards, team).</div>
       <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
       <h3>From source</h3>
       <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
@@ -617,6 +619,7 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
     <a class="brand" href="index.html"><img src="assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
     <nav aria-label="Footer">
       <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a href="guides/infrastructure.html">Guides</a>
       <a href="index.html#features">Features</a>
       <a href="#quick-start">Quick start</a>
       <a href="#configuration">Configuration</a>

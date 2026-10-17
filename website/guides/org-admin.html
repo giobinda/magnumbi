@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Org admin guide · Magnum BI guides</title>
+  <meta name="description" content="Set up your organisation in Magnum BI: connect data, make models and dashboards, invite your team, your colours, single sign-on and sharing.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://giobinda.github.io/magnumbi/guides/org-admin.html">
+  <meta name="theme-color" content="#fff6e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1a2b" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Magnum BI">
+  <meta property="og:title" content="Org admin guide">
+  <meta property="og:description" content="Set up your organisation in Magnum BI: connect data, make models and dashboards, invite your team, your colours, single sign-on and sharing.">
+  <meta property="og:url" content="https://giobinda.github.io/magnumbi/guides/org-admin.html">
+  <meta property="og:image" content="https://giobinda.github.io/magnumbi/assets/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/style.css">
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <a class="alpha" href="../docs.html#roadmap" title="Magnum BI is an early alpha">Alpha</a>
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav" aria-label="Main">
+      <a href="../index.html#features">Features</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../docs.html">Docs</a>
+      <a href="infrastructure.html" aria-current="page">Guides</a>
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn small primary" href="../docs.html#quick-start">Get started</a>
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<div class="wrap docs">
+  <aside class="toc" aria-label="On this page">
+    <details open>
+      <summary>On this page</summary>
+      <h4>Guides</h4>
+      <ol>
+        <li><a href="infrastructure.html">Infrastructure</a></li>
+        <li><a href="platform-owner.html">Platform owner</a></li>
+        <li><a href="org-admin.html" aria-current="page">Org admin</a></li>
+      </ol>
+      <h4>Org admin guide</h4>
+      <ol>
+        <li><a href="#connect">Connect your data</a></li>
+        <li><a href="#models">Describe your data: models</a></li>
+        <li><a href="#dashboards">Make dashboards</a></li>
+        <li><a href="#members">Invite your team</a></li>
+        <li><a href="#themes">Your colours</a></li>
+        <li><a href="#sign-in">Sign-in and single sign-on</a></li>
+        <li><a href="#sharing">Share dashboards</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main" class="doc">
+    <section id="top">
+      <h1>Org admin guide</h1>
+<p class="lead">For an organisation's admins: from your data to dashboards your team uses, in an afternoon. The home page's <strong>Get started</strong> list follows these steps and ticks them off as you go.</p>
+    </section>
+
+    <section id="connect">
+      <h2>Connect your data</h2>
+<p>On <strong>Connections</strong>, add where your data is, and press <strong>Test</strong> before saving. Connections only ever read, and their passwords and keys are never shown again once saved.</p>
+      <div class="table-wrap"><table>
+        <thead><tr><th>Type</th><th>What you need</th></tr></thead>
+        <tbody>
+          <tr><td>PostgreSQL, ScramDB</td><td>host, port, database, user, password; optionally a schema (where tables are looked up)</td></tr>
+          <tr><td>BigQuery</td><td>project, dataset, a service account's JSON key; every query is checked first against a cost cap</td></tr>
+          <tr><td>DuckDB (files)</td><td>Parquet, CSV, JSON, Avro or Iceberg files, in your organisation's folder or on S3 / Google Cloud Storage, named as tables</td></tr>
+        </tbody>
+      </table></div>
+      <p>Name your main connection <code>warehouse</code>: the platform's models look for that name.</p>
+    </section>
+
+    <section id="models">
+      <h2>Describe your data: models</h2>
+<p>A model says which table, what people <strong>group and filter by</strong> (dimensions: region, day) and what they <strong>add up</strong> (measures: revenue, count). Dashboards and Explore work on models.</p>
+      <ol>
+        <li><strong>Models › + New model</strong>: pick the connection, then the table.</li>
+        <li>Magnum BI proposes the fields from its columns: text and dates as dimensions, numbers as sums (ids and hours, months and years as dimensions), and a count of rows.</li>
+        <li>Untick what nobody needs, rename fields the way your team speaks, switch a number between dimension and measure, choose sum or average, and <strong>Save model</strong>.</li>
+      </ol>
+      <p>Everyone in your organisation can then use it. Your platform may also provide models of its own, listed under <em>From the platform</em>.</p>
+      <div class="note"><strong>Restrictions follow the data.</strong> A member limited to some rows (Members) is limited on every model reading the same table. A model on a different table or view is different data: check restrictions after adding one.</div>
+    </section>
+
+    <section id="dashboards">
+      <h2>Make dashboards</h2>
+<ul>
+        <li><strong>In one click:</strong> <strong>Models › Starter dashboard</strong> makes a dashboard from a model: its main numbers and their trend, activity over time, the top categories and the details. Change anything with <strong>Edit</strong>.</li>
+        <li><strong>Chart by chart:</strong> in <strong>Explore</strong>, drag dimensions and measures in; Magnum BI suggests a chart (17 types: KPIs, trends, gauges, tables and pivot tables, bars, lines, combos, heatmaps, treemaps, funnels, waterfalls, histograms…). <strong>Add to dashboard</strong> when it's right.</li>
+        <li><strong>Period and filters:</strong> a dashboard can have a period with a comparison (previous period or year) and filters everyone can use.</li>
+        <li><strong>Blends</strong> join models on shared fields, even across databases (sales with the weather).</li>
+      </ul>
+    </section>
+
+    <section id="members">
+      <h2>Invite your team</h2>
+<ul>
+        <li><strong>Members › People:</strong> add people by email with a role: <strong>Viewer</strong> (sees dashboards, uses filters), <strong>User</strong> (also drills down and embeds), <strong>Power user</strong> (also builds dashboards, explores, shares with guests), <strong>Org admin</strong> (also manages members, connections, models and sharing).</li>
+        <li><strong>Personal filters</strong> limit someone to some rows ("region is EMEA"), everywhere. They only ever narrow.</li>
+        <li><strong>Everyone else from your domain</strong> (if your platform set one) joins with the default role you choose.</li>
+        <li><strong>One-time password…</strong> makes a password to hand over, for people who sign in with one; they choose their own at their first sign-in.</li>
+        <li>Check what someone sees with <strong>View as</strong> (top right): never more than your own role.</li>
+      </ul>
+    </section>
+
+    <section id="themes">
+      <h2>Your colours</h2>
+<p><strong>Themes:</strong> start from a theme, set your colours, chart palette, corners and font, and check the readability marks; or import your design team's CSS tokens. Make it your organisation's default (light and dark). <strong>Export CSS</strong> gives your web team the same colours as design tokens.</p>
+    </section>
+
+    <section id="sign-in">
+      <h2>Sign-in and single sign-on</h2>
+<p><strong>Members › Sign-in</strong>, within what your platform allows:</p>
+      <ul>
+        <li>Which ways to sign in your people may use, and whether passwords need an <strong>authenticator code</strong>.</li>
+        <li><strong>Your company's single sign-on</strong> (Microsoft Entra ID, Okta, Keycloak, Google Workspace…, any OpenID Connect provider): its address, client id and secret, and which provider groups become which roles. It signs in addresses on your organisation's domains only.</li>
+      </ul>
+      <p>Everyone can add <strong>passkeys</strong> and authenticator codes for themselves under <strong>Security</strong>.</p>
+    </section>
+
+    <section id="sharing">
+      <h2>Share dashboards</h2>
+<ul>
+        <li><strong>Embed</strong> a dashboard in your intranet or product (one line of HTML).</li>
+        <li><strong>Share with guests</strong> (Power users and up): a link and a password, for up to 14 days, with a role and limits you choose.</li>
+        <li><strong>Share publicly</strong> (Org admins): anyone with the link, from a cache that keeps your database from being overloaded.</li>
+        <li><strong>AI assistants and scripts:</strong> <strong>Security › API tokens</strong>, then connect an assistant over MCP; it works with your permissions or fewer.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <nav aria-label="Footer">
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a href="infrastructure.html">Infrastructure guide</a>
+      <a href="platform-owner.html">Platform owner guide</a>
+      <a href="org-admin.html">Org admin guide</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <span>Made with aloha · © 2026 Giovanni Andrea Binda · <a href="../docs.html#license">AGPL-3.0</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

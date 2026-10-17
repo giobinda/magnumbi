@@ -1,0 +1,225 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Infrastructure guide · Magnum BI guides</title>
+  <meta name="description" content="Run Magnum BI: Docker Compose, Kubernetes with Helm, https, the secret key, backups, upgrades and troubleshooting.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://giobinda.github.io/magnumbi/guides/infrastructure.html">
+  <meta name="theme-color" content="#fff6e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1a2b" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Magnum BI">
+  <meta property="og:title" content="Infrastructure guide">
+  <meta property="og:description" content="Run Magnum BI: Docker Compose, Kubernetes with Helm, https, the secret key, backups, upgrades and troubleshooting.">
+  <meta property="og:url" content="https://giobinda.github.io/magnumbi/guides/infrastructure.html">
+  <meta property="og:image" content="https://giobinda.github.io/magnumbi/assets/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/style.css">
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <a class="alpha" href="../docs.html#roadmap" title="Magnum BI is an early alpha">Alpha</a>
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav" aria-label="Main">
+      <a href="../index.html#features">Features</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../docs.html">Docs</a>
+      <a href="infrastructure.html" aria-current="page">Guides</a>
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn small primary" href="../docs.html#quick-start">Get started</a>
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<div class="wrap docs">
+  <aside class="toc" aria-label="On this page">
+    <details open>
+      <summary>On this page</summary>
+      <h4>Guides</h4>
+      <ol>
+        <li><a href="infrastructure.html" aria-current="page">Infrastructure</a></li>
+        <li><a href="platform-owner.html">Platform owner</a></li>
+        <li><a href="org-admin.html">Org admin</a></li>
+      </ol>
+      <h4>Infrastructure guide</h4>
+      <ol>
+        <li><a href="#try-it">Try it on your computer</a></li>
+        <li><a href="#how-it-runs">How it runs</a></li>
+        <li><a href="#secret-key">The secret key</a></li>
+        <li><a href="#https">Https and the public address</a></li>
+        <li><a href="#kubernetes">Kubernetes (Helm)</a></li>
+        <li><a href="#configuration">Settings worth knowing</a></li>
+        <li><a href="#backups">Backups and upgrades</a></li>
+        <li><a href="#troubleshooting">When something&#x27;s wrong</a></li>
+        <li><a href="#from-source">Developing Magnum BI</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main" class="doc">
+    <section id="top">
+      <h1>Infrastructure guide</h1>
+<p class="lead">For whoever runs Magnum BI: from a try on your computer to a server your company relies on. Then hand over to the <a href="platform-owner.html">platform owner</a>.</p>
+    </section>
+
+    <section id="try-it">
+      <h2>Try it on your computer</h2>
+<p>All you need is Docker (or Podman) with Compose, and git. In a minute you have Magnum BI with its own database:</p>
+      <div class="code">
+<pre><code>git clone https://github.com/giobinda/magnumbi.git &amp;&amp; cd magnumbi
+MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d   # http://localhost:8000
+docker compose logs magnum | grep one-time                # your first password
+docker compose exec magnum magnum-bi seed-sample          # sample data (Sales overview)
+docker compose exec magnum magnum-bi demo --months 1      # optional: the NYC demo</code></pre>
+      </div>
+      <p>Sign in with the one-time password; you choose your own right away. The <strong>Get started</strong> list on the home page then takes you through the rest. Stop with <code>docker compose down</code>; your data stays in Docker volumes (<code>docker compose down -v</code> deletes it).</p>
+      <div class="note"><strong>Early alpha.</strong> It works and is tested, but settings, APIs and file formats will change between versions. Pin a version (<code>MAGNUM_IMAGE=ghcr.io/giobinda/magnum-bi:0.1.2</code>) if you build on it.</div>
+    </section>
+
+    <section id="how-it-runs">
+      <h2>How it runs</h2>
+<ul>
+        <li><strong>One server</strong> (the <code>ghcr.io/giobinda/magnum-bi</code> image, about 150 MB) serves the app and its API on one address. It keeps no state of its own, so you can run several.</li>
+        <li><strong>A primary ScramDB</strong> (<code>MAGNUM_DATABASE_URL</code>) holds sign-in, settings, organisations and usage. ScramDB speaks the PostgreSQL protocol.</li>
+        <li><strong>One ScramDB per organisation</strong> holds that organisation's dashboards, connections, models and cache. The platform owner points each organisation at its own.</li>
+        <li><strong>A data folder</strong> (<code>/data</code> in the image, <code>MAGNUM_DUCKDB_DIR</code>) holds files read with DuckDB, one folder per organisation.</li>
+      </ul>
+      <p>The server applies database migrations itself when it starts, and waits up to a minute for its database, so the start order doesn't matter.</p>
+    </section>
+
+    <section id="secret-key">
+      <h2>The secret key</h2>
+<p>The secret key encrypts each organisation's database address and its connection secrets (passwords, service-account keys). <strong>Without it, organisations' databases and connections can't be used</strong>, and if you lose it they must all be entered again.</p>
+      <ul>
+        <li><strong>Compose and Helm make one for you</strong> on the first start: Compose in the <code>magnum-secrets</code> volume (<code>MAGNUM_SECRET_KEY_FILE=/secrets/key</code>), Helm in a Kubernetes Secret that's kept on upgrade.</li>
+        <li><strong>Or set your own:</strong> <code>magnum-bi gen-key</code> prints one; put it in <code>MAGNUM_SECRET_KEY</code>, or in a file named by <code>MAGNUM_SECRET_KEY_FILE</code>.</li>
+        <li><strong>Back it up</strong> somewhere safe, apart from the database backups. Every replica needs the same key.</li>
+      </ul>
+      <div class="code">
+        <span class="label">Read it to back it up</span>
+<pre><code>docker compose exec magnum cat /secrets/key                                   # Compose
+kubectl get secret bi-magnum-bi -o jsonpath=&#x27;{.data.secret-key}&#x27; | base64 -d     # Helm</code></pre>
+      </div>
+    </section>
+
+    <section id="https">
+      <h2>Https and the public address</h2>
+<p>On your own computer, <code>http://localhost:8000</code> is fine. For anyone else, put Magnum BI behind https and tell it its public address: sign-in cookies, passkeys, single sign-on callbacks and origin checks depend on it.</p>
+      <div class="code">
+        <span class="label">Caddyfile (Caddy gets the certificate for you)</span>
+<pre><code>bi.example.com {
+  reverse_proxy localhost:8000
+}</code></pre>
+      </div>
+      <div class="code">
+        <span class="label">then, in the server&#x27;s environment</span>
+<pre><code>MAGNUM_PUBLIC_URL=https://bi.example.com
+MAGNUM_ENV=production
+MAGNUM_CLIENT_IP_HEADER=x-forwarded-for     # behind a proxy: the client&#x27;s address for sign-in limits</code></pre>
+      </div>
+      <p>With <code>MAGNUM_ENV=production</code> the server <strong>refuses to start</strong> without an https <code>MAGNUM_PUBLIC_URL</code>, a secret key and a sign-in method, and organisations' connections can't reach private networks (list exceptions in <code>MAGNUM_CONNECTION_ALLOWED_HOSTS</code>). The startup log says what's missing.</p>
+    </section>
+
+    <section id="kubernetes">
+      <h2>Kubernetes (Helm)</h2>
+<div class="code">
+<pre><code># try it: a ScramDB inside the release, no ingress
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi --set production=false
+kubectl port-forward svc/bi-magnum-bi 8000:80
+# for real: https, an ingress, your own ScramDB (a Secret with the key database-url)
+helm install bi oci://ghcr.io/giobinda/charts/magnum-bi \
+  --set publicUrl=https://bi.example.com --set ingress.enabled=true \
+  --set admin.email=you@example.com --set database.existingSecret=bi-scramdb
+helm test bi</code></pre>
+      </div>
+      <ul>
+        <li>The first password is in the pod's log: <code>kubectl logs deploy/bi-magnum-bi | grep "first start"</code>.</li>
+        <li>The bundled ScramDB has no password, so a NetworkPolicy lets only Magnum BI reach it (your cluster must enforce NetworkPolicies). For production, run your own ScramDB.</li>
+        <li>The chart refuses settings that can't work, such as production without an https <code>publicUrl</code>, or several replicas on a volume only one pod can mount. Any <code>MAGNUM_*</code> setting goes in <code>env</code> or <code>secretEnv</code> (see the chart's <code>values.yaml</code>).</li>
+      </ul>
+    </section>
+
+    <section id="configuration">
+      <h2>Settings worth knowing</h2>
+<div class="table-wrap"><table>
+        <thead><tr><th>Setting</th><th>What it does</th></tr></thead>
+        <tbody>
+          <tr><td><code>MAGNUM_DATABASE_URL</code></td><td>the primary ScramDB</td></tr>
+          <tr><td><code>MAGNUM_PUBLIC_URL</code>, <code>MAGNUM_ENV</code></td><td>the https address; <code>production</code> refuses unsafe settings</td></tr>
+          <tr><td><code>MAGNUM_SECRET_KEY</code> / <code>_FILE</code></td><td>the secret key (above)</td></tr>
+          <tr><td><code>MAGNUM_SYSTEM_OWNERS</code></td><td>who runs the platform, until organisations are first saved</td></tr>
+          <tr><td><code>MAGNUM_GOOGLE_CLIENT_ID</code> / <code>_SECRET</code></td><td>Google sign-in (organisations can add their own single sign-on in the app)</td></tr>
+          <tr><td><code>MAGNUM_PUBLIC_LINKS</code></td><td><code>0</code>: no public dashboard links on this server</td></tr>
+          <tr><td><code>MAGNUM_FRAME_ANCESTORS</code></td><td>sites that may embed dashboards</td></tr>
+        </tbody>
+      </table></div>
+      <p>Every setting is in the <a href="../docs.html#configuration">documentation</a>.</p>
+    </section>
+
+    <section id="backups">
+      <h2>Backups and upgrades</h2>
+<p><strong>Back up</strong> the secret key, the primary ScramDB, each organisation's ScramDB, and the data folder (<code>/data</code>). With Compose those are the <code>magnum-secrets</code>, <code>scramdb</code> and <code>magnum-data</code> volumes.</p>
+      <div class="code">
+        <span class="label">Upgrading</span>
+<pre><code>docker compose pull &amp;&amp; docker compose up -d          # Compose: the newest image
+helm upgrade bi oci://ghcr.io/giobinda/charts/magnum-bi --version 0.1.2 --reuse-values</code></pre>
+      </div>
+      <p>Migrations run when the new version starts. Read the release's changes first: while Magnum BI is an alpha, there's no guaranteed upgrade path.</p>
+    </section>
+
+    <section id="troubleshooting">
+      <h2>When something&#x27;s wrong</h2>
+<ul>
+        <li><strong>Is it up?</strong> <code>curl http://localhost:8000/api/health</code> answers <code>{"ok":true}</code>.</li>
+        <li><strong>Read the log</strong> (<code>docker compose logs magnum</code>, <code>kubectl logs deploy/bi-magnum-bi</code>): it says what's missing at start, and a failed query's reference (<code>ref …</code>) shown in the app is in it.</li>
+        <li><strong>"organisation databases can't be used"</strong>: the secret key isn't set (above).</li>
+        <li><strong>"refuses to start"</strong> with <code>MAGNUM_ENV=production</code>: an https <code>MAGNUM_PUBLIC_URL</code>, a secret key or a sign-in method is missing.</li>
+        <li><strong>Locked out?</strong> <code>magnum-bi user set-password you@example.com</code> on the server sets a password.</li>
+      </ul>
+    </section>
+
+    <section id="from-source">
+      <h2>Developing Magnum BI</h2>
+<p>For changes to Magnum BI itself: Rust 1.89+, Node 20+, Podman or Docker, and the OpenSSL development library.</p>
+      <div class="code">
+<pre><code>git clone https://github.com/giobinda/magnumbi.git &amp;&amp; cd magnumbi
+make install &amp;&amp; make db-up &amp;&amp; make seed
+echo &#x27;MAGNUM_SYSTEM_OWNERS=you@example.com&#x27; &gt; .env.local &amp;&amp; make key
+make user EMAIL=you@example.com
+make dev-backend      # API on :8000; in another terminal:
+make dev-frontend     # UI on :5173
+make test-db          # every test (ScramDB, DuckDB extensions)</code></pre>
+      </div>
+      <p>The repository's <code>AGENTS.md</code> has the house rules and every command, for you and for coding agents.</p>
+    </section>
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <nav aria-label="Footer">
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a href="infrastructure.html">Infrastructure guide</a>
+      <a href="platform-owner.html">Platform owner guide</a>
+      <a href="org-admin.html">Org admin guide</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <span>Made with aloha · © 2026 Giovanni Andrea Binda · <a href="../docs.html#license">AGPL-3.0</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>

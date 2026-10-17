@@ -5,6 +5,7 @@ no build step, no backend, no external dependencies.
 
 - `index.html` — landing page (features, how it works, teams, roadmap)
 - `compare.html` — Magnum BI vs Tableau, Power BI, Looker, Superset, Metabase, ThoughtSpot (search landing page)
+- `guides/` — how-to guides: `infrastructure.html`, `platform-owner.html`, `org-admin.html` (the app's Get started links here; keep their section ids)
 - `docs.html` — documentation (quick start, models, dashboards, connections, config, security)
 - `assets/` — `style.css`, `site.js` (theme toggle, mobile menu, copy buttons), `favicon.svg`
 

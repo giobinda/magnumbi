@@ -96,6 +96,8 @@ For one process serving the API and the built UI on :8000, run `make serve`. Run
 for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
+**How-to guides** on the website: [infrastructure](https://giobinda.github.io/magnumbi/guides/infrastructure.html), [platform owner](https://giobinda.github.io/magnumbi/guides/platform-owner.html), [Org admin](https://giobinda.github.io/magnumbi/guides/org-admin.html).
+
 **Get started, in the app.** The home page shows a checklist until the essentials are set up,
 worked out from what's actually there (`GET /api/setup`). For system owners in the platform
 workspace, it covers the secret key, https, a first organisation, its own database and its Org
@@ -138,7 +140,7 @@ docker compose exec magnum magnum-bi demo --months 1        # optional: the NYC 
 `docker compose up -d --build` runs your checkout instead of the published image.
 With no accounts yet, the admin gets a one-time password, printed in the log (or set it with
 `MAGNUM_ADMIN_PASSWORD`), and chooses their own at first sign-in. `MAGNUM_HTTP_PORT` changes the
-port. The secret key is generated into the `secrets` volume on first start: back it up. For a
+port. The secret key is generated into the `magnum-secrets` volume on first start: back it up. For a
 shared server, put https in front and set `MAGNUM_PUBLIC_URL` and `MAGNUM_ENV=production`.
 
 **Kubernetes: the Helm chart**, published as `oci://ghcr.io/giobinda/charts/magnum-bi` (source in
