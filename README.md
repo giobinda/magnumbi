@@ -32,7 +32,9 @@ the cache.
   your warehouse with the weather) without copying databases around.
 - **Your company's colours:** build a theme visually, with readability checks, or import your
   design team's tokens. Export the same colours as CSS for your own website.
-- **Put dashboards anywhere:** embed one in your intranet or product with a single line of HTML.
+- **Put dashboards anywhere:** embed one in your intranet or product with a single line of HTML,
+  or share it with anyone through a public link and QR code, served from a cache so a popular
+  link can't overload your data warehouse.
 
 **Many organisations, fully separate (multi-tenant).** Run one Magnum BI for several
 departments, subsidiaries or customers.
@@ -520,6 +522,34 @@ They're kept in the organisation's own ScramDB (`GET/PUT /api/org-themes`, with 
 Or an iframe on `/embed/<id>`. Allowed host pages are set with `MAGNUM_FRAME_ANCESTORS`. For
 embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 
+## Public links
+
+Org admins can share a dashboard with **anyone who has the link**, no account needed:
+**Share publicly** on the dashboard gives a link (`/s/<org>/<token>`) and its QR code.
+
+- **Visitors see the dashboard as saved:** its default filters and period, without filtering or
+  drilling down (each of those would be a new query). They see it as the link's maker would, as
+  a Viewer: the maker's row filters apply, so a link never shows more than they may see. If the
+  maker leaves the organisation or is disabled, the link stops working.
+- **From the cache, so your data warehouse can't be overloaded.** Each link keeps its tiles'
+  results in the organisation's ScramDB for its cache period (5 minutes to a day; 1 hour by
+  default). The warehouse answers each tile at most once per period, however many people open
+  the link, and visitors arriving at the same moment wait for that one query. If the kept
+  results can't be read, the link fails rather than ask the warehouse. Responses say
+  `Cache-Control: public, max-age=…` (browsers and proxies keep them too) and
+  `X-Robots-Tag: noindex`.
+- **No cache is possible, but never by accident.** It sends every visit to the warehouse:
+  anyone with the link could overload it or run up its bill. The dialog spells out the risks,
+  and the link is only made once they're ticked as accepted and the dashboard's id is typed
+  (the API wants `accept_uncached_risk: true`). The link list shows who accepted them.
+- **Removing a link** stops it at once. Making and removing links are in the usage log.
+  Links are for organisations' dashboards (the platform workspace's are templates).
+  `MAGNUM_PUBLIC_LINKS=0` turns them off for the whole server.
+
+API: `GET`/`POST /api/dashboards/{id}/share-links` (`{"cache_seconds": 3600}`),
+`DELETE /api/share-links/{id}`; visitors' `GET /api/public/{org}/{token}` and
+`/api/public/{org}/{token}/tiles/{tile}`.
+
 ## Configuration
 
 | variable | default | |
@@ -538,6 +568,7 @@ embeds on other sites, use `MAGNUM_COOKIE_SAMESITE=none` over https.
 | `MAGNUM_PUBLIC_URL` | | public https address (cookies `Secure`, OAuth callbacks, origin checks) |
 | `MAGNUM_ENV` | development | `production`/`staging` refuse to start with unsafe settings |
 | `MAGNUM_PASSWORD_LOGIN` | 1 | password sign-in on/off |
+| `MAGNUM_PUBLIC_LINKS` | 1 | Org admins may share dashboards publicly (anyone with the link); 0 forbids it |
 | `MAGNUM_GOOGLE_CLIENT_ID` / `_SECRET` / `_HD` | | Google sign-in |
 | `MAGNUM_SESSION_HOURS` | 12 | session lifetime |
 | `MAGNUM_COOKIE_SAMESITE` | lax | `none` for cross-site embeds (https only) |
@@ -577,8 +608,7 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next two).
-- Share links / QR codes, guest links for people without an account.
+- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next one).
 - Apply from git: `plan` / `apply` of organisations (members, connections, sign-in rules) and
   dashboards to a running server. Models, dashboards and blends are already YAML in git, and
   API tokens already cover automation.

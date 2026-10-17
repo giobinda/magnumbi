@@ -83,6 +83,7 @@
         <li><a href="#blends">Blends</a></li>
         <li><a href="#cache">Query cache</a></li>
         <li><a href="#embedding">Embedding</a></li>
+        <li><a href="#public-links">Public links</a></li>
         <li><a href="#themes">Themes &amp; brand colours</a></li>
         <li><a href="#agents">AI agents &amp; MCP</a></li>
       </ol>
@@ -364,6 +365,17 @@ cache: 1h</code></pre>
       <p>Or use an iframe on <code>/embed/&lt;id&gt;</code>. Allow host pages with <code>MAGNUM_FRAME_ANCESTORS</code>; for embeds on other sites, set <code>MAGNUM_COOKIE_SAMESITE=none</code> and serve over https.</p>
     </section>
 
+    <section id="public-links">
+      <h2>Public links</h2>
+      <p>Org admins can share a dashboard with <strong>anyone who has the link</strong>, without an account: <strong>Share publicly</strong> on the dashboard gives a link and its QR code.</p>
+      <ul>
+        <li><strong>Visitors see the dashboard as saved</strong>: its default filters and period, without filtering or drilling down. They see it as the link's maker would, as a Viewer: the maker's row filters apply, so a link never shows more than they may see. If the maker leaves the organisation, the link stops working.</li>
+        <li><strong>Served from the cache, so your data warehouse can't be overloaded.</strong> Each link keeps its tiles' results for its cache period (5 minutes to a day; 1 hour by default). The warehouse answers each tile at most once per period, however many people open the link, and visitors arriving at the same moment wait for that one query. If the kept results can't be read, the link fails rather than ask the warehouse.</li>
+        <li><strong>No cache is possible, never by accident.</strong> It sends every visit to the warehouse, so anyone with the link could overload it or run up its bill. Magnum BI spells out the risks and only makes the link once they're accepted and the dashboard's id is typed.</li>
+        <li><strong>Removing a link</strong> stops it at once. Links aren't indexed by search engines (<code>noindex</code>), and <code>MAGNUM_PUBLIC_LINKS=0</code> turns them off for the whole server.</li>
+      </ul>
+    </section>
+
     <section id="themes">
       <h2>Themes &amp; brand colours</h2>
       <p>The default themes are <strong>Aloha</strong> (light) and <strong>Aloha night</strong> (dark), the ones this site uses. Everyone can pick any theme for themselves. Built-in themes never change, so a theme id always looks the same; projects can add more in <code>project/themes/</code>.</p>
@@ -490,6 +502,7 @@ helm test bi</code></pre>
             <tr><td><code>MAGNUM_SYSTEM_OWNERS</code></td><td></td><td>Comma-separated emails, until organisations are first saved</td></tr>
             <tr><td><code>MAGNUM_HOST</code> / <code>MAGNUM_PORT</code></td><td><code>127.0.0.1</code> / <code>8000</code></td><td>Listen address</td></tr>
             <tr><td><code>MAGNUM_PASSWORD_LOGIN</code></td><td><code>1</code></td><td>Password sign-in on/off</td></tr>
+            <tr><td><code>MAGNUM_PUBLIC_LINKS</code></td><td><code>1</code></td><td>Org admins may share dashboards publicly; <code>0</code> forbids it</td></tr>
             <tr><td><code>MAGNUM_GOOGLE_CLIENT_ID</code> / <code>_SECRET</code> / <code>_HD</code></td><td></td><td>Google sign-in</td></tr>
             <tr><td><code>MAGNUM_SESSION_HOURS</code></td><td><code>12</code></td><td>Session lifetime</td></tr>
             <tr><td><code>MAGNUM_COOKIE_SAMESITE</code></td><td><code>lax</code></td><td><code>none</code> for cross-site embeds (https only)</td></tr>
@@ -546,7 +559,6 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
       <ul>
         <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
         <li><strong>Formulas:</strong> a calculated-field language, shared per organisation.</li>
-        <li><strong>Share links:</strong> QR codes and guest links for people without an account.</li>
         <li><strong>Apply from git:</strong> models, dashboards and blends already live in git; next, <em>plan / apply</em> organisations (members, connections, sign-in rules) and dashboards to a running server.</li>
         <li><strong>TLS to ScramDB</strong> for the platform's own databases (data connections already support it).</li>
       </ul>

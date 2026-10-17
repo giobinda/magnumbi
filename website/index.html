@@ -61,6 +61,7 @@
           "Row-level filters and roles",
           "Multi-tenant organisations with isolated query cache",
           "One-line dashboard embedding",
+          "Public links and QR codes, served from a cache that protects the data warehouse",
           "Docker image, Docker Compose stack and Helm chart",
           "MCP endpoint and scoped API tokens for AI agents",
           "Passkeys, authenticator codes and OpenID Connect single sign-on",
@@ -308,6 +309,11 @@
           <p>Put a live dashboard in your own app or intranet with a single HTML tag, filters included.</p>
         </div>
         <div class="card">
+          <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 13a5 5 0 0 0 7.5.5l3-3a5 5 0 0 0-7-7l-1.7 1.7"/><path d="M14 11a5 5 0 0 0-7.5-.5l-3 3a5 5 0 0 0 7 7l1.7-1.7"/></svg></div>
+          <h3>Public links</h3>
+          <p>Share a dashboard with anyone, no account needed: a link and a QR code, served from a cache, so a popular link can't overload your data warehouse.</p>
+        </div>
+        <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
           <h3>Secure by default</h3>
           <p>Roles, row filters, sealed credentials, strict security headers, and read-only queries. Every rule is enforced on the server.</p>
@@ -483,7 +489,6 @@ hierarchies:
       <ul class="roadmap">
         <li><strong>More connectors</strong><span>Snowflake, MySQL and more.</span></li>
         <li><strong>Formulas</strong><span>A calculated-field language, shared per organisation.</span></li>
-        <li><strong>Share links</strong><span>Share links, QR codes and guest access for people without an account.</span></li>
         <li><strong>Apply from git</strong><span>Models, dashboards and blends already live in git; next, plan and apply organisations (members, connections, sign-in rules) and dashboards to a running server.</span></li>
         <li><strong>TLS to ScramDB</strong><span>Encrypted connections to the platform's own databases, as data connections already have.</span></li>
       </ul>

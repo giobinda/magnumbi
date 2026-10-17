@@ -7,6 +7,7 @@ mod connections;
 mod dashboards;
 mod mcp;
 mod models;
+mod share;
 mod themes;
 mod tokens;
 
@@ -59,7 +60,9 @@ pub fn router(state: Shared) -> Router {
         .route("/api/auth/google/login", get(auth::google_login))
         .route("/api/auth/google/callback", get(auth::google_callback))
         .route("/api/auth/oidc/{org}/login", get(auth::oidc_login))
-        .route("/api/auth/oidc/callback", get(auth::oidc_callback));
+        .route("/api/auth/oidc/callback", get(auth::oidc_callback))
+        .route("/api/public/{org}/{token}", get(share::dashboard))
+        .route("/api/public/{org}/{token}/tiles/{tile}", get(share::tile));
     let protected = Router::new()
         .route("/api/models", get(models::list))
         .route("/api/mcp", post(mcp::endpoint))
@@ -80,6 +83,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/history", get(dashboards::history))
         .route("/api/dashboards/{id}/tiles/{tile}/query", post(dashboards::run_tile))
         .route("/api/dashboards/{id}/filters/values", get(dashboards::filter_values))
+        .route("/api/dashboards/{id}/share-links", get(share::list).post(share::create))
+        .route("/api/share-links/{id}", axum::routing::delete(share::revoke))
         .route("/api/members", get(admin::get_members).put(admin::put_members))
         .route("/api/members/sign-in", get(admin::get_sign_in).put(admin::put_sign_in))
         .route("/api/members/password", post(admin::reset_password))
@@ -414,6 +419,7 @@ pub mod tests {
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
             demo: Default::default(),
+            flights: Default::default(),
             config,
         });
         Some((super::router(state.clone()), state, format!("magnum_session={session}")))

@@ -86,6 +86,37 @@ pub struct TokenInfo {
     pub write: bool,
 }
 
+/// A public link to a dashboard (api/share.rs), in the organisation's database.
+pub struct ShareLink {
+    pub token_hash: String,
+    /// the token, sealed for "<org>/share": to show the link again
+    pub token_sealed: String,
+    pub dashboard_id: String,
+    /// 0: no cache, every visit queries the data warehouse (its risks accepted by `created_by`)
+    pub cache_seconds: i64,
+    /// visitors see the dashboard as this person would, as a Viewer at most
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl ShareLink {
+    fn from_row(r: &tokio_postgres::Row) -> ShareLink {
+        ShareLink {
+            token_hash: r.get(0),
+            token_sealed: r.get(1),
+            dashboard_id: r.get(2),
+            cache_seconds: r.get(3),
+            created_by: r.get(4),
+            created_at: r.get(5),
+        }
+    }
+
+    /// A short id for the link (its revocation handle): the start of the token's hash.
+    pub fn id(&self) -> &str {
+        &self.token_hash[..16]
+    }
+}
+
 /// An OpenID Connect sign-in in progress.
 pub struct OAuthState {
     pub verifier: String,
@@ -863,6 +894,92 @@ impl Store {
              ON CONFLICT (org) DO UPDATE SET definition = EXCLUDED.definition, updated_by = EXCLUDED.updated_by,
                updated_at = now()",
             &[&org, &serde_json::to_string(t)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    // ------------------------------------------------------------------ public links
+
+    pub async fn put_share_link(&self, org: &str, l: &ShareLink) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO share_links (org, token_hash, token_sealed, dashboard_id, cache_seconds, created_by)
+             VALUES ($1, $2, $3, $4, $5::BIGINT, $6)",
+            &[&org, &l.token_hash, &l.token_sealed, &l.dashboard_id, &l.cache_seconds, &l.created_by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// The organisation's public links (to one dashboard, or all), newest first.
+    pub async fn share_links(&self, org: &str, dashboard: Option<&str>) -> Result<Vec<ShareLink>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT token_hash, token_sealed, dashboard_id, cache_seconds, created_by, created_at FROM share_links
+                 WHERE org = $1 ORDER BY created_at DESC",
+                &[&org],
+            )
+            .await?;
+        Ok(rows.iter().map(ShareLink::from_row).filter(|l| dashboard.is_none_or(|d| l.dashboard_id == d)).collect())
+    }
+
+    pub async fn share_link(&self, org: &str, token_hash: &str) -> Result<Option<ShareLink>> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "SELECT token_hash, token_sealed, dashboard_id, cache_seconds, created_by, created_at FROM share_links
+                 WHERE org = $1 AND token_hash = $2",
+                &[&org, &token_hash],
+            )
+            .await?;
+        Ok(row.as_ref().map(ShareLink::from_row))
+    }
+
+    /// Remove a link and what its visitors were shown.
+    pub async fn delete_share_link(&self, org: &str, token_hash: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        c.execute("DELETE FROM shared_results WHERE org = $1 AND token_hash = $2", &[&org, &token_hash]).await?;
+        Ok(c.execute("DELETE FROM share_links WHERE org = $1 AND token_hash = $2", &[&org, &token_hash]).await? > 0)
+    }
+
+    /// A tile's result as a public link showed it, while it's fresh and the dashboard unchanged:
+    /// (result JSON, when it was made, when it expires).
+    pub async fn shared_result(
+        &self,
+        org: &str,
+        token_hash: &str,
+        tile: &str,
+        dashboard_version: &str,
+    ) -> Result<Option<(String, DateTime<Utc>, DateTime<Utc>)>> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "SELECT result, created_at, expires_at FROM shared_results
+                 WHERE org = $1 AND token_hash = $2 AND tile_id = $3 AND dashboard_version = $4 AND expires_at > now()",
+                &[&org, &token_hash, &tile, &dashboard_version],
+            )
+            .await?;
+        Ok(row.map(|r| (r.get(0), r.get(1), r.get(2))))
+    }
+
+    pub async fn put_shared_result(
+        &self,
+        org: &str,
+        token_hash: &str,
+        tile: &str,
+        dashboard_version: &str,
+        result: &str,
+        (created_at, expires_at): (DateTime<Utc>, DateTime<Utc>),
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO shared_results (org, token_hash, tile_id, dashboard_version, result, created_at, expires_at)
+             VALUES ($1, $2, $3, $4, $5, $6::TIMESTAMPTZ, $7::TIMESTAMPTZ)
+             ON CONFLICT (org, token_hash, tile_id) DO UPDATE SET dashboard_version = EXCLUDED.dashboard_version,
+               result = EXCLUDED.result, created_at = EXCLUDED.created_at, expires_at = EXCLUDED.expires_at",
+            &[&org, &token_hash, &tile, &dashboard_version, &result, &created_at, &expires_at],
         )
         .await?;
         Ok(())

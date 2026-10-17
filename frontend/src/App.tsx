@@ -8,6 +8,7 @@ import MembersPage from './pages/MembersPage'
 import OrganisationsPage from './pages/OrganisationsPage'
 import { ThemeSwatch, useTheme } from './theme'
 import DashboardPage from './pages/DashboardPage'
+import PublicPage from './pages/PublicPage'
 import ExplorePage from './pages/ExplorePage'
 import Home from './pages/Home'
 import UsagePage from './pages/UsagePage'
@@ -20,7 +21,11 @@ const ROLE_LABELS: Record<string, string> = { viewer: 'Viewer', user: 'User', po
 export default function App() {
   return (
     <BrowserRouter>
-      <SignedIn />
+      <Routes>
+        {/* public links: no sign-in */}
+        <Route path="/s/:org/:token" element={<PublicPage />} />
+        <Route path="*" element={<SignedIn />} />
+      </Routes>
     </BrowserRouter>
   )
 }

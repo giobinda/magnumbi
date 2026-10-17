@@ -191,6 +191,27 @@ export interface OrgThemesResponse extends OrgThemes { version: string; availabl
 export interface DemoStatus { running: boolean; org: string; step: string; done: number; total: number; log: string[]; error: string | null }
 
 /** An API token (never its secret, except once when created). */
+/** A public link: anyone with `url` sees the dashboard, from results kept `cache_seconds`. */
+export interface ShareLink {
+  id: string; dashboard: string; url: string; qr_svg: string
+  cache_seconds: number; created_by: string; created_at: string
+}
+
+/** What a public link shows: the layout (no queries) and the organisation's theme. */
+export interface PublicDashboard {
+  title: string; description?: string | null; cache_seconds: number; theme: Theme | null
+  tiles: { id: string; title?: string | null; type: ChartType; layout: TileLayout; options?: Record<string, unknown> }[]
+}
+export type PublicResult = QueryResult & { as_of: string; expires_at?: string; from_cache: boolean }
+
+/** Public pages: no session, no organisation header. */
+async function publicCall<T>(path: string, signal?: AbortSignal): Promise<T> {
+  const r = await fetch(path, { signal })
+  const body = await r.json().catch(() => ({}))
+  if (!r.ok) throw new ApiError(r.status, typeof body.detail === 'string' ? body.detail : r.statusText)
+  return body as T
+}
+
 export interface ApiToken {
   id: string; name: string; user_email?: string; role: Role; scope: 'read' | 'write'
   created_at?: string; expires_at: string; last_used_at?: string | null; revoked_at?: string | null
@@ -326,6 +347,15 @@ export const api = {
   createToken: (t: { name: string; scope: 'read' | 'write'; role?: Role; expires_in_days?: number }) =>
     call<ApiToken & { token: string }>('/api/tokens', json('POST', t)),
   revokeToken: (id: string) => call<{ ok: boolean }>(`/api/tokens/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  shareLinks: (dashboard: string) =>
+    call<{ links: ShareLink[]; allowed: boolean; cache_periods: number[] }>(`/api/dashboards/${encodeURIComponent(dashboard)}/share-links`),
+  createShareLink: (dashboard: string, l: { cache_seconds: number; accept_uncached_risk?: boolean }) =>
+    call<ShareLink>(`/api/dashboards/${encodeURIComponent(dashboard)}/share-links`, json('POST', l)),
+  revokeShareLink: (id: string) => call<{ ok: boolean }>(`/api/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  publicDashboard: (org: string, token: string) =>
+    publicCall<PublicDashboard>(`/api/public/${encodeURIComponent(org)}/${encodeURIComponent(token)}`),
+  publicTile: (org: string, token: string, tile: string, signal?: AbortSignal) =>
+    publicCall<PublicResult>(`/api/public/${encodeURIComponent(org)}/${encodeURIComponent(token)}/tiles/${encodeURIComponent(tile)}`, signal),
   deleteDashboard: (id: string) => call<{ ok: boolean }>(`/api/dashboards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 

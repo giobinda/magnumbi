@@ -375,6 +375,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),
+        flights: Default::default(),
         config,
     }))
 }

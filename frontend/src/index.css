@@ -358,3 +358,27 @@ input.wide { width: 100%; }
 .tp-buttons button { background: var(--surface); color: var(--text); border-color: var(--border); border-radius: calc(var(--radius) * .7); }
 .tp-buttons button.primary { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
 .tp-badge { background: var(--accent-soft); color: var(--accent); border-radius: 999px; padding: 2px 8px; font-size: 12px; }
+
+/* public links */
+.share-dialog { width: min(760px, 100%); }
+.share-dialog .section { font-size: 14px; margin: 16px 0 6px; }
+.share-link { padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; }
+.share-link .row { flex-wrap: wrap; }
+.share-link input { flex: 1; min-width: 200px; }
+.share-link.live { border-color: var(--danger); }
+.share-qr { width: 180px; height: 180px; background: #fff; border-radius: 8px; }
+.danger-text { color: var(--danger); }
+.danger-panel { border: 2px solid var(--danger); border-radius: 10px; padding: 12px 16px; margin: 10px 0;
+  background: color-mix(in srgb, var(--danger) 8%, var(--surface)); display: flex; flex-direction: column; gap: 8px; }
+.danger-panel h3 { margin: 0; color: var(--danger); font-size: 16px; }
+.danger-panel p, .danger-panel ul { margin: 0; line-height: 1.5; font-size: 13.5px; }
+.danger-panel li { margin-bottom: 4px; }
+.danger-panel .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
+.danger-panel .check input { margin-top: 3px; }
+.danger-panel label.small { display: flex; flex-direction: column; gap: 4px; }
+button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 600; }
+button.danger-solid:disabled { opacity: .45; }
+.page.public { max-width: 1400px; margin: 0 auto; }
+.public-head h1 { margin-bottom: 4px; }
+.public-head p { margin: 2px 0; }
+.public-gone { max-width: 520px; margin: 18vh auto; padding: 0 16px; text-align: center; }
