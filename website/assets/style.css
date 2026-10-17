@@ -90,7 +90,7 @@ code, pre, kbd { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Me
 .brand span { color: var(--accent); }
 .site-header .brand span::after { content: " 🌺"; font-size: .8em; }
 .nav { display: flex; gap: 22px; margin-left: auto; align-items: center; }
-.nav a { color: var(--text-muted); font-size: .95rem; font-weight: 500; }
+.nav a { color: var(--text-muted); font-size: .95rem; font-weight: 500; white-space: nowrap; }
 .nav a:hover, .nav a[aria-current="page"] { color: var(--text); text-decoration: none; }
 .icon-btn {
   background: none; border: 1px solid var(--border); color: var(--text-muted);
