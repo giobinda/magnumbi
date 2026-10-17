@@ -38,6 +38,8 @@ pub struct AppState {
     /// organisations' own blends and themes, read from their databases
     pub blends: OrgBlends,
     pub themes: OrgCached<crate::themes::OrgThemes>,
+    /// organisations' own models (org_models.rs), read from their databases
+    pub models: OrgCached<Vec<crate::schema::Model>>,
     /// organisations' own sign-in providers (discovery and keys, cached)
     pub oidc: crate::auth::oidc::Oidc,
     /// the relying party for passkeys (None: unavailable)
@@ -109,6 +111,16 @@ impl AppState {
             .get(org, || async {
                 let store = self.orgs.store(org).await?;
                 Ok(store.blends(org).await?.into_iter().map(|(b, _, _)| b).collect())
+            })
+            .await
+    }
+
+    /// The organisation's own models.
+    pub async fn org_models(&self, org: &str) -> anyhow::Result<Arc<Vec<crate::schema::Model>>> {
+        self.models
+            .get(org, || async {
+                let store = self.orgs.store(org).await?;
+                Ok(store.org_models(org).await?.into_iter().map(|(m, _, _)| m).collect())
             })
             .await
     }

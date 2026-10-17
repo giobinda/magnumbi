@@ -16,6 +16,7 @@ mod demo;
 mod error;
 mod materialize;
 mod netguard;
+mod org_models;
 mod orgdb;
 mod period;
 mod project;
@@ -372,6 +373,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         hashing: tokio::sync::Semaphore::new(state::hashing_permits()),
         blends: state::OrgBlends::default(),
         themes: Default::default(),
+        models: Default::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),

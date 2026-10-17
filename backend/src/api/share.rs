@@ -341,8 +341,15 @@ pub(crate) mod tests {
 
     pub(crate) async fn clean_up(state: &crate::state::AppState, org: &str) {
         let c = state.store.pool.get().await.unwrap();
-        for table in ["shared_results", "share_links", "guest_links", "dashboards", "dashboard_versions", "connections"]
-        {
+        for table in [
+            "shared_results",
+            "share_links",
+            "guest_links",
+            "org_models",
+            "dashboards",
+            "dashboard_versions",
+            "connections",
+        ] {
             c.execute(&format!("DELETE FROM {table} WHERE org = $1"), &[&org]).await.unwrap();
         }
     }

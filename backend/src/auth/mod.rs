@@ -291,6 +291,12 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
         return project;
     }
     let org = scope.org.clone().unwrap_or_default();
+    // its own models first: its blends may join them
+    match state.org_models(&org).await {
+        Ok(m) if !m.is_empty() => project = Arc::new(project.with_org_models(&m)),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(org, "organisation's models unavailable: {e:#}"),
+    }
     match state.org_blends(&org).await {
         Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),
         Ok(_) => {}

@@ -20,13 +20,19 @@ organisation owns.
 - **Permissions live in the API handlers.** Anything else that acts on data, such as MCP tools
   (`api/mcp.rs`) or the CLI, calls those handlers or store functions. It never re-implements a
   check.
-- **Never weaken a security property silently.** That covers: data restrictions (row filters),
-  the network guard on organisation-supplied addresses (`netguard.rs`), the read-only DuckDB
-  sandbox, CSRF/origin checks, session and token checks, write-only secrets, and the two ways
-  in without an account: public links (`api/share.rs`: cache-first, fail closed, the maker's row
-  filters, no filtering or drilling) and guest links (`api/guest.rs`: password, at most 14
-  days, the maker's role or lower, the maker's row filters plus the link's). Both act through
-  `auth::link_caller`. If a change needs to touch one, say so explicitly.
+- **Never weaken a security property silently.** That covers:
+  - data restrictions (row filters), and how they follow the same table into other models
+    (`access::same_data`);
+  - the network guard on organisation-supplied addresses (`netguard.rs`), the read-only DuckDB
+    sandbox, CSRF/origin checks, session and token checks, write-only secrets;
+  - organisations' own models (`org_models.rs`): no SQL, columns and aggregations only, Org
+    admins only;
+  - the two ways in without an account, both through `auth::link_caller`: public links
+    (`api/share.rs`: cache-first, fail closed, the maker's row filters, no filtering or
+    drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or
+    lower, the maker's row filters plus the link's).
+
+  If a change needs to touch one, say so explicitly.
 - **Match the surrounding code:** short doc comments that say why, plain English in
   user-facing messages ("this account signs in with …"), names over abbreviations.
 
@@ -34,6 +40,7 @@ organisation owns.
 
 ```
 backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs, share.rs, guest.rs),
+                   org_models.rs (organisations' own models),
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs
 backend/migrations/primary/  the control-plane ScramDB   } embedded, applied at start; add a

@@ -47,6 +47,14 @@ pub trait Connector: Send + Sync {
     async fn run(&self, sql: &str, columns: &[String]) -> Result<QueryResult, ConnectorError>;
     /// Check the connection works (and say what it is connected to).
     async fn test(&self) -> Result<String, ConnectorError>;
+    /// The tables (and views) a model can read here, as a model's `table` names them.
+    async fn tables(&self) -> Result<Vec<String>, ConnectorError> {
+        Err(ConnectorError::Unavailable("this connection can't list its tables".into()))
+    }
+    /// A table's columns and their types (reads no rows).
+    async fn columns(&self, _table: &str) -> Result<Vec<(String, ColType)>, ConnectorError> {
+        Err(ConnectorError::Unavailable("this connection can't describe its tables".into()))
+    }
 }
 
 #[derive(Debug, thiserror::Error)]

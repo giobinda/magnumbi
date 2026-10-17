@@ -78,15 +78,19 @@ impl PgConnector {
     }
 }
 
-#[async_trait]
-impl Connector for PgConnector {
-    async fn run(&self, sql: &str, _columns: &[String]) -> Result<QueryResult, ConnectorError> {
-        let started = Instant::now();
-        let mut client = self
-            .pool
+impl PgConnector {
+    async fn client(&self) -> Result<deadpool_postgres::Object, ConnectorError> {
+        self.pool
             .get()
             .await
-            .map_err(|e| ConnectorError::Unavailable(format!("can't reach {}: {}", self.label, pool_error(&e))))?;
+            .map_err(|e| ConnectorError::Unavailable(format!("can't reach {}: {}", self.label, pool_error(&e))))
+    }
+
+    /// A read-only transaction, with the statement timeout and the connection's schema.
+    async fn begin<'a>(
+        &self,
+        client: &'a mut deadpool_postgres::Object,
+    ) -> Result<deadpool_postgres::Transaction<'a>, ConnectorError> {
         let tx = client
             .build_transaction()
             .read_only(true)
@@ -98,6 +102,16 @@ impl Connector for PgConnector {
             setup.push_str(&format!("; SET LOCAL search_path TO {}", ident(schema)));
         }
         tx.batch_execute(&setup).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
+        Ok(tx)
+    }
+}
+
+#[async_trait]
+impl Connector for PgConnector {
+    async fn run(&self, sql: &str, _columns: &[String]) -> Result<QueryResult, ConnectorError> {
+        let started = Instant::now();
+        let mut client = self.client().await?;
+        let tx = self.begin(&mut client).await?;
         // prepared first: the column types are known even without rows
         let stmt = tx.prepare(sql).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
         let rows = tx.query(&stmt, &[]).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
@@ -105,6 +119,41 @@ impl Connector for PgConnector {
         let types = stmt.columns().iter().map(|c| col_type(c.type_())).collect();
         let rows = rows.iter().map(row_json).collect();
         Ok(QueryResult { rows, types, duration_ms: started.elapsed().as_millis() as u64 })
+    }
+
+    async fn tables(&self) -> Result<Vec<String>, ConnectorError> {
+        // the connection's schema (unqualified names, as its search_path finds them), else every
+        // schema but the system's, with `public` unqualified
+        let mut client = self.client().await?;
+        let tx = self.begin(&mut client).await?;
+        let rows = tx
+            .query(
+                "SELECT table_schema::TEXT, table_name::TEXT FROM information_schema.tables
+                 WHERE table_schema NOT IN ('pg_catalog', 'information_schema')
+                   AND ($1::TEXT IS NULL OR table_schema = $1::TEXT)
+                 ORDER BY table_schema, table_name",
+                &[&self.schema],
+            )
+            .await
+            .map_err(|e| ConnectorError::Query(db_error(&e)))?;
+        Ok(rows
+            .iter()
+            .map(|r| {
+                let (schema, table): (String, String) = (r.get(0), r.get(1));
+                if self.schema.is_some() || schema == "public" { table } else { format!("{schema}.{table}") }
+            })
+            .collect())
+    }
+
+    async fn columns(&self, table: &str) -> Result<Vec<(String, ColType)>, ConnectorError> {
+        let parts = crate::org_models::table_parts(table)
+            .ok_or_else(|| ConnectorError::Query(format!("invalid table name {table:?}")))?;
+        let sql = format!("SELECT * FROM {} LIMIT 0", parts.iter().map(|p| ident(p)).collect::<Vec<_>>().join("."));
+        let mut client = self.client().await?;
+        let tx = self.begin(&mut client).await?;
+        // prepared, not run: the columns and their types, no rows read
+        let stmt = tx.prepare(&sql).await.map_err(|e| ConnectorError::Query(db_error(&e)))?;
+        Ok(stmt.columns().iter().map(|c| (c.name().to_string(), col_type(c.type_()))).collect())
     }
 
     async fn test(&self) -> Result<String, ConnectorError> {
@@ -256,6 +305,24 @@ mod pg_tests {
         assert!(c.test().await.unwrap().contains("PostgreSQL"));
         // read-only: no writes, whatever the SQL says
         assert!(c.run("DELETE FROM sales", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn lists_tables_and_their_columns() {
+        let Some((cfg, pw)) = server().await else { return };
+        let c = PgConnector::new(&cfg, Some(pw), "Postgres", None).unwrap();
+        assert_eq!(c.tables().await.unwrap(), ["sales"]); // in the connection's schema
+        let cols = c.columns("sales").await.unwrap();
+        assert_eq!(
+            cols,
+            [
+                ("region".into(), ColType::Text),
+                ("amount".into(), ColType::Numeric),
+                ("sold_at".into(), ColType::Timestamptz)
+            ]
+        );
+        assert!(c.columns("nope").await.is_err());
+        assert!(c.columns("sales; DROP TABLE sales").await.is_err());
     }
 
     #[tokio::test]

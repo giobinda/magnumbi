@@ -1,5 +1,6 @@
 import type { Theme } from './theme'
 import { guestPath } from './guest'
+import type { ModelDef } from './modelEditor'
 // Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
 
 // time = TIMESTAMP (UTC instant); datetime = naive local date-time (e.g. store-local)
@@ -29,6 +30,8 @@ export interface ModelInfo {
   dimensions: Dimension[]; measures: Measure[]; hierarchies: Record<string, string[]>
   /** a blend: models joined on shared fields (its fields are written model.field) */
   blend?: { base: string; joins: BlendJoin[] } | null
+  /** the organisation's own (made in the app, on Models) */
+  own?: boolean
 }
 
 /** A join key: "base_field = field", with a grain for dates and times ("sold_at:day = day:day") */
@@ -372,6 +375,13 @@ export const api = {
   createShareLink: (dashboard: string, l: { cache_seconds: number; accept_uncached_risk?: boolean }) =>
     call<ShareLink>(`/api/dashboards/${encodeURIComponent(dashboard)}/share-links`, json('POST', l)),
   revokeShareLink: (id: string) => call<{ ok: boolean }>(`/api/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  tables: (connection: string) => call<{ tables: string[] }>(`/api/connections/${encodeURIComponent(connection)}/tables`),
+  proposeModel: (connection: string, table: string, name: string) =>
+    call<{ model: ModelDef; skipped: string[] }>(`/api/connections/${encodeURIComponent(connection)}/tables/${encodeURIComponent(table)}/model?name=${encodeURIComponent(name)}`),
+  orgModels: () => call<{ models: { model: ModelDef; updated_at: string; updated_by: string | null }[] }>('/api/org-models'),
+  saveOrgModel: (m: ModelDef, dryRun = false) =>
+    call<{ ok: boolean }>(`/api/org-models/${encodeURIComponent(m.name)}${dryRun ? '?dry_run=1' : ''}`, json('PUT', m)),
+  deleteOrgModel: (name: string) => call<{ ok: boolean }>(`/api/org-models/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   guestLinks: (dashboard: string) =>
     call<{ links: GuestLink[]; max_hours: number }>(`/api/dashboards/${encodeURIComponent(dashboard)}/guest-links`),
   createGuestLink: (dashboard: string, l: { expires_in_hours: number; password: string; role: Role; filters: GuestLink['filters'] }) =>

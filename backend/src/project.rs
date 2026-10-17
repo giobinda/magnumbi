@@ -62,6 +62,8 @@ pub struct ProjectState {
     pub blends: BTreeMap<String, Blend>,
     /// the blends that are the organisation's own (defined in the UI, editable there)
     pub org_blends: BTreeSet<String>,
+    /// the models that are the organisation's own (org_models.rs: made in the UI, no SQL)
+    pub org_models: BTreeSet<String>,
     /// the default (light, dark) themes: the platform's, or the organisation's own choice
     pub theme_defaults: (String, String),
     pub themes: Vec<Theme>,
@@ -97,6 +99,29 @@ impl ProjectState {
         }
         if let Some(d) = t.default_dark.as_ref().filter(|id| p.themes.iter().any(|x| &x.id == *id)) {
             p.theme_defaults.1 = d.clone();
+        }
+        p
+    }
+
+    /// This snapshot plus an organisation's own models (one whose name is taken, or that breaks
+    /// the rules for organisations' models, is left out and reported).
+    pub fn with_org_models(&self, models: &[Model]) -> ProjectState {
+        let mut p = self.clone();
+        for m in models {
+            let fits = if self.models.contains_key(&m.name) {
+                Err(format!("the name {:?} is already a model's or blend's", m.name))
+            } else {
+                crate::org_models::check(m)
+            };
+            match fits {
+                Ok(()) => {
+                    p.models.insert(m.name.clone(), m.clone());
+                    p.org_models.insert(m.name.clone());
+                }
+                Err(e) => {
+                    p.errors.insert(format!("model {}", m.name), e);
+                }
+            }
         }
         p
     }
@@ -394,7 +419,16 @@ impl Project {
             models.insert(b.name.clone(), b.as_model(&models));
         }
         let theme_defaults = (crate::themes::DEFAULT_LIGHT.to_string(), crate::themes::DEFAULT_DARK.to_string());
-        ProjectState { models, bases, blends, org_blends: BTreeSet::new(), theme_defaults, themes, errors }
+        ProjectState {
+            models,
+            bases,
+            blends,
+            org_blends: BTreeSet::new(),
+            org_models: BTreeSet::new(),
+            theme_defaults,
+            themes,
+            errors,
+        }
     }
 }
 

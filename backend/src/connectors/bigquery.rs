@@ -215,6 +215,33 @@ impl Connector for BigQueryConnector {
         Ok(QueryResult { rows, types, duration_ms: started.elapsed().as_millis() as u64 })
     }
 
+    async fn tables(&self) -> Result<Vec<String>, ConnectorError> {
+        let dataset = self.dataset(None)?;
+        let r =
+            self.run(&format!("SELECT table_name FROM `{dataset}`.INFORMATION_SCHEMA.TABLES ORDER BY 1"), &[]).await?;
+        Ok(r.rows.iter().filter_map(|row| row.first()?.as_str().map(String::from)).collect())
+    }
+
+    async fn columns(&self, table: &str) -> Result<Vec<(String, ColType)>, ConnectorError> {
+        let parts = crate::org_models::table_parts(table).filter(|p| p.len() <= 2).ok_or_else(|| {
+            ConnectorError::Query(format!("invalid table name {table:?}: use table or dataset.table"))
+        })?;
+        let (dataset, name) = match parts.as_slice() {
+            [d, t] => (self.dataset(Some(d))?, *t),
+            _ => (self.dataset(None)?, parts[0]),
+        };
+        // letters, digits and underscores only (table_parts): safe inside the quotes
+        let sql = format!(
+            "SELECT column_name, data_type FROM `{dataset}`.INFORMATION_SCHEMA.COLUMNS
+             WHERE table_name = '{name}' ORDER BY ordinal_position"
+        );
+        let r = self.run(&sql, &[]).await?;
+        Ok(r.rows
+            .iter()
+            .filter_map(|row| Some((row.first()?.as_str()?.to_string(), type_named(row.get(1)?.as_str()?))))
+            .collect())
+    }
+
     async fn test(&self) -> Result<String, ConnectorError> {
         self.dry_run("SELECT 1").await?;
         if let Some(d) = &self.cfg.dataset {
@@ -267,6 +294,30 @@ fn cell(field: &Value, v: &Value) -> Value {
             .map_or(Value::Null, |t| json!(t.to_rfc3339())),
         ColType::Json => serde_json::from_str(s).unwrap_or(json!(s)),
         _ => json!(s), // STRING, DATE (yyyy-mm-dd), DATETIME (yyyy-mm-ddThh:mm:ss[.f]), TIME
+    }
+}
+
+impl BigQueryConnector {
+    /// `project.dataset` for INFORMATION_SCHEMA: the one named, else the connection's.
+    fn dataset(&self, named: Option<&str>) -> Result<String, ConnectorError> {
+        let d = named.or(self.cfg.dataset.as_deref()).ok_or_else(|| {
+            ConnectorError::Query("set the connection's dataset (or name the table as dataset.table)".into())
+        })?;
+        Ok(format!("{}.{d}", self.cfg.project))
+    }
+}
+
+/// The neutral type of a BigQuery type name (INFORMATION_SCHEMA.COLUMNS.data_type).
+fn type_named(t: &str) -> ColType {
+    match t.to_uppercase().as_str() {
+        "BOOL" | "BOOLEAN" => ColType::Bool,
+        "INT64" | "INTEGER" => ColType::Int,
+        "FLOAT64" | "FLOAT" => ColType::Float,
+        "DATE" => ColType::Date,
+        "TIMESTAMP" => ColType::Timestamptz,
+        "DATETIME" => ColType::Timestamp,
+        t if t.starts_with("NUMERIC") || t.starts_with("BIGNUMERIC") => ColType::Numeric,
+        _ => ColType::Text,
     }
 }
 
@@ -386,6 +437,40 @@ mod tests {
         assert_eq!(seen[1]["defaultDataset"], json!({"projectId": "acme-analytics", "datasetId": "sales"}));
         assert_eq!(seen[1]["maximumBytesBilled"], json!("1000000"));
         assert_eq!(seen[2]["poll"]["location"], json!("EU"));
+    }
+
+    #[tokio::test]
+    async fn lists_tables_and_columns_from_the_datasets_information_schema() {
+        let (url, seen) = mock(1_000).await;
+        let c = connector(&url, 1_000_000);
+        c.tables().await.unwrap();
+        c.columns("orders").await.unwrap();
+        assert!(c.columns("orders' OR '1'='1").await.is_err());
+        let seen = seen.lock().unwrap();
+        let queries: Vec<&str> =
+            seen.iter().filter(|b| b["dryRun"] == json!(false)).filter_map(|b| b["query"].as_str()).collect();
+        assert!(queries[0].contains("`acme-analytics.sales`.INFORMATION_SCHEMA.TABLES"), "{queries:?}");
+        assert!(
+            queries[1].contains("INFORMATION_SCHEMA.COLUMNS") && queries[1].contains("table_name = 'orders'"),
+            "{queries:?}"
+        );
+        let types: Vec<ColType> = [
+            "STRING",
+            "INT64",
+            "FLOAT64",
+            "NUMERIC",
+            "BIGNUMERIC",
+            "BOOL",
+            "DATE",
+            "TIMESTAMP",
+            "DATETIME",
+            "ARRAY<STRING>",
+        ]
+        .iter()
+        .map(|t| type_named(t))
+        .collect();
+        use ColType::*;
+        assert_eq!(types, [Text, Int, Float, Numeric, Numeric, Bool, Date, Timestamptz, Timestamp, Text]);
     }
 
     #[tokio::test]

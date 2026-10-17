@@ -259,6 +259,13 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
         <li>Queries support time grains (<code>sold_at:month</code>), ad-hoc aggregations (<code>sum(amount)</code>, <code>count_distinct(store)</code>), filters, Top/Bottom N, and sorting by change (<code>-revenue__change</code>).</li>
         <li>Only declared fields can be queried, and every value is safely escaped. SQL written inside a model (<code>sql:</code>) is trusted configuration.</li>
       </ul>
+      <h3>Your organisation's own models</h3>
+      <p>Org admins can also make models in the app, on <strong>Models</strong>, with no YAML and no SQL: pick a connection, then a table, and Magnum BI proposes the model from its columns (text and dates as dimensions, numbers as summed measures, ids and calendar numbers as dimensions, plus a count of rows). Adjust the names, what each column is and how it adds up, then save: everyone in the organisation can explore it and build dashboards on it.</p>
+      <ul>
+        <li><strong>No SQL, by design:</strong> a dimension is a column, a measure is a count, distinct count, sum, average, min or max of a column, and saving checks every field against the table's real columns.</li>
+        <li><strong>Org admins only</strong>, because a model makes a table visible to the whole organisation. Restrictions follow the data: a rule on a model also covers your model on the same table. A model on a different table or view is different data, so check restrictions after adding one.</li>
+        <li>Works with ScramDB, PostgreSQL, DuckDB and BigQuery connections.</li>
+      </ul>
       <div class="note"><strong>One model, many organisations.</strong> Models only <em>name</em> a connection. Each organisation's <code>warehouse</code> decides where the data really is, so the same model serves everyone from their own data.</div>
     </section>
 
@@ -437,7 +444,7 @@ cache: 1h</code></pre>
             <tr><td>Viewer</td><td>View dashboards, use their filters and the period picker</td></tr>
             <tr><td>User</td><td>+ drill down, embed</td></tr>
             <tr><td>Power user</td><td>+ create / edit / delete dashboards, Explore, see SQL and YAML</td></tr>
-            <tr><td>Org admin</td><td>+ manage members, roles and personal filters</td></tr>
+            <tr><td>Org admin</td><td>+ manage members, roles, personal filters, connections, models and public links</td></tr>
             <tr><td>System owner</td><td>Everything, in every organisation</td></tr>
           </tbody>
         </table>
