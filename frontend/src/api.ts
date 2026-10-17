@@ -211,6 +211,13 @@ export interface PublicDashboard {
 }
 export type PublicResult = QueryResult & { as_of: string; expires_at?: string; from_cache: boolean }
 
+/** One step of "Get started" (GET /api/setup): worked out from what is set up. */
+export interface SetupStep {
+  id: string; title: string; detail: string; done: boolean; optional: boolean
+  /** where in the app */ link: string
+  /** the website's documentation, relative to it (page#section) */ guide: string
+}
+
 /** A guest link: anyone with it and its password uses the dashboard, until `expires_at`. */
 export interface GuestLink {
   id: string; dashboard: string; url: string; qr_svg: string; role: Role
@@ -378,6 +385,7 @@ export const api = {
   createShareLink: (dashboard: string, l: { cache_seconds: number; accept_uncached_risk?: boolean }) =>
     call<ShareLink>(`/api/dashboards/${encodeURIComponent(dashboard)}/share-links`, json('POST', l)),
   revokeShareLink: (id: string) => call<{ ok: boolean }>(`/api/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setup: () => call<{ for: 'platform' | 'organisation' | null; steps: SetupStep[] }>('/api/setup'),
   tables: (connection: string) => call<{ tables: string[] }>(`/api/connections/${encodeURIComponent(connection)}/tables`),
   proposeModel: (connection: string, table: string, name: string) =>
     call<{ model: ModelDef; skipped: string[] }>(`/api/connections/${encodeURIComponent(connection)}/tables/${encodeURIComponent(table)}/model?name=${encodeURIComponent(name)}`),

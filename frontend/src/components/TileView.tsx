@@ -90,7 +90,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
           : data ? <Chart result={data} type={tile.type} options={tile.options} onDrill={onDrill} />
           : <div className="empty">Loading…</div>}
       </div>
-      {data && tile.type !== 'kpi' && (
+      {data && !['kpi', 'trend', 'gauge'].includes(tile.type) && (
         <div className="tile-foot">
           {data.rows.length} rows · {data.stats.duration_ms ?? '–'} ms
           {data.stats.cache_hit && <span title={data.stats.cached_at ? `Cached ${new Date(data.stats.cached_at).toLocaleString()}` : undefined}> · cached</span>}

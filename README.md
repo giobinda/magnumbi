@@ -96,6 +96,15 @@ For one process serving the API and the built UI on :8000, run `make serve`. Run
 for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
 
+**Get started, in the app.** The home page shows a checklist until the essentials are set up,
+worked out from what's actually there (`GET /api/setup`). For system owners in the platform
+workspace, it covers the secret key, https, a first organisation, its own database and its Org
+admin. For an organisation's admins, it covers connecting data, describing it (a model), a first
+dashboard and inviting the team, with your colours and single sign-on as optional extras. Each
+step links to the page that does it and to its how-to guide on the website. On **Models**,
+**Starter dashboard** turns any model into a first dashboard in one click: its main numbers,
+their trend, activity over time, the top categories and the details, ready to change.
+
 **The NYC demo: taxi trips × weather.** One step sets up New York yellow taxi trips (NYC TLC
 open data, about 3.5 million trips a month) with the hourly weather in each borough (Open-Meteo,
 ERA5 reanalysis, CC BY 4.0): `make demo` (platform workspace) or `make demo ORG=globex MONTHS=60`,

@@ -70,7 +70,7 @@ function PublicTile({ org, token, tile }: { org: string; token: string; tile: Pu
           : data ? <Chart result={data} type={tile.type} options={tile.options} />
           : <div className="empty">Loading…</div>}
       </div>
-      {data && tile.type !== 'kpi' && <div className="tile-foot">as of {new Date(data.as_of).toLocaleString()}</div>}
+      {data && !['kpi', 'trend', 'gauge'].includes(tile.type) && <div className="tile-foot">as of {new Date(data.as_of).toLocaleString()}</div>}
     </div>
   )
 }

@@ -259,6 +259,8 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
         <li>Queries support time grains (<code>sold_at:month</code>), ad-hoc aggregations (<code>sum(amount)</code>, <code>count_distinct(store)</code>), filters, Top/Bottom N, and sorting by change (<code>-revenue__change</code>).</li>
         <li>Only declared fields can be queried, and every value is safely escaped. SQL written inside a model (<code>sql:</code>) is trusted configuration.</li>
       </ul>
+      <h3>Get started, and starter dashboards</h3>
+      <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours and single sign-on). Each step links to where it's done and to its guide. On <strong>Models</strong>, <strong>Starter dashboard</strong> makes a first dashboard from any model in one click.</p>
       <h3>Your organisation's own models</h3>
       <p>Org admins can also make models in the app, on <strong>Models</strong>, with no YAML and no SQL: pick a connection, then a table, and Magnum BI proposes the model from its columns (text and dates as dimensions, numbers as summed measures, ids and calendar numbers as dimensions, plus a count of rows). Adjust the names, what each column is and how it adds up, then save: everyone in the organisation can explore it and build dashboards on it.</p>
       <ul>
