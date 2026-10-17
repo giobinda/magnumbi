@@ -8,6 +8,7 @@ mod dashboards;
 mod guest;
 mod mcp;
 mod models;
+mod org_models;
 mod share;
 mod themes;
 mod tokens;
@@ -104,6 +105,10 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections", get(connections::list))
         .route("/api/connections/{name}", axum::routing::put(connections::save).delete(connections::delete))
         .route("/api/connections/{name}/test", post(connections::test))
+        .route("/api/connections/{name}/tables", get(org_models::tables))
+        .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
+        .route("/api/org-models", get(org_models::list))
+        .route("/api/org-models/{name}", axum::routing::put(org_models::save).delete(org_models::delete))
         .route("/api/cache", get(admin::cache_stats).delete(admin::clear_cache))
         .route_layer(from_fn_with_state(state.clone(), require_session));
     Router::new()
@@ -424,6 +429,7 @@ pub mod tests {
             hashing: tokio::sync::Semaphore::new(crate::state::hashing_permits()),
             blends: crate::state::OrgBlends::default(),
             themes: Default::default(),
+            models: Default::default(),
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
             demo: Default::default(),

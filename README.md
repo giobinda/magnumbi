@@ -448,7 +448,7 @@ Two safety nets for changes made by agents (and people):
 | Viewer       | view dashboards, use their filters and the period picker              |
 | User         | + drill down, embed                                                   |
 | Power user   | + create / edit / delete dashboards, Explore, see SQL and YAML        |
-| Org admin    | + manage the organisation's members, roles and personal filters       |
+| Org admin    | + manage members, roles, personal filters, connections, models, links |
 | System owner | everything, in every organisation (switch with the organisation picker) |
 
 - Each organisation has its own members, dashboards and models, and none of them are visible
@@ -490,6 +490,32 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
+
+### An organisation's own models
+
+Org admins can also make models in the app, on **Models** (no YAML, no SQL): pick a connection,
+then a table, and Magnum BI proposes the model from its columns. Text, true/false and dates
+become dimensions, numbers become summed measures, while ids and calendar numbers (hour, month,
+year, ...) stay dimensions; a count of rows is always there. They adjust the names, what each
+column is and how it adds up, then save. The model is the organisation's alone, kept in its
+ScramDB, and everyone in it can explore it and build dashboards and blends on it.
+
+- **No SQL, by design.** Unlike the project's YAML (trusted configuration), these are written in
+  the browser: a dimension is a column, named by its name; a measure is count, distinct count,
+  sum, average, min or max of a column; the table is a `schema.table` name. Saving checks every
+  field against the table's actual columns.
+- **Org admins only**, because a model makes a table visible to the whole organisation.
+  Restrictions on what members see follow the data: a rule on a model also covers an
+  organisation's model on the same table of the same connection, however its name is written
+  (`sales`, `public.sales`). A model on a different table or view is different data: check
+  restrictions after adding one.
+- Its name can't be a platform model's or blend's. Connections list their tables and describe
+  their columns for this: ScramDB and PostgreSQL (`information_schema`, columns from a prepared
+  query, no rows read), DuckDB (the connection's tables, `DESCRIBE`), BigQuery (the dataset's
+  `INFORMATION_SCHEMA`).
+
+API: `GET /api/connections/{name}/tables`, `GET /api/connections/{name}/tables/{table}/model?name=…`
+(a proposal), `GET /api/org-models`, `PUT`/`DELETE /api/org-models/{name}` (`?dry_run=1`).
 
 ## Themes and company colours
 

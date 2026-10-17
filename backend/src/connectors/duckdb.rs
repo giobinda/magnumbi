@@ -233,6 +233,27 @@ impl Connector for DuckDbConnector {
         Ok(QueryResult { rows, types, duration_ms: started.elapsed().as_millis() as u64 })
     }
 
+    async fn tables(&self) -> Result<Vec<String>, ConnectorError> {
+        // the connection's tables (views over its files) and those of its database file
+        let r = self
+            .run("SELECT table_name FROM information_schema.tables WHERE table_schema = 'main' ORDER BY 1", &[])
+            .await?;
+        let mut names: std::collections::BTreeSet<String> = self.cfg.tables.keys().cloned().collect();
+        names.extend(r.rows.iter().filter_map(|row| row.first().and_then(|v| v.as_str()).map(String::from)));
+        Ok(names.into_iter().collect())
+    }
+
+    async fn columns(&self, table: &str) -> Result<Vec<(String, ColType)>, ConnectorError> {
+        let parts = crate::org_models::table_parts(table)
+            .ok_or_else(|| ConnectorError::Query(format!("invalid table name {table:?}")))?;
+        let quoted = parts.iter().map(|p| ident(p)).collect::<Vec<_>>().join(".");
+        let r = self.run(&format!("DESCRIBE SELECT * FROM {quoted}"), &[]).await?;
+        Ok(r.rows
+            .iter()
+            .filter_map(|row| Some((row.first()?.as_str()?.to_string(), type_named(row.get(1)?.as_str()?))))
+            .collect())
+    }
+
     async fn test(&self) -> Result<String, ConnectorError> {
         let r = self.run("SELECT version()", &[]).await?;
         let version = r.rows.first().and_then(|row| row.first()).and_then(|v| v.as_str()).unwrap_or("?").to_string();
@@ -248,6 +269,21 @@ impl Connector for DuckDbConnector {
             names.iter().map(|n| n.as_str()).collect::<Vec<_>>().join(", ")
         };
         Ok(format!("DuckDB {version}; tables: {tables}"))
+    }
+}
+
+/// The neutral type of a DuckDB type name, as DESCRIBE writes it.
+fn type_named(t: &str) -> ColType {
+    let t = t.to_uppercase();
+    match t.as_str() {
+        "BOOLEAN" => ColType::Bool,
+        "DATE" => ColType::Date,
+        "FLOAT" | "DOUBLE" | "REAL" => ColType::Float,
+        "TIMESTAMP WITH TIME ZONE" | "TIMESTAMPTZ" => ColType::Timestamptz,
+        _ if t.starts_with("TIMESTAMP") => ColType::Timestamp,
+        _ if t.starts_with("DECIMAL") || t.starts_with("NUMERIC") => ColType::Numeric,
+        _ if t.ends_with("INT") || t == "INTEGER" || t == "HUGEINT" || t == "UHUGEINT" => ColType::Int,
+        _ => ColType::Text,
     }
 }
 
@@ -360,6 +396,26 @@ mod tests {
         assert_eq!(r.rows[0][1], json!("2026-09-01T00:00:00"));
         let message = c.test().await.unwrap();
         assert!(message.starts_with("DuckDB v") && message.contains("sales"), "{message}");
+        std::fs::remove_dir_all(base).ok();
+    }
+
+    #[tokio::test]
+    async fn lists_tables_and_their_columns() {
+        let (c, base) = sandbox(json!({"sales": "sales/*.parquet"}), None);
+        write_parquet(&org_dir(&base, "acme"));
+        assert_eq!(c.tables().await.unwrap(), ["sales"]);
+        let cols = c.columns("sales").await.unwrap();
+        assert_eq!(
+            cols,
+            [
+                ("id".into(), ColType::Int),
+                ("sold_at".into(), ColType::Timestamptz),
+                ("region".into(), ColType::Text),
+                ("amount".into(), ColType::Numeric)
+            ]
+        );
+        assert!(c.columns("nope").await.is_err());
+        assert!(c.columns("sales; SELECT 1").await.is_err());
         std::fs::remove_dir_all(base).ok();
     }
 

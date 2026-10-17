@@ -16,6 +16,7 @@ import UsagePage from './pages/UsagePage'
 import BlendsPage from './pages/BlendsPage'
 import ConnectionsPage from './pages/ConnectionsPage'
 import ThemesPage from './pages/ThemesPage'
+import ModelsPage from './pages/ModelsPage'
 
 const ROLE_LABELS: Record<string, string> = { viewer: 'Viewer', user: 'User', power_user: 'Power user', org_admin: 'Org admin', system_owner: 'System owner' }
 
@@ -46,6 +47,7 @@ function SignedIn() {
                 <Guarded perm="explore"><NavLink to="/blends">Blends</NavLink></Guarded>
                 <MembersLink />
                 <Guarded perm="manage_members"><NavLink to="/connections">Connections</NavLink></Guarded>
+                <OrgOnly><Guarded perm="manage_members"><NavLink to="/models">Models</NavLink></Guarded></OrgOnly>
                 <Guarded perm="manage_members"><NavLink to="/themes">Themes</NavLink></Guarded>
                 <Guarded perm="manage_members"><NavLink to="/usage">Usage</NavLink></Guarded>
                 <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
@@ -57,6 +59,7 @@ function SignedIn() {
                 <Route path="/blends" element={<Guarded perm="explore" page><BlendsPage /></Guarded>} />
                 <Route path="/themes" element={<Guarded perm="manage_members" page><ThemesPage /></Guarded>} />
                 <Route path="/connections" element={<Guarded perm="manage_members" page><ConnectionsPage /></Guarded>} />
+                <Route path="/models" element={<Guarded perm="manage_members" page><ModelsPage /></Guarded>} />
                 <Route path="/usage" element={<Guarded perm="manage_members" page><UsagePage /></Guarded>} />
                 <Route path="/members" element={<Guarded perm="manage_members" page><MembersPage /></Guarded>} />
                 <Route path="/organisations" element={<Guarded perm="manage_orgs" page><OrganisationsPage /></Guarded>} />
@@ -76,6 +79,12 @@ function Credit() {
 }
 
 /** Members are managed inside an organisation (system owners: after choosing one). */
+/** Only inside an organisation (not the platform workspace). */
+function OrgOnly({ children }: { children: React.ReactNode }) {
+  const { auth } = useAuth()
+  return auth?.org ? <>{children}</> : null
+}
+
 function MembersLink() {
   const { auth } = useAuth()
   return auth?.org ? <Guarded perm="manage_members"><NavLink to="/members">Members</NavLink></Guarded> : null

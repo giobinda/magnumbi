@@ -494,7 +494,10 @@ pub fn model_available(scope: &Scope, project: &ProjectState, name: &str) -> boo
             .chain(b.joins.iter().map(|j| &j.model))
             .all(|m| model_available(scope, project, m));
     }
-    scope.role.is_some() && project.models.contains_key(name) && scope.models.as_ref().is_none_or(|m| m.contains(name))
+    // the organisation's own models are its own: not limited by the platform's model list
+    scope.role.is_some()
+        && project.models.contains_key(name)
+        && (project.org_models.contains(name) || scope.models.as_ref().is_none_or(|m| m.contains(name)))
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -574,7 +577,17 @@ pub fn same_data(project: &ProjectState, rule_model: &str, model_name: &str) -> 
     if root(project, &ra) == root(project, &rb) {
         return true;
     }
-    matches!((source(project, &ra), source(project, &rb)), (Some(x), Some(y)) if x == y)
+    match (source(project, &ra), source(project, &rb)) {
+        (Some(x), Some(y)) if x == y => true,
+        // an organisation's model names its table as it likes (`sales`, `public.sales`): the same
+        // table name on the same connection is the same data, so its restrictions apply (at worst
+        // more than needed, never less)
+        (Some((cx, tx)), Some((cy, ty))) if project.org_models.contains(&ra) || project.org_models.contains(&rb) => {
+            let last = |t: &str| t.rsplit('.').next().unwrap_or_default().to_string();
+            cx == cy && last(&tx) == last(&ty)
+        }
+        _ => false,
+    }
 }
 
 pub fn describe_restrictions(scope: &Scope, project: &ProjectState) -> Vec<Value> {

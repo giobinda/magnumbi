@@ -58,12 +58,16 @@ the planned steps stay cheap.
   password hashed); guests act as the link's maker with the link's role or lower, the maker's row
   filters plus the link's own; their unlock cookie is sealed for that organisation and link.
 
+- Organisation-specific models (org_models.rs): made in the app by Org admins, kept in the
+  organisation's ScramDB, merged into its requests' project like its blends. They carry no SQL
+  (columns and aggregations only), can't take a platform model's name, and row filters follow
+  the same table into them (access::same_data).
+
 - Themes: an organisation's own themes and default themes are kept in its ScramDB and only join
   that organisation's view.
 
 ## Planned (not built yet)
 
-- Organisation-specific models (today models are platform YAML shared by all organisations).
 - A data key per organisation (envelope encryption, KMS-ready); crypto-shredding on offboarding.
 - Separate migration and runtime roles on org instances; refuse `--pg-no-auth`, non-TLS and
   shared instances in production.

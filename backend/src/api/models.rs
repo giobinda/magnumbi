@@ -56,6 +56,8 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
         "measures": measures,
         "hierarchies": m.hierarchies,
         "blend": blend.map(|b| json!({"base": b.base, "joins": b.joins})),
+        // the organisation's own (made in the app; Org admins edit it there)
+        "own": caller.project.org_models.contains(&m.name),
     })
 }
 
