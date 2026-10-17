@@ -309,7 +309,11 @@ pub struct LoginBody {
 }
 
 /// The client's address: the TCP peer, or (behind a proxy) the configured header's first entry.
-fn client_ip(state: &AppState, headers: &HeaderMap, peer: Option<Extension<ConnectInfo<SocketAddr>>>) -> String {
+pub(super) fn client_ip(
+    state: &AppState,
+    headers: &HeaderMap,
+    peer: Option<Extension<ConnectInfo<SocketAddr>>>,
+) -> String {
     let forwarded = state.config.client_ip_header.as_deref().and_then(|h| header(headers, h));
     match forwarded.and_then(|v| v.split(',').next()).map(str::trim).filter(|v| !v.is_empty()) {
         Some(ip) => ip.chars().take(64).collect(),
@@ -319,7 +323,10 @@ fn client_ip(state: &AppState, headers: &HeaderMap, peer: Option<Extension<Conne
 
 /// Run slow password hashing off the async threads, a few at a time (sign-in floods can't take
 /// every CPU).
-async fn hashing<T: Send + 'static>(state: &AppState, f: impl FnOnce() -> T + Send + 'static) -> ApiResult<T> {
+pub(super) async fn hashing<T: Send + 'static>(
+    state: &AppState,
+    f: impl FnOnce() -> T + Send + 'static,
+) -> ApiResult<T> {
     let busy = || ApiError::Status(StatusCode::SERVICE_UNAVAILABLE, "busy signing people in; try again shortly".into());
     let _permit = tokio::time::timeout(Duration::seconds(5).to_std().expect("5 s"), state.hashing.acquire())
         .await

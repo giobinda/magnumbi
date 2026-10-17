@@ -5,6 +5,7 @@ mod auth;
 mod blends;
 mod connections;
 mod dashboards;
+mod guest;
 mod mcp;
 mod models;
 mod share;
@@ -62,7 +63,12 @@ pub fn router(state: Shared) -> Router {
         .route("/api/auth/oidc/{org}/login", get(auth::oidc_login))
         .route("/api/auth/oidc/callback", get(auth::oidc_callback))
         .route("/api/public/{org}/{token}", get(share::dashboard))
-        .route("/api/public/{org}/{token}/tiles/{tile}", get(share::tile));
+        .route("/api/public/{org}/{token}/tiles/{tile}", get(share::tile))
+        .route("/api/guest/{org}/{token}", get(guest::dashboard))
+        .route("/api/guest/{org}/{token}/unlock", post(guest::unlock))
+        .route("/api/guest/{org}/{token}/tiles/{tile}/query", post(guest::tile))
+        .route("/api/guest/{org}/{token}/filters/values", get(guest::filter_values))
+        .route("/api/guest/{org}/{token}/period", post(guest::period));
     let protected = Router::new()
         .route("/api/models", get(models::list))
         .route("/api/mcp", post(mcp::endpoint))
@@ -85,6 +91,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/filters/values", get(dashboards::filter_values))
         .route("/api/dashboards/{id}/share-links", get(share::list).post(share::create))
         .route("/api/share-links/{id}", axum::routing::delete(share::revoke))
+        .route("/api/dashboards/{id}/guest-links", get(guest::list).post(guest::create))
+        .route("/api/guest-links/{id}", axum::routing::delete(guest::revoke))
         .route("/api/members", get(admin::get_members).put(admin::put_members))
         .route("/api/members/sign-in", get(admin::get_sign_in).put(admin::put_sign_in))
         .route("/api/members/password", post(admin::reset_password))

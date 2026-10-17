@@ -17,7 +17,8 @@ use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::{Body, Source, execute, model_of};
-use crate::auth::{Auth, Caller, link_caller};
+use crate::access::Role;
+use crate::auth::{Auth, Caller, LinkAccess, link_caller};
 use crate::config::Config;
 use crate::error::{ApiError, ApiResult};
 use crate::schema::Dashboard;
@@ -180,7 +181,9 @@ async fn open(state: &AppState, org: &str, token: &str) -> ApiResult<(ShareLink,
     }
     let store = state.orgs.store(org).await?;
     let link = store.share_link(org, &sha256_hex(token)).await?.ok_or_else(gone)?;
-    let caller = link_caller(state, org, &link.created_by).await?.ok_or_else(gone)?;
+    let access =
+        LinkAccess { min: Role::Viewer, cap: Role::Viewer, filters: &[], name: format!("public link {}", link.id()) };
+    let caller = link_caller(state, org, &link.created_by, access).await?.ok_or_else(gone)?;
     let (d, text) = match super::dashboards::load(state, &caller, &link.dashboard_id).await {
         Err(ApiError::Status(code, _)) if code == axum::http::StatusCode::NOT_FOUND => return Err(gone()),
         other => other?,
@@ -265,7 +268,7 @@ fn answer((text, as_of, expires): (String, DateTime<Utc>, DateTime<Utc>), from_c
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use axum::http::{HeaderMap, StatusCode};
     use serde_json::{Value, json};
 
@@ -274,7 +277,7 @@ mod tests {
     const DASHBOARD: &str = "title: Shared sales\ntiles:\n  - id: t\n    type: kpi\n    query: {model: sales, measures: [transactions]}\n    layout: {x: 0, y: 0, w: 3, h: 2}\n  - id: regions\n    type: bar\n    query: {model: sales, dimensions: [region], measures: [transactions]}\n    layout: {x: 3, y: 0, w: 6, h: 4}\n";
 
     /// A request, signed in (cookie) or not, in an organisation: (status, JSON, headers).
-    async fn send(
+    pub(crate) async fn send(
         app: &axum::Router,
         cookie: Option<&str>,
         org: &str,
@@ -303,8 +306,15 @@ mod tests {
         (status, serde_json::from_slice(&bytes).unwrap_or(Value::Null), headers)
     }
 
-    /// An organisation with the sample data as its `warehouse` and a one-tile dashboard.
+    /// An organisation with the sample data as its `warehouse` and a dashboard.
     async fn org_with_dashboard() -> Option<(axum::Router, std::sync::Arc<crate::state::AppState>, String, String)> {
+        org_with(DASHBOARD).await
+    }
+
+    /// An organisation with the sample data as its `warehouse` and the dashboard `shared`.
+    pub(crate) async fn org_with(
+        dashboard: &str,
+    ) -> Option<(axum::Router, std::sync::Arc<crate::state::AppState>, String, String)> {
         let (app, state, cookie) = app().await?;
         let org = format!("share{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
         state.orgs.pin(&org, state.store.clone());
@@ -322,16 +332,17 @@ mod tests {
             .header("cookie", &cookie)
             .header("x-magnum-org", &org)
             .header("content-type", "text/plain")
-            .body(axum::body::Body::from(DASHBOARD))
+            .body(axum::body::Body::from(dashboard.to_string()))
             .unwrap();
         let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::OK);
         Some((app, state, cookie, org))
     }
 
-    async fn clean_up(state: &crate::state::AppState, org: &str) {
+    pub(crate) async fn clean_up(state: &crate::state::AppState, org: &str) {
         let c = state.store.pool.get().await.unwrap();
-        for table in ["shared_results", "share_links", "dashboards", "dashboard_versions", "connections"] {
+        for table in ["shared_results", "share_links", "guest_links", "dashboards", "dashboard_versions", "connections"]
+        {
             c.execute(&format!("DELETE FROM {table} WHERE org = $1"), &[&org]).await.unwrap();
         }
     }

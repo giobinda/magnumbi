@@ -117,6 +117,47 @@ impl ShareLink {
     }
 }
 
+const GUEST_LINK: &str = "SELECT token_hash, token_sealed, dashboard_id, password_hash, role, filters, \
+    expires_at, created_by, created_at FROM guest_links";
+
+/// A guest link (api/guest.rs): a dashboard for whoever has the link and its password.
+pub struct GuestLink {
+    pub token_hash: String,
+    /// the token, sealed for "<org>/guest": to show the link again
+    pub token_sealed: String,
+    pub dashboard_id: String,
+    pub password_hash: String,
+    /// guests' role (viewer, user, ...): at most the maker's, re-checked on every visit
+    pub role: String,
+    /// rows guests may see, on top of the maker's own restrictions (only ever narrower)
+    pub filters: Vec<crate::access::RowRule>,
+    pub expires_at: DateTime<Utc>,
+    /// guests use the dashboard as this person could (with filters, period and drilling)
+    pub created_by: String,
+    pub created_at: DateTime<Utc>,
+}
+
+impl GuestLink {
+    fn from_row(r: &tokio_postgres::Row) -> Result<GuestLink> {
+        Ok(GuestLink {
+            token_hash: r.get(0),
+            token_sealed: r.get(1),
+            dashboard_id: r.get(2),
+            password_hash: r.get(3),
+            role: r.get(4),
+            filters: serde_json::from_str(&r.get::<_, String>(5))?,
+            expires_at: r.get(6),
+            created_by: r.get(7),
+            created_at: r.get(8),
+        })
+    }
+
+    /// A short id for the link (its revocation handle): the start of the token's hash.
+    pub fn id(&self) -> &str {
+        &self.token_hash[..16]
+    }
+}
+
 /// An OpenID Connect sign-in in progress.
 pub struct OAuthState {
     pub verifier: String,
@@ -983,6 +1024,56 @@ impl Store {
         )
         .await?;
         Ok(())
+    }
+
+    // ------------------------------------------------------------------ guest links
+
+    pub async fn put_guest_link(&self, org: &str, l: &GuestLink) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO guest_links (org, token_hash, token_sealed, dashboard_id, password_hash, role, filters,
+               expires_at, created_by) VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMPTZ, $9)",
+            &[
+                &org,
+                &l.token_hash,
+                &l.token_sealed,
+                &l.dashboard_id,
+                &l.password_hash,
+                &l.role,
+                &serde_json::to_string(&l.filters)?,
+                &l.expires_at,
+                &l.created_by,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// The organisation's guest links that haven't expired (to one dashboard, or all), newest
+    /// first. Expired ones are removed on the way.
+    pub async fn guest_links(&self, org: &str, dashboard: Option<&str>) -> Result<Vec<GuestLink>> {
+        let c = self.pool.get().await?;
+        c.execute("DELETE FROM guest_links WHERE org = $1 AND expires_at <= now()", &[&org]).await?;
+        let rows = c.query(&format!("{GUEST_LINK} WHERE org = $1 ORDER BY created_at DESC"), &[&org]).await?;
+        let links = rows.iter().map(GuestLink::from_row).collect::<Result<Vec<_>>>()?;
+        Ok(links.into_iter().filter(|l| dashboard.is_none_or(|d| l.dashboard_id == d)).collect())
+    }
+
+    /// A guest link that hasn't expired.
+    pub async fn guest_link(&self, org: &str, token_hash: &str) -> Result<Option<GuestLink>> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                &format!("{GUEST_LINK} WHERE org = $1 AND token_hash = $2 AND expires_at > now()"),
+                &[&org, &token_hash],
+            )
+            .await?;
+        row.as_ref().map(GuestLink::from_row).transpose()
+    }
+
+    pub async fn delete_guest_link(&self, org: &str, token_hash: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM guest_links WHERE org = $1 AND token_hash = $2", &[&org, &token_hash]).await? > 0)
     }
 
     // ------------------------------------------------------------------ blends

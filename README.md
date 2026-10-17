@@ -33,8 +33,9 @@ the cache.
 - **Your company's colours:** build a theme visually, with readability checks, or import your
   design team's tokens. Export the same colours as CSS for your own website.
 - **Put dashboards anywhere:** embed one in your intranet or product with a single line of HTML,
-  or share it with anyone through a public link and QR code, served from a cache so a popular
-  link can't overload your data warehouse.
+  share it with anyone through a public link and QR code, served from a cache so a popular
+  link can't overload your data warehouse, or with guests through a link and a password, for up
+  to 14 days, limited to the data you choose.
 
 **Many organisations, fully separate (multi-tenant).** Run one Magnum BI for several
 departments, subsidiaries or customers.
@@ -549,6 +550,36 @@ Org admins can share a dashboard with **anyone who has the link**, no account ne
 API: `GET`/`POST /api/dashboards/{id}/share-links` (`{"cache_seconds": 3600}`),
 `DELETE /api/share-links/{id}`; visitors' `GET /api/public/{org}/{token}` and
 `/api/public/{org}/{token}/tiles/{tile}`.
+
+## Guest links
+
+Power users and up can share a dashboard with colleagues or people outside the organisation,
+through a link **and a password**: **Share with guests** on the dashboard. Guests need no account.
+
+- **Their role is the maker's or lower**, Viewer by default: Viewers use the dashboard's filters
+  and period, Users also drill down, Power users also see each tile's SQL. Nothing else: no
+  editing, no Explore, no sharing. The role is checked again on every request: the link's, or
+  the maker's current role if that's lower. A link stops working if its maker drops below Power
+  user or leaves.
+- **They see only what the maker allows.** The maker's own restrictions apply, and the link can
+  add its own limits ("Pickup borough is Manhattan or Brooklyn") on any field of the models the
+  dashboard uses. A blend has no restrictions of its own, so limits go on its models. Limits
+  only ever narrow, on every tile, pick list and drill-down.
+- **Every link expires**, after 1 hour to 14 days (never longer). Its maker or an Org admin can
+  remove it sooner, which ends it at once, even for guests who already opened it.
+- **The password** is the maker's (at least 10 characters) or one Magnum BI makes up. It's stored
+  as an Argon2id hash and shown only when the link is made: send it separately from the link.
+  The right password opens the link in that browser for up to 12 hours (a sealed cookie that
+  works for that link only); wrong ones lock it for 15 minutes after 5 tries, like sign-in.
+- Guests' queries run on the data warehouse like anyone's (with the models' own `cache:`), and
+  are in the usage log under the link, as are making, removing and opening links.
+
+API: `GET`/`POST /api/dashboards/{id}/guest-links`
+(`{"expires_in_hours": 168, "password": "…", "role": "viewer", "filters": [{"model": "taxi",
+"dimension": "pickup_borough", "values": ["Manhattan"]}]}`; an empty password is made up and
+returned once), `DELETE /api/guest-links/{id}`; guests' `POST /api/guest/{org}/{token}/unlock`,
+then `GET /api/guest/{org}/{token}`, `POST …/tiles/{tile}/query`, `GET …/filters/values`,
+`POST …/period`.
 
 ## Configuration
 

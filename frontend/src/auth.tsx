@@ -10,6 +10,12 @@ type Ctx = { auth: AuthState | null; refresh: () => Promise<void>; signOut: () =
 const AuthContext = createContext<Ctx>({ auth: null, refresh: async () => {}, signOut: async () => {} })
 export const useAuth = () => useContext(AuthContext)
 
+/** A guest link's page: its guest's permissions (view, filter, drill...), and no account. */
+export function GuestAuth({ permissions, children }: { permissions: Permission[]; children: ReactNode }) {
+  const auth = { required: true, authenticated: false, user: null, methods: { password: false, google: false }, permissions } as unknown as AuthState
+  return <AuthContext.Provider value={{ auth, refresh: async () => {}, signOut: async () => {} }}>{children}</AuthContext.Provider>
+}
+
 /** UI convenience only: the server enforces every permission on its own. */
 export function useCan() {
   const { auth } = useAuth()
