@@ -916,6 +916,7 @@ joins:
             compare: Some("change"),
             base: Some("avg_temperature".into()),
             higher_is_better: None,
+            additive: None,
         }];
         prefix_columns("weather", "Weather", &mut cols);
         assert_eq!(

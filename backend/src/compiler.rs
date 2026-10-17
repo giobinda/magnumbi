@@ -155,6 +155,9 @@ pub struct Column {
     /// the measure a comparison column belongs to
     pub base: Option<String>,
     pub higher_is_better: Option<bool>,
+    /// measures: whether values add up across rows (sum, count), so totals mean something
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub additive: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -629,6 +632,7 @@ pub fn compile_query_up_to(
             compare: None,
             base: None,
             higher_is_better: None,
+            additive: None,
         });
         aliases.push((r.clone(), alias.clone()));
         if alias_of(&aliases, name).is_none() {
@@ -653,6 +657,7 @@ pub fn compile_query_up_to(
             compare,
             base: compare.map(|_| name.clone()),
             higher_is_better: Some(m.higher_is_better),
+            additive: Some(compare.is_none_or(|c| c == "previous") && matches!(m.kind.as_str(), "sum" | "count")),
         };
         match &period {
             Some(PeriodParts { cur: cc, prev: Some(pc), .. }) => {
@@ -1072,6 +1077,19 @@ hierarchies:
         let c = compile(json!({"model": "sales", "dimensions": ["sold_at:week", "region"], "measures": ["revenue"]}))
             .unwrap();
         assert!(c.sql.contains("ORDER BY\n  \"sold_at__week\",\n  \"region\""), "{}", c.sql);
+    }
+
+    #[test]
+    fn measures_say_whether_they_add_up() {
+        let c = compile(
+            json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue", "transactions", "margin"]}),
+        )
+        .unwrap();
+        let additive: Vec<(&str, Option<bool>)> = c.columns.iter().map(|c| (c.name.as_str(), c.additive)).collect();
+        assert_eq!(
+            additive,
+            [("region", None), ("revenue", Some(true)), ("transactions", Some(true)), ("margin", Some(false))]
+        );
     }
 
     #[test]

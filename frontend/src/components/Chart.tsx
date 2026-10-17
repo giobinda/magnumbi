@@ -3,6 +3,7 @@ import type { ChartType, Column, QueryResult, Value } from '../api'
 import { formatChange, formatNumber, formatValue } from '../format'
 import EChart from './EChart'
 import { buildOption } from '../chartOption'
+import { pivot, trendSummary } from '../chartMore'
 import { useTheme } from '../theme'
 
 
@@ -20,6 +21,8 @@ export default function Chart({ result, type, options, onDrill }: Props) {
   if (!result.rows.length) return <div className="empty">No data</div>
   if (type === 'kpi') return <Kpi result={result} />
   if (type === 'table') return <Table result={result} onDrill={onDrill} />
+  if (type === 'pivot') return <PivotTable result={result} />
+  if (type === 'trend') return <Trend result={result} />
   return <EChartView result={result} type={type} options={options} onDrill={onDrill} />
 }
 
@@ -115,4 +118,56 @@ function EChartView({ result, type, options, onDrill }: Props) {
       }
     : undefined
   return <EChart option={echartsOption} onClick={handleClick as never} />
+}
+
+/** Rows by the first field, columns by the second; totals when the measure adds up; each cell
+ *  tinted by its value. */
+function PivotTable({ result }: { result: QueryResult }) {
+  const p = pivot(result)
+  if (!p) return <div className="empty">A pivot table needs 2 dimensions + 1 measure</div>
+  const f = (v: number | null) => (v === null ? '' : formatNumber(v, p.measure.format))
+  const max = Math.max(1e-9, ...p.cells.flat().map(v => Math.abs(v ?? 0)))
+  const tint = (v: number | null) => (v === null ? undefined : { background: `color-mix(in srgb, var(--accent) ${Math.round((Math.abs(v) / max) * 28)}%, transparent)` })
+  return (
+    <div className="table-wrap">
+      <table className="data pivot">
+        <thead>
+          <tr><th>{p.rowLabel} <span className="muted">╲ {p.colLabel}</span></th>
+            {p.colKeys.map(c => <th key={c} className="num">{c}</th>)}
+            {p.rowTotals && <th className="num">Total</th>}</tr>
+        </thead>
+        <tbody>
+          {p.rowKeys.map((r, ri) => (
+            <tr key={r}><td>{r}</td>
+              {p.cells[ri].map((v, ci) => <td key={ci} className="num" style={tint(v)}>{f(v)}</td>)}
+              {p.rowTotals && <td className="num total">{f(p.rowTotals[ri])}</td>}</tr>
+          ))}
+          {p.colTotals && (
+            <tr className="total"><td>Total</td>{p.colTotals.map((v, ci) => <td key={ci} className="num">{f(v)}</td>)}<td className="num">{f(p.total)}</td></tr>
+          )}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+/** The latest value, its change on the value before, and a sparkline of the series. */
+function Trend({ result }: { result: QueryResult }) {
+  const { theme } = useTheme()
+  const t = useMemo(() => trendSummary(result), [result])
+  const option = useMemo(() => t && ({
+    animation: false, grid: { left: 0, right: 0, top: 4, bottom: 0 },
+    xAxis: { type: 'category', show: false, boundaryGap: false, data: t.points.map((_, i) => i) },
+    yAxis: { type: 'value', show: false, scale: true },
+    series: [{ type: 'line', data: t.points, smooth: 0.3, showSymbol: false, lineStyle: { width: 2, color: theme.palette[0] },
+      areaStyle: { color: theme.palette[0], opacity: 0.12 } }],
+  }), [t, theme])
+  if (!t) return <div className="empty">A trend needs a date dimension + 1 measure</div>
+  return (
+    <div className="trend">
+      <div className="kpi-value">{t.value === null ? '–' : formatNumber(t.value, t.measure.format, true)}</div>
+      <div className="kpi-compare"><Change value={t.change} higherIsBetter={t.measure.higher_is_better} /><span className="muted"> on the previous point</span></div>
+      <div className="trend-spark"><EChart option={option!} /></div>
+    </div>
+  )
 }
