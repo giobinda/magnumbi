@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
+import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, Dimension, Filter, FilterOp, ModelInfo, Period, Tile, TopN, Value } from '../api'
 import { MultiSelect } from './FilterBar'
 import PeriodControl from './PeriodControl'
@@ -15,6 +16,15 @@ const CHARTS: { type: ChartType; label: string; icon: string }[] = [
   { type: 'pie', label: 'Donut', icon: '◔' },
   { type: 'scatter', label: 'Scatter', icon: '⁘' },
   { type: 'kpi', label: 'KPI', icon: '#' },
+  { type: 'trend', label: 'KPI with trend', icon: '↗' },
+  { type: 'combo', label: 'Bar + line', icon: '⫼' },
+  { type: 'pivot', label: 'Pivot table', icon: '⊞' },
+  { type: 'heatmap', label: 'Heatmap', icon: '▩' },
+  { type: 'treemap', label: 'Treemap', icon: '◫' },
+  { type: 'funnel', label: 'Funnel', icon: '⏷' },
+  { type: 'waterfall', label: 'Waterfall', icon: '▟' },
+  { type: 'histogram', label: 'Histogram', icon: '▂▅' },
+  { type: 'gauge', label: 'Gauge', icon: '◠' },
 ]
 const GRAINS = ['', 'hour', 'day', 'week', 'month', 'quarter', 'year']
 const OPS: { op: FilterOp; label: string; arity: 0 | 1 | 2 | 'n' }[] = [
@@ -52,10 +62,14 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   const [filters, setFilters] = useState<Filter[]>(initial?.query.filters ?? [])
   const [sort, setSort] = useState<string[]>(initial?.query.sort ?? [])
   const [limit, setLimit] = useState(initial?.query.limit ?? 1000)
-  const [type, setType] = useState<ChartType>(initial?.type ?? 'table')
+  const [chosen, setType] = useState<ChartType>(initial?.type ?? 'table')
   const [title, setTitle] = useState(initial?.title ?? '')
   const [drill, setDrill] = useState<string>(typeof initial?.drill === 'string' ? initial.drill : '')
-  const [stacked, setStacked] = useState(Boolean(initial?.options?.stacked))
+  // the chart was picked (or saved): no more suggestions
+  const [picked, setPicked] = useState(Boolean(initial))
+  const [stack, setStack] = useState<'none' | 'stacked' | 'percent'>(
+    initial?.options?.percent ? 'percent' : initial?.options?.stacked ? 'stacked' : 'none')
+  const [target, setTarget] = useState<number | ''>(typeof initial?.options?.target === 'number' ? initial.options.target : '')
   const [period, setPeriod] = useState<Period | null>(initial?.query.period ?? null)
   const [top, setTop] = useState<TopN | null>(initial?.query.top ?? null)
   const [search, setSearch] = useState('')
@@ -64,6 +78,10 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   const model = models.find(m => m.name === modelName)
   useEffect(() => { if (!modelName && models[0]) setModelName(models[0].name) }, [models, modelName])
   const label = (ref: string) => fieldLabel(model, ref)
+  // until a chart is picked, one that suits the fields chosen
+  const temporal = (ref: string) => isTemporal(model?.dimensions.find(d => d.name === fieldName(ref))?.type)
+  const suggested = suggestChart(dims.map(d => ({ temporal: temporal(d) })), measures.length)
+  const type = picked ? chosen : suggested ?? chosen
   // Top N applies while its dimension and measure are still in the chart
   const validTop = useMemo(() => (top && dims.includes(top.dimension) && measures.includes(top.by) ? top : null),
     [top, dims, measures])
@@ -121,7 +139,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
       type,
       drill: drill || null,
       layout: initial?.layout ?? { x: 0, y: 0, w: 6, h: 5 },
-      options: stacked ? { stacked: true } : {},
+      options: {
+        ...(stack !== 'none' && ['bar', 'area', 'line'].includes(type) ? { stacked: true } : {}),
+        ...(stack === 'percent' && ['bar', 'area'].includes(type) ? { percent: true } : {}),
+        ...(type === 'gauge' && target !== '' ? { target } : {}),
+      },
       query: {
         model: model.name, dimensions: dims, measures,
         filters: usable, sort: validSort.length ? validSort : undefined, limit,
@@ -129,7 +151,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         ...(validTop ? { top: validTop } : {}),
       },
     }
-  }, [model, dims, measures, filters, sort, limit, type, title, drill, stacked, period, initial, validTop])
+  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, target, period, initial, validTop])
 
   const q = search.toLowerCase()
   const match = (n: string, l?: string | null) => !q || n.toLowerCase().includes(q) || (l ?? '').toLowerCase().includes(q)
@@ -217,7 +239,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         <div className="viz-bar">
           <div className="chart-types">
             {CHARTS.map(c => (
-              <button key={c.type} className={type === c.type ? 'active' : ''} title={c.label} onClick={() => setType(c.type)}>
+              <button key={c.type} className={type === c.type ? 'active' : ''} title={c.label} onClick={() => {
+                setType(c.type); setPicked(true)
+                // a histogram counts every value: the most rows a query may have
+                if (c.type === 'histogram' && limit === 1000) setLimit(50000)
+              }}>
                 <span>{c.icon}</span> {c.label}
               </button>
             ))}
@@ -247,7 +273,16 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                 </select>
               </label>
             )}
-            {['bar', 'area', 'line'].includes(type) && <label className="check"><input type="checkbox" checked={stacked} onChange={e => setStacked(e.target.checked)} /> stacked</label>}
+            {['bar', 'area', 'line'].includes(type) && (
+              <label>Stack
+                <select value={stack} onChange={e => setStack(e.target.value as typeof stack)}>
+                  <option value="none">no</option><option value="stacked">stacked</option>
+                  {type !== 'line' && <option value="percent">100%</option>}
+                </select>
+              </label>
+            )}
+            {type === 'gauge' && <label>Target <input type="number" min={0} value={target} placeholder="none"
+              onChange={e => setTarget(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} /></label>}
           </div>
         </div>
 

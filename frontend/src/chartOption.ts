@@ -2,6 +2,7 @@
 // so it can be tested without a browser.
 import type { ChartType, Column, QueryResult, Value } from './api'
 import { formatChange, formatNumber, formatValue } from './format'
+import { moreOption } from './chartMore'
 
 /** Tooltips are HTML: every value from the data (or config) is escaped before it goes in. */
 export const esc = (v: unknown) => String(v ?? '').replace(/[&<>"']/g, c => `&#${c.charCodeAt(0)};`)
@@ -43,6 +44,11 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
     tooltip: { trigger: type === 'pie' || type === 'scatter' ? 'item' : 'axis', confine: true },
     animationDuration: 300,
   }
+
+  const more = moreOption(type, result, opts, {
+    base, text, grid, good: cssVar('--good', '#13795b'), bad: cssVar('--danger', '#b3261e'), surface: cssVar('--surface', '#ffffff'),
+  }, shade)
+  if (more) return more
 
   if (type === 'pie') {
     const d = dimIdx[0], m = meaIdx[0]
@@ -103,6 +109,15 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
   }
   // split series in value order (numbers as numbers), so a value keeps its colour from chart to chart
   const series = [...seriesMap.values()]
+  // 100% stacked: each category's values as shares of its total (this period's series only)
+  const percent = Boolean(opts.percent) && Boolean(opts.stacked)
+  if (percent) {
+    const current = series.filter(s => !s.previous)
+    categoriesRaw.forEach((_, ci) => {
+      const total = current.reduce((a, s) => a + Math.abs(s.data[ci] ?? 0), 0)
+      for (const s of current) if (s.data[ci] !== null) s.data[ci] = total ? s.data[ci]! / total : 0
+    })
+  }
   if (pivot) series.sort((a, b) => byValue(a.name, b.name))
   // a previous-period series: its measure's colour, half-way to the background (lighter on light
   // themes, darker on dark ones), and dashed on lines
@@ -138,11 +153,11 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
 
   const valueAxis = (i: number) => {
     const first = series.find(s => axisFor(s) === i && !s.previous)
-    const fmt = first?.measure.format
+    const fmt = percent ? 'percent' : first?.measure.format
     // two measures: each scale says whose it is, in its series' colour
     const named = dual && measures.length === 2 && first
     return {
-      type: 'value', position: i ? 'right' : undefined,
+      type: 'value', position: i ? 'right' : undefined, max: percent ? 1 : undefined,
       name: named ? first.name : undefined,
       nameTextStyle: named ? { color: seriesColor(first) ?? text, align: i ? 'right' : 'left', fontWeight: 600 } : undefined,
       axisLabel: { color: text, formatter: (v: number) => formatNumber(v, fmt, true) },
@@ -164,7 +179,7 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
       formatter: (ps: { seriesIndex: number; dataIndex: number; marker: string; seriesName: string; value: number; axisValueLabel: string }[]) =>
         `${esc(ps[0]?.axisValueLabel ?? '')}<br/>` + ps.map(p => {
           const s = series[p.seriesIndex]
-          const v = `${p.marker}${esc(p.seriesName)}: <b>${p.value == null ? '–' : esc(formatNumber(p.value, s.measure.format))}</b>`
+          const v = `${p.marker}${esc(p.seriesName)}: <b>${p.value == null ? '–' : esc(formatNumber(p.value, percent && !s.previous ? 'percent' : s.measure.format))}</b>`
           const ch = !s.previous && comparing && !pivot ? changeOf(s.measure.name, horizontal ? n - 1 - p.dataIndex : p.dataIndex) : undefined
           return typeof ch === 'number' ? `${v} <span style="opacity:.75">(${esc(formatChange(ch))})</span>` : v
         }).join('<br/>'),
@@ -173,7 +188,8 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
     yAxis: horizontal ? catAxis : dual ? [valueAxis(0), valueAxis(1)] : valueAxis(0),
     series: series.map(s => ({
       name: s.name,
-      type: type === 'area' ? 'line' : horizontal ? 'bar' : type,
+      // combo: the first measure as bars, the others as lines
+      type: type === 'combo' ? (measureOf(s) === measures[0] ? 'bar' : 'line') : type === 'area' ? 'line' : horizontal ? 'bar' : type,
       data: horizontal ? [...s.data].reverse() : s.data,
       yAxisIndex: horizontal ? undefined : axisFor(s),
       stack: stacked ? (s.previous ? 'previous' : 'total') : undefined,
@@ -184,7 +200,7 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
       smooth: type === 'line' || type === 'area' ? 0.2 : undefined,
       showSymbol: n < 40,
       barMaxWidth: 36,
-      itemStyle: type === 'bar' || horizontal ? { borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] } : undefined,
+      itemStyle: type === 'bar' || horizontal || (type === 'combo' && measureOf(s) === measures[0]) ? { borderRadius: horizontal ? [0, 3, 3, 0] : [3, 3, 0, 0] } : undefined,
     })),
     __drill: d0 !== undefined ? { column: cols[d0], raw: horizontal ? [...categoriesRaw].reverse() : categoriesRaw } : undefined,
   }

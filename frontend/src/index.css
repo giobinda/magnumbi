@@ -398,3 +398,11 @@ button.danger-solid:disabled { opacity: .45; }
 .fields-table input:not([type=checkbox]), .fields-table select { width: 100%; }
 .fields-table tr.off td { opacity: .5; }
 @media (max-width: 760px) { .fields-table th:nth-child(2), .fields-table td:nth-child(2) { display: none; } }
+
+/* pivot and trend tiles */
+table.data.pivot td.total, table.data.pivot tr.total td { font-weight: 600; border-top: 2px solid var(--border); }
+table.data.pivot td.total { border-top: 0; border-left: 2px solid var(--border); }
+.trend { display: flex; flex-direction: column; height: 100%; padding: 4px 8px 0; }
+.trend .kpi-value { font-size: 30px; }
+.trend-spark { flex: 1; min-height: 40px; }
+.trend-spark > div { height: 100% !important; }

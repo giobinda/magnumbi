@@ -491,6 +491,27 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
 
+### Chart types
+
+A tile's `type`, and what it needs from its query:
+
+| type | shows | needs |
+|---|---|---|
+| `kpi` | big numbers, with the change on the previous period | measures |
+| `trend` | the latest value, its change on the point before, and a sparkline | a date + 1 measure |
+| `gauge` | progress towards `options.target` (else a round number above it) | 1 measure |
+| `table`, `pivot` | rows; a pivot spreads a second field across columns, with totals when the measure adds up (sum, count) | 2 dimensions + 1 measure (pivot) |
+| `bar`, `hbar`, `line`, `area` | categories or time; a second dimension splits the series; `options.stacked`, `options.percent` (100%) | 1–2 dimensions + measures |
+| `combo` | the first measure as bars, the others as lines, each on its own scale | 1 dimension + 2 measures |
+| `pie`, `treemap`, `funnel` | shares; a treemap nests a second dimension; a funnel keeps the query's order | 1 (or 2) dimensions + 1 measure |
+| `heatmap` | one field across, one down, colour by value | 2 dimensions + 1 measure |
+| `waterfall` | how a total builds up, step by step, then the total | 1 dimension + 1 measure |
+| `histogram` | a number dimension's distribution, in equal bins (`options.bins`) weighted by the measure | 1 number dimension (+ a count) |
+| `scatter` | two measures against each other | 2 measures |
+
+Weekday and month names sort as on a calendar. Until someone picks a chart, Explore suggests one
+from the fields chosen (a date and a measure: a line; two categories: a heatmap; and so on).
+
 ### An organisation's own models
 
 Org admins can also make models in the app, on **Models** (no YAML, no SQL): pick a connection,

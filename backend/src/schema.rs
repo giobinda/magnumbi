@@ -468,7 +468,25 @@ impl Query {
 
 // --------------------------------------------------------------------------- dashboards
 
-pub const CHART_TYPES: [&str; 8] = ["kpi", "table", "bar", "hbar", "line", "area", "pie", "scatter"];
+pub const CHART_TYPES: [&str; 17] = [
+    "kpi",
+    "table",
+    "bar",
+    "hbar",
+    "line",
+    "area",
+    "pie",
+    "scatter",
+    "pivot",
+    "heatmap",
+    "combo",
+    "gauge",
+    "trend",
+    "treemap",
+    "funnel",
+    "waterfall",
+    "histogram",
+];
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]

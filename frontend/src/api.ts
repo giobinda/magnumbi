@@ -9,6 +9,7 @@ export type FilterOp =
   | 'equals' | 'not_equals' | 'contains' | 'gt' | 'gte' | 'lt' | 'lte' | 'between'
   | 'is_null' | 'not_null' | 'last_n_days'
 export type ChartType = 'kpi' | 'table' | 'bar' | 'hbar' | 'line' | 'area' | 'pie' | 'scatter'
+  | 'pivot' | 'heatmap' | 'combo' | 'gauge' | 'trend' | 'treemap' | 'funnel' | 'waterfall' | 'histogram'
 export type Value = string | number | boolean | null
 
 export type Aggregation = 'sum' | 'avg' | 'min' | 'max' | 'count' | 'count_distinct'
@@ -60,6 +61,8 @@ export interface Column {
   name: string; field: string; label: string; kind: 'dimension' | 'measure'; type: string
   format?: string | null; grain?: string | null
   compare?: 'previous' | 'change' | null; base?: string | null; higher_is_better?: boolean | null
+  /** measures: values add up across rows (sum, count), so totals mean something */
+  additive?: boolean | null
 }
 export interface QueryResult {
   columns: Column[]; rows: Value[][]
