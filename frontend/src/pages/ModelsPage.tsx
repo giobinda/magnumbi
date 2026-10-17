@@ -1,10 +1,11 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { ConnectionInfo } from '../api'
 import { forgetModels, useModels } from '../hooks'
 import { DIMENSION_TYPES, MEASURE_TYPES, modelFrom, rowsFor } from '../modelEditor'
 import type { FieldRow, MeasureDef, ModelDef } from '../modelEditor'
+import { starterDashboard } from '../starter'
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 't_$1') || 'model'
 
@@ -14,7 +15,21 @@ export default function ModelsPage() {
   const [editing, setEditing] = useState<ModelDef | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { models } = useModels()
+  const navigate = useNavigate()
   const load = () => api.orgModels().then(r => setOwn(r.models), e => setError(e.message))
+
+  // a first dashboard on a model, to change at will
+  const starter = async (name: string) => {
+    const m = models.find(x => x.name === name)
+    if (!m) { setError('This model is still loading (or has a problem): try again in a moment.'); return }
+    try {
+      const taken = (await api.dashboards()).dashboards.map(d => d.id)
+      let id = `${name}_overview`, n = 2
+      while (taken.includes(id)) id = `${name}_overview_${n++}`
+      await api.saveDashboard(id, starterDashboard(m), 'none')
+      navigate(`/dashboards/${id}`)
+    } catch (e) { setError((e as Error).message) }
+  }
   useEffect(() => { load() }, [])
 
   const remove = async (m: ModelDef) => {
@@ -44,6 +59,7 @@ export default function ModelsPage() {
           <span className="grow" />
           <span className="muted small">{updated_by ? `by ${updated_by}, ` : ''}{new Date(updated_at).toLocaleDateString()}</span>
           <Link className="btn" to={`/explore?model=${encodeURIComponent(m.name)}`}>Explore</Link>
+          <button onClick={() => starter(m.name)}>Starter dashboard</button>
           <button onClick={() => setEditing(m)}>Edit</button>
           <button className="danger" onClick={() => remove(m)}>Delete</button>
         </div>
@@ -55,6 +71,8 @@ export default function ModelsPage() {
         {platform.map(m => (
           <div key={m.name} className="card person row wrap">
             <span>{m.label}</span><span className="muted small mono">{m.name}</span>
+            <span className="grow" />
+            <button onClick={() => starter(m.name)}>Starter dashboard</button>
           </div>
         ))}
       </>}

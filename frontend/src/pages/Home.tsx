@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { DashboardSummary } from '../api'
 import { useModels } from '../hooks'
 import { useCan } from '../auth'
+import GetStarted from '../components/GetStarted'
 
 export default function Home() {
   const [list, setList] = useState<DashboardSummary[] | null>(null)
@@ -34,6 +35,7 @@ export default function Home() {
           {can('create') && <button className="primary" onClick={create}>+ New dashboard</button>}
         </div>
       </div>
+      <GetStarted />
       {error && <div className="error">{error}</div>}
       {Object.entries(modelErrors).map(([f, e]) => <div key={f} className="warn">⚠ {f}: {e}</div>)}
       <div className="cards">

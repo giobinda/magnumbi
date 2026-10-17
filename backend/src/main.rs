@@ -23,6 +23,7 @@ mod project;
 mod sample;
 mod schema;
 mod security;
+mod setup;
 mod state;
 mod store;
 mod themes;

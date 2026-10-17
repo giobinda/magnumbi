@@ -9,6 +9,7 @@ mod guest;
 mod mcp;
 mod models;
 mod org_models;
+mod setup;
 mod share;
 mod themes;
 mod tokens;
@@ -108,6 +109,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
         .route("/api/org-models", get(org_models::list))
+        .route("/api/setup", get(setup::checklist))
         .route("/api/org-models/{name}", axum::routing::put(org_models::save).delete(org_models::delete))
         .route("/api/cache", get(admin::cache_stats).delete(admin::clear_cache))
         .route_layer(from_fn_with_state(state.clone(), require_session));
