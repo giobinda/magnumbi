@@ -1,4 +1,5 @@
 import type { Theme } from './theme'
+import { guestPath } from './guest'
 // Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
 
 // time = TIMESTAMP (UTC instant); datetime = naive local date-time (e.g. store-local)
@@ -204,6 +205,26 @@ export interface PublicDashboard {
 }
 export type PublicResult = QueryResult & { as_of: string; expires_at?: string; from_cache: boolean }
 
+/** A guest link: anyone with it and its password uses the dashboard, until `expires_at`. */
+export interface GuestLink {
+  id: string; dashboard: string; url: string; qr_svg: string; role: Role
+  filters: { model: string; dimension: string; values: Value[] }[]
+  expires_at: string; created_by: string; created_at: string
+  /** only when Magnum BI made the password up: shown this once */
+  password?: string
+}
+
+/** What a guest link opens: the dashboard, its models, the guest's role and limits. */
+export interface GuestDashboard {
+  id: string; dashboard: Dashboard; models: ModelInfo[]; theme: Theme | null
+  role: Role; permissions: Permission[]; filters: GuestLink['filters']; expires_at: string; shared_by: string
+}
+
+/** While a guest link is open: its API (/api/guest/<org>/<token>), where tiles, filter values and
+ *  periods are asked for instead of the signed-in endpoints. */
+let guestBase: string | null = null
+export const setGuestBase = (base: string | null) => { guestBase = base }
+
 /** Public pages: no session, no organisation header. */
 async function publicCall<T>(path: string, signal?: AbortSignal): Promise<T> {
   const r = await fetch(path, { signal })
@@ -272,9 +293,8 @@ export const api = {
   models: () => call<{ models: ModelInfo[]; errors: Record<string, string> }>('/api/models'),
   query: (q: Query, signal?: AbortSignal) => call<QueryResult>('/api/query', { ...json('POST', q), signal }),
   tileQuery: (dash: string, tile: string, req: TileRequest, signal?: AbortSignal) =>
-    call<QueryResult>(`/api/dashboards/${encodeURIComponent(dash)}/tiles/${encodeURIComponent(tile)}/query`, { ...json('POST', req), signal }),
-  filterValues: (dash: string, key: string) =>
-    call<QueryResult>(`/api/dashboards/${encodeURIComponent(dash)}/filters/values?key=${encodeURIComponent(key)}`),
+    call<QueryResult>(guestPath(guestBase, dash, { tile }), { ...json('POST', req), signal }),
+  filterValues: (dash: string, key: string) => call<QueryResult>(guestPath(guestBase, dash, { key })),
   members: () => call<MembersResponse>('/api/members'),
   saveMembers: (m: Members) => call<MembersResponse>('/api/members', json('PUT', m)),
   platform: () => call<PlatformResponse>('/api/platform'),
@@ -304,7 +324,7 @@ export const api = {
   testConnection: (name: string, config: Record<string, unknown>, secret?: string) =>
     call<{ ok: boolean; message: string }>(`/api/connections/${encodeURIComponent(name)}/test`, json('POST', { config, secret: secret || undefined })),
   deleteConnection: (name: string) => call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(`/api/period?model=${encodeURIComponent(model)}`, json('POST', p)),
+  resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(guestPath(guestBase, '', { model }), json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
   blends: () => call<{ blends: Blend[] }>('/api/blends'),
   saveBlend: (b: Blend) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}`, json('PUT', { ...b, editable: undefined })),
@@ -352,6 +372,17 @@ export const api = {
   createShareLink: (dashboard: string, l: { cache_seconds: number; accept_uncached_risk?: boolean }) =>
     call<ShareLink>(`/api/dashboards/${encodeURIComponent(dashboard)}/share-links`, json('POST', l)),
   revokeShareLink: (id: string) => call<{ ok: boolean }>(`/api/share-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  guestLinks: (dashboard: string) =>
+    call<{ links: GuestLink[]; max_hours: number }>(`/api/dashboards/${encodeURIComponent(dashboard)}/guest-links`),
+  createGuestLink: (dashboard: string, l: { expires_in_hours: number; password: string; role: Role; filters: GuestLink['filters'] }) =>
+    call<GuestLink>(`/api/dashboards/${encodeURIComponent(dashboard)}/guest-links`, json('POST', l)),
+  revokeGuestLink: (id: string) => call<{ ok: boolean }>(`/api/guest-links/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  guestDashboard: (base: string) => publicCall<GuestDashboard>(base),
+  guestUnlock: async (base: string, password: string) => {
+    const r = await fetch(`${base}/unlock`, json('POST', { password }))
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) throw new ApiError(r.status, typeof body.detail === 'string' ? body.detail : r.statusText)
+  },
   publicDashboard: (org: string, token: string) =>
     publicCall<PublicDashboard>(`/api/public/${encodeURIComponent(org)}/${encodeURIComponent(token)}`),
   publicTile: (org: string, token: string, tile: string, signal?: AbortSignal) =>

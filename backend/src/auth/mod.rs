@@ -306,23 +306,47 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
     project
 }
 
-/// Who a public link's visitors are: the person who made the link, in its organisation, as a
-/// Viewer at most. Their data restrictions apply, so a link never shows more than they may see.
-/// None once they can't see that organisation any more (removed, disabled): the link stops working.
-pub async fn link_caller(state: &AppState, org: &str, email: &str) -> Result<Option<Caller>, ApiError> {
-    let Some(user) = state.store.user(email).await? else { return Ok(None) };
+/// Who acts through a link, for someone not signed in here (a public link's visitors, a guest
+/// link's guests): the link's maker, in its organisation, with a role capped at `link.cap`.
+/// The maker's data restrictions apply, plus the link's own filters (which only narrow), so a
+/// link never shows more than its maker may see. None once the maker can't see that organisation
+/// any more (removed, disabled) or is below `link.min`: the link stops working.
+pub async fn link_caller(
+    state: &AppState,
+    org: &str,
+    maker: &str,
+    link: LinkAccess<'_>,
+) -> Result<Option<Caller>, ApiError> {
+    let Some(user) = state.store.user(maker).await? else { return Ok(None) };
     if user.disabled || user.owner_org.as_deref().is_some_and(|o| o != org) {
         return Ok(None);
     }
     let project = state.project.current();
     let (access, access_errors) = state.access.get(state, &project).await;
-    let scope = scope_of(&access, email, Some(org));
-    if scope.org.as_deref() != Some(org) || scope.role.is_none() || scope.broken {
+    let mut scope = scope_of(&access, maker, Some(org));
+    if scope.org.as_deref() != Some(org) || scope.broken || !scope.role.is_some_and(|r| r >= link.min) {
         return Ok(None);
     }
+    scope.personal_filters.extend(link.filters.iter().cloned());
+    let role = scope.role.map(|r| r.min(link.cap));
     let project = project_for(state, &scope, project).await;
-    let session = SessionInfo { method: "share".into(), user, granted_role: None, token: None };
-    Ok(Some(Caller { session, scope, role: Some(Role::Viewer), access, access_errors, project, refresh: false }))
+    // recorded as this link in the usage log
+    let token =
+        crate::store::TokenInfo { name: link.name, org: org.into(), role: link.cap.as_str().into(), write: false };
+    let session = SessionInfo { method: "link".into(), user, granted_role: None, token: Some(token) };
+    Ok(Some(Caller { session, scope, role, access, access_errors, project, refresh: false }))
+}
+
+/// What a link lets its users do: see [`link_caller`].
+pub struct LinkAccess<'a> {
+    /// the lowest role its maker may have now for it to work
+    pub min: Role,
+    /// the highest role its users get
+    pub cap: Role,
+    /// rows its users may see, on top of the maker's restrictions
+    pub filters: &'a [crate::access::RowRule],
+    /// for the usage log: "public link <id>"
+    pub name: String,
 }
 
 pub struct Auth(pub Arc<Caller>);

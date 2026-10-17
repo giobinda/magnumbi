@@ -208,24 +208,35 @@ pub async fn run_tile(
     Path((id, tile_id)): Path<(String, String)>,
     Body(req): Body<TileRequest>,
 ) -> ApiResult<Json<Value>> {
+    Ok(Json(tile_for(&state, &caller, &id, &tile_id, &req).await?))
+}
+
+/// A saved tile's data for this caller (signed in, or a guest link's guest).
+pub async fn tile_for(
+    state: &AppState,
+    caller: &Caller,
+    id: &str,
+    tile_id: &str,
+    req: &TileRequest,
+) -> ApiResult<Value> {
     caller.require("view")?;
-    let (d, _) = load(&state, &caller, &id).await?;
+    let (d, _) = load(state, caller, id).await?;
     let tile = d
         .tiles
         .iter()
         .find(|t| t.id == tile_id)
         .ok_or_else(|| ApiError::not_found(format!("tile {tile_id:?} not found")))?;
-    let model = model_of(&caller, &tile.query.model)?;
-    let q = build(&d, tile, model, &req, caller.can("drill")).map_err(|e| match e {
+    let model = model_of(caller, &tile.query.model)?;
+    let q = build(&d, tile, model, req, caller.can("drill")).map_err(|e| match e {
         TileRequestError::NoDrill => ApiError::forbidden("your role can't drill down"),
         TileRequestError::Invalid(m) => ApiError::bad_request(m),
     })?;
-    Ok(Json(execute(&state, &caller, &q, Source { kind: "tile", dashboard: Some(&id) }).await?))
+    execute(state, caller, &q, Source { kind: "tile", dashboard: Some(id) }).await
 }
 
 #[derive(Deserialize)]
 pub struct KeyParam {
-    key: String,
+    pub key: String,
 }
 
 /// Distinct values for one of the dashboard's own filters (the filter bar's pick list).
@@ -235,13 +246,18 @@ pub async fn filter_values(
     Path(id): Path<String>,
     UrlQuery(p): UrlQuery<KeyParam>,
 ) -> ApiResult<Json<Value>> {
+    Ok(Json(filter_values_for(&state, &caller, &id, &p.key).await?))
+}
+
+/// The pick list of one of a dashboard's filters, for this caller (signed in, or a guest).
+pub async fn filter_values_for(state: &AppState, caller: &Caller, id: &str, key: &str) -> ApiResult<Value> {
     caller.require("filter")?;
-    let (d, _) = load(&state, &caller, &id).await?;
+    let (d, _) = load(state, caller, id).await?;
     let f = d
         .filters
         .iter()
-        .find(|f| format!("{}.{}", f.model, f.field) == p.key)
-        .ok_or_else(|| ApiError::not_found(format!("{:?} is not a filter of this dashboard", p.key)))?;
+        .find(|f| format!("{}.{}", f.model, f.field) == key)
+        .ok_or_else(|| ApiError::not_found(format!("{key:?} is not a filter of this dashboard")))?;
     let q = Query {
         model: f.model.clone(),
         dimensions: vec![f.field.clone()],
@@ -253,7 +269,7 @@ pub async fn filter_values(
         formulas: vec![],
         top: None,
     };
-    Ok(Json(execute(&state, &caller, &q, Source { kind: "filter_values", dashboard: Some(&id) }).await?))
+    execute(state, caller, &q, Source { kind: "filter_values", dashboard: Some(id) }).await
 }
 
 #[cfg(test)]

@@ -1,35 +1,27 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 import GridLayout, { WidthProvider } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 import CodeMirror from '@uiw/react-codemirror'
 import { yaml as yamlLang } from '@codemirror/lang-yaml'
 import { ApiError, api, isTemporal } from '../api'
-import type { Dashboard, DashboardPeriod, Filter, Tile, Value } from '../api'
+import type { Dashboard, DashboardPeriod, Tile } from '../api'
 import Explorer from '../components/Explorer'
-import FilterBar, { filterKey } from '../components/FilterBar'
+import FilterBar from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
 import ShareDialog from '../components/ShareDialog'
+import GuestDialog from '../components/GuestDialog'
+import { limitModels } from '../guest'
 import { useTheme, useThemeOverride } from '../theme'
 import { useAuth, useCan } from '../auth'
 import type { OrgRef } from '../api'
 import { periodFromUrl } from '../period'
+import { initialFilterValues, useDashboardInputs } from '../dashboardInputs'
 import TileView from '../components/TileView'
 import { useModels, usePhone } from '../hooks'
 import { phoneLayout } from '../phoneLayout'
 
 const Grid = WidthProvider(GridLayout)
-
-function initialFilterValues(d: Dashboard): Record<string, Value[]> {
-  // URL params override defaults: ?status=Complete,Shipped&created_at=30
-  const params = new URLSearchParams(location.search)
-  const out: Record<string, Value[]> = {}
-  for (const f of d.filters) {
-    const p = params.get(f.field)
-    out[filterKey(f)] = p !== null ? (p === '' ? [] : p.split(',')) : (f.default ?? [])
-  }
-  return out
-}
 
 /** A save refused because the dashboard changed meanwhile: what to tell the person. */
 const conflict = (e: unknown) => (e instanceof ApiError && e.status === 409
@@ -55,8 +47,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [editTile, setEditTile] = useState<Tile | 'new' | null>(null)
   const [showEmbed, setShowEmbed] = useState(false)
   const [showShare, setShowShare] = useState(false)
-  const [filterValues, setFilterValues] = useState<Record<string, Value[]>>({})
-  const [period, setPeriod] = useState<DashboardPeriod | null>(null)  // viewer's current choice
+  const [showGuests, setShowGuests] = useState(false)
+  const { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
   const [saving, setSaving] = useState(false)
   const can = useCan()
   const auth = useAuth().auth
@@ -74,7 +66,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       setFilterValues(initialFilterValues(r.dashboard))
       setPeriod(r.dashboard.period ? periodFromUrl(r.dashboard.period, location.search) : null)
     }, e => setError(e.message))
-  }, [id])
+  }, [id, setFilterValues, setPeriod])
   useEffect(load, [load])
 
   // embedded: tell the host page how tall we are so it can size the iframe
@@ -84,30 +76,6 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     ro.observe(document.body)
     return () => ro.disconnect()
   }, [embed, id])
-
-  const filtersByModel = useMemo(() => {
-    const out: Record<string, Filter[]> = {}
-    for (const f of dash?.filters ?? []) {
-      const values = filterValues[filterKey(f)] ?? []
-      const op = f.op ?? 'equals'
-      if (!values.length && op !== 'is_null' && op !== 'not_null') continue
-      ;(out[f.model] ??= []).push({ field: f.field, op, values })
-    }
-    return out
-  }, [dash, filterValues])
-
-  // the query-level period has no `model`; it only applies to tiles on that model
-  const tilePeriod = useMemo(() => {
-    if (!period) return null
-    const { model: _model, ...p } = period
-    return p
-  }, [period])
-
-  // what a saved tile may be asked for: filter values and the period window (drill is per tile)
-  const tileRequest = useMemo(() => ({
-    filters: filterValues,
-    period: period ? { current: period.current, compare: period.compare ?? null } : null,
-  }), [filterValues, period])
 
   const update = (fn: (d: Dashboard) => Dashboard) => { setDash(d => (d ? fn(d) : d)); setDirty(true) }
 
@@ -202,6 +170,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             </> : <>
               {isTemplate && <button title="Copy this template into organisations" onClick={() => setShowPublish(true)}>Publish…</button>}
               {can('share') && <button onClick={() => setShowEmbed(true)}>Embed</button>}
+              {can('edit') && auth?.org && <button onClick={() => setShowGuests(true)}>Share with guests</button>}
               {can('manage_members') && auth?.org && <button onClick={() => setShowShare(true)}>Share publicly</button>}
               {can('edit') && <button onClick={() => setEditing(true)}>Edit</button>}
               {can('edit') && <button className="danger" title="Delete dashboard" onClick={async () => {
@@ -265,6 +234,9 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       )}
 
       {showEmbed && <EmbedDialog id={id} onClose={() => setShowEmbed(false)} />}
+      {showGuests && auth?.org && <GuestDialog id={id} myRole={auth.role ?? 'viewer'} me={auth.user?.email ?? ''} isAdmin={can('manage_members')}
+        models={limitModels([...dash.tiles.map(t => t.query.model), ...dash.filters.map(f => f.model)], models)}
+        onClose={() => setShowGuests(false)} />}
       {showShare && auth?.org && <ShareDialog id={id} org={auth.org.name} tiles={dash.tiles.length} onClose={() => setShowShare(false)} />}
       {showPublish && <PublishDialog id={id} orgs={auth?.orgs ?? []} onClose={() => setShowPublish(false)} />}
     </div>

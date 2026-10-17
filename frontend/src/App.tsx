@@ -9,6 +9,7 @@ import OrganisationsPage from './pages/OrganisationsPage'
 import { ThemeSwatch, useTheme } from './theme'
 import DashboardPage from './pages/DashboardPage'
 import PublicPage from './pages/PublicPage'
+import GuestPage from './pages/GuestPage'
 import ExplorePage from './pages/ExplorePage'
 import Home from './pages/Home'
 import UsagePage from './pages/UsagePage'
@@ -24,6 +25,7 @@ export default function App() {
       <Routes>
         {/* public links: no sign-in */}
         <Route path="/s/:org/:token" element={<PublicPage />} />
+        <Route path="/g/:org/:token" element={<GuestPage />} />
         <Route path="*" element={<SignedIn />} />
       </Routes>
     </BrowserRouter>

@@ -54,6 +54,10 @@ the planned steps stay cheap.
   the primary to find it. Visitors act as the link's maker, a Viewer at most, with their row
   filters.
 
+- Guest links: kept in the organisation's ScramDB (token sealed for "<org>/guest" and hashed,
+  password hashed); guests act as the link's maker with the link's role or lower, the maker's row
+  filters plus the link's own; their unlock cookie is sealed for that organisation and link.
+
 - Themes: an organisation's own themes and default themes are kept in its ScramDB and only join
   that organisation's view.
 

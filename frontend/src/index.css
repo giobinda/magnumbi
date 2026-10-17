@@ -382,3 +382,8 @@ button.danger-solid:disabled { opacity: .45; }
 .public-head h1 { margin-bottom: 4px; }
 .public-head p { margin: 2px 0; }
 .public-gone { max-width: 520px; margin: 18vh auto; padding: 0 16px; text-align: center; }
+.share-made { padding: 10px 12px; margin-bottom: 8px; display: flex; flex-direction: column; gap: 6px; border-color: var(--accent); }
+.share-made input { flex: 1; min-width: 200px; }
+.guest-form { display: flex; flex-direction: column; gap: 8px; margin-bottom: 8px; }
+.guest-form label.small { display: flex; flex-direction: column; gap: 4px; }
+.guest-form .row { flex-wrap: wrap; }

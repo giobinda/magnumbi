@@ -29,6 +29,7 @@ pub const PRIMARY: Migrations = &[
     ("0008_api_tokens", include_str!("../migrations/primary/0008_api_tokens.sql")),
     ("0009_themes", include_str!("../migrations/primary/0009_themes.sql")),
     ("0010_share_links", include_str!("../migrations/primary/0010_share_links.sql")),
+    ("0011_guest_links", include_str!("../migrations/primary/0011_guest_links.sql")),
 ];
 /// Versions are prefixed, so an instance serving as both primary and organisation database keeps
 /// the two histories apart.
@@ -38,6 +39,7 @@ pub const ORG: Migrations = &[
     ("org/0003_blends", include_str!("../migrations/org/0003_blends.sql")),
     ("org/0004_themes", include_str!("../migrations/org/0004_themes.sql")),
     ("org/0005_share_links", include_str!("../migrations/org/0005_share_links.sql")),
+    ("org/0006_guest_links", include_str!("../migrations/org/0006_guest_links.sql")),
 ];
 /// pg_advisory_lock key serializing migrations across replicas (ScramDB: literal keys only)
 const MIGRATION_LOCK: i64 = 727_001;

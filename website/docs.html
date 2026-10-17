@@ -84,6 +84,7 @@
         <li><a href="#cache">Query cache</a></li>
         <li><a href="#embedding">Embedding</a></li>
         <li><a href="#public-links">Public links</a></li>
+        <li><a href="#guest-links">Guest links</a></li>
         <li><a href="#themes">Themes &amp; brand colours</a></li>
         <li><a href="#agents">AI agents &amp; MCP</a></li>
       </ol>
@@ -373,6 +374,17 @@ cache: 1h</code></pre>
         <li><strong>Served from the cache, so your data warehouse can't be overloaded.</strong> Each link keeps its tiles' results for its cache period (5 minutes to a day; 1 hour by default). The warehouse answers each tile at most once per period, however many people open the link, and visitors arriving at the same moment wait for that one query. If the kept results can't be read, the link fails rather than ask the warehouse.</li>
         <li><strong>No cache is possible, never by accident.</strong> It sends every visit to the warehouse, so anyone with the link could overload it or run up its bill. Magnum BI spells out the risks and only makes the link once they're accepted and the dashboard's id is typed.</li>
         <li><strong>Removing a link</strong> stops it at once. Links aren't indexed by search engines (<code>noindex</code>), and <code>MAGNUM_PUBLIC_LINKS=0</code> turns them off for the whole server.</li>
+      </ul>
+    </section>
+
+    <section id="guest-links">
+      <h2>Guest links</h2>
+      <p>Power users and up can share a dashboard with colleagues or people outside the organisation through a link <strong>and a password</strong>: <strong>Share with guests</strong> on the dashboard. Guests need no account.</p>
+      <ul>
+        <li><strong>Their role is yours or lower</strong>, Viewer by default: Viewers use the dashboard's filters and period, Users also drill down, Power users also see each tile's SQL. No editing, Explore or sharing. If you drop below Power user or leave, your links stop working.</li>
+        <li><strong>They see only what you allow:</strong> your own restrictions, plus the link's limits on any field of the dashboard's models (for example, <em>Pickup borough is Manhattan or Brooklyn</em>). Limits only narrow, on every tile, pick list and drill-down.</li>
+        <li><strong>Every link expires</strong>, after 1 hour to 14 days, never longer. Removing it ends it at once, even for guests who already opened it.</li>
+        <li><strong>The password</strong> is yours (at least 10 characters) or one Magnum BI makes up, shown only once: send it separately from the link. It opens the link in that browser for up to 12 hours; wrong passwords lock the link for 15 minutes after 5 tries.</li>
       </ul>
     </section>
 
