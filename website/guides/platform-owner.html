@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Platform owner guide · Magnum BI guides</title>
+  <meta name="description" content="Run Magnum BI for many organisations: create them, give each its own database, name their admins, set sign-in rules.">
+  <meta name="robots" content="index, follow">
+  <link rel="canonical" href="https://giobinda.github.io/magnumbi/guides/platform-owner.html">
+  <meta name="theme-color" content="#fff6e9" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#0b1a2b" media="(prefers-color-scheme: dark)">
+  <meta property="og:type" content="article">
+  <meta property="og:site_name" content="Magnum BI">
+  <meta property="og:title" content="Platform owner guide">
+  <meta property="og:description" content="Run Magnum BI for many organisations: create them, give each its own database, name their admins, set sign-in rules.">
+  <meta property="og:url" content="https://giobinda.github.io/magnumbi/guides/platform-owner.html">
+  <meta property="og:image" content="https://giobinda.github.io/magnumbi/assets/og-image.png">
+  <meta name="twitter:card" content="summary_large_image">
+  <link rel="icon" href="../assets/favicon.svg" type="image/svg+xml">
+  <link rel="stylesheet" href="../assets/style.css">
+  <script>try{var t=localStorage.getItem('theme');if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="site-header">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <a class="alpha" href="../docs.html#roadmap" title="Magnum BI is an early alpha">Alpha</a>
+    <button class="icon-btn menu-btn" type="button" aria-label="Open menu" aria-expanded="false">
+      <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h16M4 17h16"/></svg>
+    </button>
+    <nav class="nav" aria-label="Main">
+      <a href="../index.html#features">Features</a>
+      <a href="../compare.html">Compare</a>
+      <a href="../docs.html">Docs</a>
+      <a href="infrastructure.html" aria-current="page">Guides</a>
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a class="btn small primary" href="../docs.html#quick-start">Get started</a>
+    </nav>
+    <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
+  </div>
+</header>
+
+<div class="wrap docs">
+  <aside class="toc" aria-label="On this page">
+    <details open>
+      <summary>On this page</summary>
+      <h4>Guides</h4>
+      <ol>
+        <li><a href="infrastructure.html">Infrastructure</a></li>
+        <li><a href="platform-owner.html" aria-current="page">Platform owner</a></li>
+        <li><a href="org-admin.html">Org admin</a></li>
+      </ol>
+      <h4>Platform owner guide</h4>
+      <ol>
+        <li><a href="#role">What a platform owner does</a></li>
+        <li><a href="#organisations">Create an organisation</a></li>
+        <li><a href="#databases">Give it its own database</a></li>
+        <li><a href="#org-admins">Name its Org admins</a></li>
+        <li><a href="#sign-in">Sign-in rules</a></li>
+        <li><a href="#templates">Templates and the demo</a></li>
+        <li><a href="#usage">Usage, sharing and keeping watch</a></li>
+      </ol>
+    </details>
+  </aside>
+
+  <main id="main" class="doc">
+    <section id="top">
+      <h1>Platform owner guide</h1>
+<p class="lead">For system owners: set up organisations so their admins can take it from there. Magnum BI is running? If not, start with the <a href="infrastructure.html">infrastructure guide</a>.</p>
+    </section>
+
+    <section id="role">
+      <h2>What a platform owner does</h2>
+<p>System owners run Magnum BI for everyone: they create <strong>organisations</strong> (a company, a department, a customer), give each its own database, decide what each may use, and name each one's admins. Inside an organisation, its <a href="org-admin.html">Org admins</a> take over: data, models, dashboards, people.</p>
+      <p>The first system owners are named by the server's setting (<code>MAGNUM_SYSTEM_OWNERS</code>, or the <code>admin</code> email in Compose and Helm); after that, on <strong>Organisations › System owners</strong>. The home page's <strong>Get started</strong> list shows what's left to do.</p>
+    </section>
+
+    <section id="organisations">
+      <h2>Create an organisation</h2>
+<ol>
+        <li>Open <strong>Organisations</strong>, then <strong>+ Add organisation</strong>.</li>
+        <li>Give it an <strong>id</strong> (lowercase, permanent, e.g. <code>acme</code>) and a name.</li>
+        <li><strong>Email domains</strong> (optional): anyone from those domains joins it automatically, with its default role.</li>
+        <li><strong>Models</strong>: the platform's models it may use (or all). Its own models, made by its Org admins, are always its own.</li>
+        <li><strong>Organisation filters</strong> (optional): rows everyone in it is limited to, Org admins included.</li>
+        <li><strong>Save</strong>.</li>
+      </ol>
+      <p>Organisations never see each other's members, data or dashboards.</p>
+    </section>
+
+    <section id="databases">
+      <h2>Give it its own database</h2>
+<p>Each organisation keeps its dashboards, connections, models, themes and cache in <strong>its own ScramDB</strong>. Until it has one, its people can't open dashboards.</p>
+      <ol>
+        <li>Start a ScramDB for it (on a server, or <code>make org-db ORG=acme PORT=55433</code> on a development machine).</li>
+        <li>On <strong>Organisations</strong>, its card, <strong>Database › Set…</strong>: paste its address (<code>postgresql://user:password@host:5432/scramdb</code>). Magnum BI tests it, sets it up and moves the organisation's dashboards there.</li>
+      </ol>
+      <p>The address is stored encrypted with the <a href="infrastructure.html#secret-key">secret key</a>. From the server's command line: <code>echo "postgresql://…" | magnum-bi org set-database acme</code>. If an organisation's database is down, only that organisation is affected.</p>
+    </section>
+
+    <section id="org-admins">
+      <h2>Name its Org admins</h2>
+<ol>
+        <li>On <strong>Organisations</strong>, its card, <strong>Open</strong>: you're now inside the organisation (the picker at the top says which).</li>
+        <li><strong>Members › People</strong>: add the person's email with the role <strong>Org admin</strong>, and <strong>Save</strong>.</li>
+        <li>If they'll sign in with a password: <strong>One-time password…</strong> makes one to hand over; they choose their own at their first sign-in. With Google or the organisation's single sign-on, nothing else is needed.</li>
+      </ol>
+      <p>From there, the <a href="org-admin.html">Org admin guide</a> is theirs.</p>
+    </section>
+
+    <section id="sign-in">
+      <h2>Sign-in rules</h2>
+<p>On <strong>Organisations › Sign-in</strong>, choose how everyone may sign in (passwords, authenticator codes, passkeys, Google, organisations' own single sign-on, API tokens), and on each organisation's card, stricter rules for that organisation. Its Org admins can only tighten them further, never loosen them. Stricter rules sign out sessions that no longer meet them.</p>
+    </section>
+
+    <section id="templates">
+      <h2>Templates and the demo</h2>
+<ul>
+        <li><strong>The platform workspace</strong> (no organisation chosen) has the platform's dashboards: templates. <strong>Publish…</strong> on one copies it into organisations.</li>
+        <li><strong>Demo data</strong> at the bottom of <strong>Organisations</strong> loads the NYC taxi × weather demo into an organisation (about 60 MB a month of trips): a quick way to show Magnum BI.</li>
+      </ul>
+    </section>
+
+    <section id="usage">
+      <h2>Usage, sharing and keeping watch</h2>
+<ul>
+        <li><strong>Usage</strong> shows the whole platform (or one organisation): who looks at what, queries, how long they take, failures, and admin actions.</li>
+        <li>Org admins can share dashboards publicly (from a cache) and Power users with guests (link + password, at most 14 days). <code>MAGNUM_PUBLIC_LINKS=0</code> turns public links off for the server.</li>
+        <li>System owners can open any organisation and work inside it, with every permission.</li>
+      </ul>
+    </section>
+  </main>
+</div>
+
+<footer class="site-footer">
+  <div class="wrap">
+    <a class="brand" href="../index.html"><img src="../assets/favicon.svg" alt=""> Magnum <span>BI</span></a>
+    <nav aria-label="Footer">
+      <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+      <a href="infrastructure.html">Infrastructure guide</a>
+      <a href="platform-owner.html">Platform owner guide</a>
+      <a href="org-admin.html">Org admin guide</a>
+      <a href="../docs.html">Docs</a>
+    </nav>
+    <span>Made with aloha · © 2026 Giovanni Andrea Binda · <a href="../docs.html#license">AGPL-3.0</a></span>
+  </div>
+</footer>
+
+<script src="../assets/site.js"></script>
+</body>
+</html>
