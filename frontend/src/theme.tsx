@@ -23,8 +23,10 @@ type Ctx = {
   override: string | null; setOverride: (id: string | null) => void
   /** fetch the theme list again (after sign-in, an organisation switch, or saving themes) */
   reload: () => void
+  /** a theme that came with a page (a public link's organisation theme): usable by its id */
+  adopt: (t: Theme) => void
 }
-const ThemeContext = createContext<Ctx>({ themes: [], theme: FALLBACK, preference: 'auto', setPreference: () => {}, override: null, setOverride: () => {}, reload: () => {} })
+const ThemeContext = createContext<Ctx>({ themes: [], theme: FALLBACK, preference: 'auto', setPreference: () => {}, override: null, setOverride: () => {}, reload: () => {}, adopt: () => {} })
 export const useTheme = () => useContext(ThemeContext)
 
 /** A page (dashboard, embed) pins a theme id while it is mounted. */
@@ -55,6 +57,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [defaults, setDefaults] = useState({ light: 'aloha', dark: 'aloha-night' })
   const [preference, setPref] = useState(readPref)
   const [override, setOverride] = useState<string | null>(null)
+  const [adopted, setAdopted] = useState<Theme[]>([])  // apart from the fetched list, which a reload replaces
+  const adopt = useCallback((t: Theme) => setAdopted(a => [...a.filter(x => x.id !== t.id), t]), [])
   const [systemDark, setSystemDark] = useState(() => matchMedia('(prefers-color-scheme: dark)').matches)
 
   // the project's themes, plus the organisation's own once signed in (reload after sign-in or
@@ -79,15 +83,15 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }
 
   const theme = useMemo(() => {
-    const byId = (id: string | null) => (id ? themes.find(t => t.id === id) : undefined)
+    const byId = (id: string | null) => (id ? adopted.find(t => t.id === id) ?? themes.find(t => t.id === id) : undefined)
     const auto = byId(systemDark ? defaults.dark : defaults.light)
     return byId(override) ?? (preference === 'auto' ? auto : byId(preference) ?? auto) ?? FALLBACK
-  }, [themes, override, preference, systemDark, defaults])
+  }, [themes, adopted, override, preference, systemDark, defaults])
 
   useLayoutEffect(() => apply(theme), [theme])  // before charts paint, so they read the right colours
 
   return (
-    <ThemeContext.Provider value={{ themes, theme, preference, setPreference, override, setOverride, reload }}>
+    <ThemeContext.Provider value={{ themes, theme, preference, setPreference, override, setOverride, reload, adopt }}>
       {children}
     </ThemeContext.Provider>
   )

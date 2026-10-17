@@ -44,6 +44,25 @@ pub struct AppState {
     pub passkeys: Option<webauthn_rs::Webauthn>,
     /// the NYC demo's setup, when one runs (or ran) on this server
     pub demo: crate::demo::Progress,
+    /// public links' visitors arriving together for one tile wait for one query
+    pub flights: Flights,
+}
+
+/// Locks by key (64, picked by the key's hash): whoever holds one runs the query, the others then
+/// find its result. Per process and rebuilt at will: replicas may each run one.
+pub struct Flights(Vec<tokio::sync::Mutex<()>>);
+
+impl Default for Flights {
+    fn default() -> Self {
+        Flights((0..64).map(|_| tokio::sync::Mutex::new(())).collect())
+    }
+}
+
+impl Flights {
+    pub async fn lock(&self, key: &str) -> tokio::sync::MutexGuard<'_, ()> {
+        let h = key.bytes().fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(b as u64));
+        self.0[(h % self.0.len() as u64) as usize].lock().await
+    }
 }
 
 /// Something each organisation keeps in its own database (its blends, its themes), cached

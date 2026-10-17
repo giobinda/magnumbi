@@ -279,26 +279,50 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     let scope = scope_for(&access, &session, org_choice.as_deref());
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
     let refresh = header(&parts, REFRESH_HEADER) == Some("1");
-    // the organisation's own blends join the project's models for this request
-    let mut project = project;
-    if scope.role.is_some() {
-        let org = scope.org.clone().unwrap_or_default();
-        match state.org_blends(&org).await {
-            Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),
-            Ok(_) => {}
-            Err(e) => tracing::warn!(org, "organisation's blends unavailable: {e:#}"),
-        }
-        match state.org_themes(&org).await {
-            Ok(t) if !t.themes.is_empty() || t.default_light.is_some() || t.default_dark.is_some() => {
-                project = Arc::new(project.with_org_themes(&t))
-            }
-            Ok(_) => {}
-            Err(e) => tracing::warn!(org, "organisation's themes unavailable: {e:#}"),
-        }
-    }
+    let project = project_for(&state, &scope, project).await;
     let caller = Caller { session, scope, role, access, access_errors, project, refresh };
     parts.extensions.insert(Arc::new(caller));
     next.run(Request::from_parts(parts, body)).await
+}
+
+/// The project as one scope sees it: with its organisation's own blends and themes.
+async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectState>) -> Arc<ProjectState> {
+    if scope.role.is_none() {
+        return project;
+    }
+    let org = scope.org.clone().unwrap_or_default();
+    match state.org_blends(&org).await {
+        Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(org, "organisation's blends unavailable: {e:#}"),
+    }
+    match state.org_themes(&org).await {
+        Ok(t) if !t.themes.is_empty() || t.default_light.is_some() || t.default_dark.is_some() => {
+            project = Arc::new(project.with_org_themes(&t))
+        }
+        Ok(_) => {}
+        Err(e) => tracing::warn!(org, "organisation's themes unavailable: {e:#}"),
+    }
+    project
+}
+
+/// Who a public link's visitors are: the person who made the link, in its organisation, as a
+/// Viewer at most. Their data restrictions apply, so a link never shows more than they may see.
+/// None once they can't see that organisation any more (removed, disabled): the link stops working.
+pub async fn link_caller(state: &AppState, org: &str, email: &str) -> Result<Option<Caller>, ApiError> {
+    let Some(user) = state.store.user(email).await? else { return Ok(None) };
+    if user.disabled || user.owner_org.as_deref().is_some_and(|o| o != org) {
+        return Ok(None);
+    }
+    let project = state.project.current();
+    let (access, access_errors) = state.access.get(state, &project).await;
+    let scope = scope_of(&access, email, Some(org));
+    if scope.org.as_deref() != Some(org) || scope.role.is_none() || scope.broken {
+        return Ok(None);
+    }
+    let project = project_for(state, &scope, project).await;
+    let session = SessionInfo { method: "share".into(), user, granted_role: None, token: None };
+    Ok(Some(Caller { session, scope, role: Some(Role::Viewer), access, access_errors, project, refresh: false }))
 }
 
 pub struct Auth(pub Arc<Caller>);

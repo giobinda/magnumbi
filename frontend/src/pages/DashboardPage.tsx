@@ -9,6 +9,7 @@ import type { Dashboard, DashboardPeriod, Filter, Tile, Value } from '../api'
 import Explorer from '../components/Explorer'
 import FilterBar, { filterKey } from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
+import ShareDialog from '../components/ShareDialog'
 import { useTheme, useThemeOverride } from '../theme'
 import { useAuth, useCan } from '../auth'
 import type { OrgRef } from '../api'
@@ -53,6 +54,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [view, setView] = useState<'dashboard' | 'yaml'>('dashboard')
   const [editTile, setEditTile] = useState<Tile | 'new' | null>(null)
   const [showEmbed, setShowEmbed] = useState(false)
+  const [showShare, setShowShare] = useState(false)
   const [filterValues, setFilterValues] = useState<Record<string, Value[]>>({})
   const [period, setPeriod] = useState<DashboardPeriod | null>(null)  // viewer's current choice
   const [saving, setSaving] = useState(false)
@@ -200,6 +202,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             </> : <>
               {isTemplate && <button title="Copy this template into organisations" onClick={() => setShowPublish(true)}>Publish…</button>}
               {can('share') && <button onClick={() => setShowEmbed(true)}>Embed</button>}
+              {can('manage_members') && auth?.org && <button onClick={() => setShowShare(true)}>Share publicly</button>}
               {can('edit') && <button onClick={() => setEditing(true)}>Edit</button>}
               {can('edit') && <button className="danger" title="Delete dashboard" onClick={async () => {
                 if (confirm(`Delete dashboard "${dash.title}"? Its history is kept.`)) { await api.deleteDashboard(id); navigate('/') }
@@ -262,6 +265,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       )}
 
       {showEmbed && <EmbedDialog id={id} onClose={() => setShowEmbed(false)} />}
+      {showShare && auth?.org && <ShareDialog id={id} org={auth.org.name} tiles={dash.tiles.length} onClose={() => setShowShare(false)} />}
       {showPublish && <PublishDialog id={id} orgs={auth?.orgs ?? []} onClose={() => setShowPublish(false)} />}
     </div>
   )

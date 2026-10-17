@@ -49,6 +49,11 @@ the planned steps stay cheap.
   Connect provider, which can only vouch for the organisation's own domains. Its client secret is
   sealed for "<org>/oidc".
 
+- Public links: kept in the organisation's ScramDB with the results they show (the token sealed
+  for "<org>/share" and hashed); the address names the organisation, so a visit never needs
+  the primary to find it. Visitors act as the link's maker, a Viewer at most, with their row
+  filters.
+
 - Themes: an organisation's own themes and default themes are kept in its ScramDB and only join
   that organisation's view.
 

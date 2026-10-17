@@ -31,6 +31,8 @@ pub struct Config {
     /// who may embed Magnum BI in an iframe (CSP frame-ancestors)
     pub frame_ancestors: String,
     pub password_login: bool,
+    /// Org admins may make dashboards public (anyone with the link); 0 forbids it platform-wide
+    pub public_links: bool,
     pub google: Option<GoogleConfig>,
     /// system owners until the platform settings are saved for the first time
     pub bootstrap_owners: Vec<String>,
@@ -103,6 +105,7 @@ impl Config {
             trusted_origins: list("MAGNUM_TRUSTED_ORIGINS"),
             frame_ancestors: env("MAGNUM_FRAME_ANCESTORS").unwrap_or_else(|| "'self'".into()),
             password_login: flag("MAGNUM_PASSWORD_LOGIN", true),
+            public_links: flag("MAGNUM_PUBLIC_LINKS", true),
             google,
             bootstrap_owners: list("MAGNUM_SYSTEM_OWNERS"),
             initial_password: env("MAGNUM_INITIAL_PASSWORD").filter(|p| !p.is_empty()),

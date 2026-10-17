@@ -22,15 +22,17 @@ organisation owns.
   check.
 - **Never weaken a security property silently.** That covers: data restrictions (row filters),
   the network guard on organisation-supplied addresses (`netguard.rs`), the read-only DuckDB
-  sandbox, CSRF/origin checks, session and token checks, and write-only secrets. If a change
-  needs to touch one, say so explicitly.
+  sandbox, CSRF/origin checks, session and token checks, write-only secrets, and public links
+  (`api/share.rs`: the only data readable without signing in; cache-first, fail closed, the
+  maker's row filters, no filtering or drilling). If a change needs to touch one, say so
+  explicitly.
 - **Match the surrounding code:** short doc comments that say why, plain English in
   user-facing messages ("this account signs in with …"), names over abbreviations.
 
 ## Layout
 
 ```
-backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs),
+backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs, share.rs),
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs
 backend/migrations/primary/  the control-plane ScramDB   } embedded, applied at start; add a
