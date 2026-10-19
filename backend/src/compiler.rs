@@ -240,6 +240,13 @@ fn dim_expr(dl: Dialect, d: &Dimension, grain: Option<&str>, col: Option<String>
     Ok(dl.trunc(grain, &col, &d.kind))
 }
 
+/// What a dimension is grouped by. ScramDB 1.0 corrupts GROUP BY and DISTINCT on a bare NUMERIC
+/// column after their first run (made-up values, extra groups); a computed value groups
+/// correctly, and `x + 0` is exact for every number type. Not needed elsewhere, so only there.
+fn group_key(dl: Dialect, d: &Dimension, expr: String) -> String {
+    if dl == Dialect::Postgres && d.kind == "number" { format!("({expr} + 0)") } else { expr }
+}
+
 /// A measure's aggregate, optionally restricted to rows matching `scope` (period comparison):
 /// SUM(x) -> SUM(CASE WHEN scope THEN x END), COUNT(*) -> COUNT(CASE WHEN scope THEN 1 END).
 fn measure_expr(dl: Dialect, m: &Measure, scope: Option<&str>) -> Result<String, QueryError> {
@@ -615,7 +622,7 @@ pub fn compile_query_up_to(
                 let shifted = dl.shift(&col, p.resolved.offset_days.unwrap_or(0), &d.kind);
                 dim_expr(dl, d, grain, Some(format!("CASE WHEN {} THEN {col} ELSE {shifted} END", p.cur)))?
             }
-            _ => dim_expr(dl, d, grain, None)?,
+            _ => group_key(dl, d, dim_expr(dl, d, grain, None)?),
         };
         selects.push(format!("{expr} AS {}", dl.ident(&alias)));
         let label =
@@ -753,7 +760,7 @@ pub fn compile_query_up_to(
             if period.as_ref().is_some_and(|p| p.dim.name == d.name) {
                 return err("top N can't rank the period's own date field; rank another dimension");
             }
-            let dim = dim_expr(dl, d, grain, None)?;
+            let dim = group_key(dl, d, dim_expr(dl, d, grain, None)?);
             let mut conds: Vec<String> = period.iter().map(|p| p.cur.clone()).collect();
             conds.extend(base_conds.iter().cloned());
             let wh = if conds.is_empty() { String::new() } else { format!(" WHERE {}", conds.join(" AND ")) };
@@ -866,6 +873,28 @@ hierarchies:
         let q = q(v);
         let (m2, q2) = expand(&m, &q, Dialect::Postgres)?;
         compile_query(&m2, &q2, Dialect::Postgres, now(), &[])
+    }
+
+    #[test]
+    fn number_dimensions_are_grouped_by_value_on_scramdb() {
+        // ScramDB 1.0 corrupts GROUP BY / DISTINCT on a bare NUMERIC column after its first run;
+        // a computed value (x + 0, exact for every number type) groups correctly
+        let c = compile(json!({"model": "sales", "dimensions": ["amount"], "measures": ["revenue"]})).unwrap();
+        assert!(c.sql.contains("(\"amount\" + 0) AS \"amount\""), "{}", c.sql);
+        let top = compile(json!({"model": "sales", "dimensions": ["amount", "region"], "measures": ["revenue"],
+                                 "top": {"dimension": "amount", "n": 3, "by": "revenue"}}))
+        .unwrap();
+        assert!(!top.sql.contains("GROUP BY \"amount\""), "{}", top.sql);
+        // filters stay on the column itself
+        let f = compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"],
+                               "filters": [{"field": "amount", "op": "gt", "values": [10]}]}))
+        .unwrap();
+        assert!(f.sql.contains("\"amount\" > 10"), "{}", f.sql);
+        // other engines group the column as is
+        let m = model();
+        let q = q(json!({"model": "sales", "dimensions": ["amount"], "measures": ["revenue"]}));
+        let duck = compile_query(&m, &q, Dialect::DuckDb, now(), &[]).unwrap();
+        assert!(duck.sql.contains("\"amount\" AS \"amount\""), "{}", duck.sql);
     }
 
     #[test]

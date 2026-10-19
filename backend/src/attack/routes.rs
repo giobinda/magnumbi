@@ -432,6 +432,35 @@ async fn read_tokens_only_read() {
             }
         }
     }
+    // through MCP: every tool that writes, claiming a dry run
+    let yaml = "title: Overwritten\n";
+    for (tool, args) in [
+        ("save_dashboard", json!({"id": w.dashboard, "yaml": yaml})),
+        ("delete_dashboard", json!({"id": w.dashboard})),
+        (
+            "save_blend",
+            json!({"blend": {"name": "attack_blend", "base": "sales", "joins": [{"model": "weather", "on": ["region = borough"]}]}}),
+        ),
+        ("delete_blend", json!({"name": "attack_blend"})),
+        ("save_connection", json!({"name": "decoy", "config": scramdb_config()})),
+        ("delete_connection", json!({"name": "decoy"})),
+        ("save_members", json!({"members": {"users": {"evil@evil.example": "org_admin"}}})),
+    ] {
+        for dry in [false, true] {
+            let mut args = args.clone();
+            if dry {
+                args["dry_run"] = json!(true);
+            }
+            let call =
+                json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": tool, "arguments": args}});
+            let r = w.send(&read, "POST", "/api/mcp", Some(call)).await.json();
+            let result = &r["result"];
+            let said_dry = result["structuredContent"]["dry_run"].as_bool().unwrap_or(false);
+            if result["isError"] == json!(false) && !said_dry {
+                writes.push(format!("MCP {tool} (dry_run: {dry}) with a read token: {r}"));
+            }
+        }
+    }
     assert!(writes.is_empty(), "a read-only token changed things:\n{}", writes.join("\n"));
     assert_intact(&w).await;
     w.clean_up().await;

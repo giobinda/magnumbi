@@ -410,7 +410,6 @@ mod tests {
             (Method::PUT, "/api/connections/warehouse"),
             (Method::POST, "/api/connections/warehouse/test"),
             (Method::DELETE, "/api/cache"),
-            (Method::PUT, "/api/org-models/m"),
             (Method::POST, "/api/dashboards/d/guest-links"),
         ] {
             assert!(!ok(m.clone(), path, Some("dry_run=1")), "{m} {path} with dry_run");

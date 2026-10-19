@@ -352,7 +352,8 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
                 return rpc_error(id, -32602, &format!("unknown tool {name:?}"));
             };
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            let dry = args["dry_run"].as_bool().unwrap_or(false);
+            // a read-only token may only check: a dry run, on a tool that honours it
+            let dry = args["dry_run"].as_bool().unwrap_or(false) && DRY_RUNS.contains(&name);
             let result = if tool.writes && !dry && read_only(&caller) {
                 Err(ApiError::forbidden("this API token is read-only"))
             } else {
@@ -374,6 +375,9 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
         _ => rpc_error(id, -32601, &format!("method {method:?} isn't supported")),
     }
 }
+
+/// The writing tools that check without saving when given `dry_run: true`.
+const DRY_RUNS: [&str; 2] = ["save_blend", "save_members"];
 
 /// What the API would have answered, as text the agent can act on.
 fn error_text(e: ApiError) -> String {
