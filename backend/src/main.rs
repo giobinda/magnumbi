@@ -3,6 +3,8 @@
 
 mod access;
 mod api;
+#[cfg(test)]
+mod attack;
 mod auth;
 mod blend;
 mod cache;
