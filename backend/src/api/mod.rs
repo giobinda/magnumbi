@@ -12,7 +12,7 @@ mod mcp;
 mod models;
 mod org_models;
 mod setup;
-mod share;
+pub(crate) mod share;
 mod themes;
 mod tokens;
 
@@ -133,7 +133,9 @@ pub fn router(state: Shared) -> Router {
         .fallback(frontend)
         .layer(axum::extract::DefaultBodyLimit::max(MAX_BODY_BYTES))
         .layer(from_fn_with_state(state.clone(), hardening))
-        .layer(TraceLayer::new_for_http())
+        .layer(TraceLayer::new_for_http().make_span_with(|r: &axum::http::Request<_>| {
+            tracing::debug_span!("request", method = %r.method(), path = %crate::security::logged_path(r.uri().path()))
+        }))
         .with_state(state)
 }
 

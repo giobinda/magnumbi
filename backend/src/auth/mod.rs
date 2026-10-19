@@ -132,18 +132,30 @@ pub async fn session_or_token(
     }
 }
 
-/// Requests a read-only token may make: reading, and queries (which read through POST).
+/// Requests a read-only token may make: reading, queries and downloads (which read through POST),
+/// and dry runs where the handler checks without saving. Any other write is refused, whatever
+/// its query string says.
 pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<&str>) -> bool {
-    if matches!(*method, axum::http::Method::GET | axum::http::Method::HEAD) {
+    use axum::http::Method;
+    if matches!(*method, Method::GET | Method::HEAD) {
         return true;
     }
-    if query.is_some_and(|q| q.split('&').any(|p| p == "dry_run=1" || p == "dry_run=true")) {
-        return true; // checks without saving
+    let dry_run = query.is_some_and(|q| q.split('&').any(|p| p == "dry_run=1" || p == "dry_run=true"));
+    let parts: Vec<&str> = path.trim_start_matches("/api/").split('/').collect();
+    if *method == Method::PUT && dry_run {
+        // the handlers that honour ?dry_run (dashboards, blends, members, organisation themes)
+        return matches!(
+            parts.as_slice(),
+            ["dashboards", _] | ["dashboards", _, "yaml"] | ["blends", _] | ["members"] | ["org-themes"]
+        );
     }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)
-    *method == axum::http::Method::POST
-        && (matches!(path, "/api/query" | "/api/query/sql" | "/api/period" | "/api/mcp")
-            || (path.starts_with("/api/dashboards/") && (path.ends_with("/query") || path.contains("/filters/values"))))
+    *method == Method::POST
+        && (matches!(parts.as_slice(), ["query"] | ["query", "sql"] | ["period"] | ["mcp"])
+            || matches!(
+                parts.as_slice(),
+                ["dashboards", _, "tiles", _, "query" | "export"] | ["dashboards", _, "export"]
+            ))
 }
 
 pub async fn session_of(state: &AppState, jar: &CookieJar) -> Result<Option<SessionInfo>, ApiError> {
@@ -277,6 +289,12 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     }
     let org_choice = header(&parts, ORG_HEADER).map(str::to_lowercase);
     let scope = scope_for(&access, &session, org_choice.as_deref());
+    // a request naming an organisation acts in that one or not at all (never quietly elsewhere)
+    if let Some(choice) = org_choice.as_deref()
+        && scope.org.as_deref() != Some(choice)
+    {
+        return ApiError::forbidden(format!("you can't work in the organisation {choice:?}")).into_response();
+    }
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
     let refresh = header(&parts, REFRESH_HEADER) == Some("1");
     let project = project_for(&state, &scope, project).await;
@@ -368,6 +386,36 @@ impl<S: Send + Sync> FromRequestParts<S> for Auth {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn read_only_tokens_read_and_check_only() {
+        use axum::http::Method;
+        let ok = |m: Method, path: &str, q: Option<&str>| read_only_request(&m, path, q);
+        assert!(ok(Method::GET, "/api/dashboards", None));
+        assert!(ok(Method::POST, "/api/query", None) && ok(Method::POST, "/api/mcp", None));
+        assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/query", None));
+        assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/export", None), "downloading is reading");
+        assert!(ok(Method::POST, "/api/dashboards/d/export", None));
+        // a dry run only where the handler checks without saving
+        for path in ["/api/dashboards/d", "/api/dashboards/d/yaml", "/api/blends/b", "/api/members", "/api/org-themes"]
+        {
+            assert!(ok(Method::PUT, path, Some("dry_run=1")), "{path}");
+            assert!(!ok(Method::PUT, path, None), "{path}");
+        }
+        for (m, path) in [
+            (Method::DELETE, "/api/dashboards/d"),
+            (Method::DELETE, "/api/share-links/x"),
+            (Method::POST, "/api/members/password"),
+            (Method::PUT, "/api/delivery/mail"),
+            (Method::PUT, "/api/connections/warehouse"),
+            (Method::POST, "/api/connections/warehouse/test"),
+            (Method::DELETE, "/api/cache"),
+            (Method::PUT, "/api/org-models/m"),
+            (Method::POST, "/api/dashboards/d/guest-links"),
+        ] {
+            assert!(!ok(m.clone(), path, Some("dry_run=1")), "{m} {path} with dry_run");
+        }
+    }
     use crate::store::User;
 
     fn session(method: &str, owner_org: Option<&str>) -> SessionInfo {

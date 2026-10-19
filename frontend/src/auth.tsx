@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react'
 import type { FormEvent, ReactNode } from 'react'
-import { AUTH_REQUIRED_EVENT, api, setOrg, setViewAs } from './api'
+import { AUTH_REQUIRED_EVENT, api, getOrg, setOrg, setViewAs } from './api'
 import type { AuthState, Permission } from './api'
 import LoginPage from './pages/LoginPage'
 import { useTheme } from './theme'
@@ -32,7 +32,13 @@ export function AuthGate({ children }: { children: ReactNode }) {
   const [error, setError] = useState<string | null>(null)
 
   const refresh = useCallback(async () => {
-    try { setAuth(await api.me()); setError(null) } catch (e) { setError((e as Error).message) }
+    try {
+      let me = await api.me()
+      // an organisation picked earlier that this account can't work in (any more): the server
+      // refuses requests naming it, so forget it
+      if (me.authenticated && getOrg() && me.org?.id !== getOrg()) { setOrg(null); me = await api.me() }
+      setAuth(me); setError(null)
+    } catch (e) { setError((e as Error).message) }
   }, [])
   const signOut = useCallback(async () => {
     await api.logout().catch(() => {})

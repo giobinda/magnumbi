@@ -115,6 +115,21 @@ pub fn content_security_policy(config: &Config) -> String {
     .join("; ")
 }
 
+/// A request's path as the request log shows it: no query string (sign-in callbacks carry
+/// one-time codes there), and public and guest link tokens masked.
+pub fn logged_path(path: &str) -> String {
+    let mut parts: Vec<&str> = path.split('/').collect();
+    let token_at = match parts.as_slice() {
+        ["", "api", "public" | "guest", _, _, ..] => Some(4),
+        ["", "s" | "g", _, _, ..] => Some(3),
+        _ => None,
+    };
+    if let Some(i) = token_at {
+        parts[i] = "…";
+    }
+    parts.join("/")
+}
+
 pub async fn hardening(State(state): State<Shared>, request: Request, next: Next) -> Response {
     let (method, headers, path) =
         (request.method().clone(), request.headers().clone(), request.uri().path().to_string());
@@ -148,6 +163,15 @@ pub async fn hardening(State(state): State<Shared>, request: Request, next: Next
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn logged_paths_hide_link_tokens_and_queries() {
+        assert_eq!(logged_path("/api/public/acme/s3cret/tiles/t"), "/api/public/acme/…/tiles/t");
+        assert_eq!(logged_path("/api/guest/acme/s3cret/unlock"), "/api/guest/acme/…/unlock");
+        assert_eq!(logged_path("/s/acme/s3cret"), "/s/acme/…");
+        assert_eq!(logged_path("/g/acme/s3cret"), "/g/acme/…");
+        assert_eq!(logged_path("/api/dashboards/sales"), "/api/dashboards/sales");
+    }
 
     fn config() -> Config {
         Config::from_lookup(|_| None).unwrap()
