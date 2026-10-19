@@ -519,6 +519,20 @@ A tile's `type`, and what it needs from its query:
 | `waterfall` | how a total builds up, step by step, then the total | 1 dimension + 1 measure |
 | `histogram` | a number dimension's distribution, in equal bins (`options.bins`) weighted by the measure | 1 number dimension (+ a count) |
 | `scatter` | two measures against each other | 2 measures |
+| `text` | words in markdown (`text:`): headings, notes, how to read the dashboard | no query |
+
+Text tiles take a little markdown: `#` headings, `**bold**`, `*italics*`, lists, `` `code` ``,
+`---` and links (web, mail and in-app addresses only; HTML stays plain text).
+
+**Tabs** split a long dashboard into pages: list them in `tabs:` and give a tile `tab: <name>`
+(none: the first tab). The address keeps the open tab (`?tab=Detail`), so a link can point at one.
+
+```yaml
+tabs: [Overview, Detail]
+tiles:
+  - {id: intro, type: text, text: "## How to read this\n\nRevenue is **net of returns**."}
+  - {id: regions, type: bar, tab: Detail, query: {model: sales, dimensions: [region], measures: [revenue]}}
+```
 
 Weekday and month names sort as on a calendar. Until someone picks a chart, Explore suggests one
 from the fields chosen (a date and a measure: a line; two categories: a heatmap; and so on).

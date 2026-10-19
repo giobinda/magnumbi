@@ -29,7 +29,7 @@ const PROTOCOL_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
 const INSTRUCTIONS: &str = "Magnum BI is a BI tool: semantic models (dimensions and measures over a database \
 connection), blends (models joined across databases; their fields are written model.field), and dashboards \
-(YAML: tiles, each a query on a model). You act as the person whose API token you use, in their organisation \
+(YAML: tiles, each a query on a model, or `type: text` with markdown `text:`; optional `tabs:`). You act as the person whose API token you use, in their organisation \
 and role; data restrictions apply to you as to them.\n\
 Explore first: list_models, then describe_model for field names; run_query takes a semantic query \
 ({model, dimensions, measures, filters, sort, limit, period}), never SQL. Time dimensions take a grain: \

@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react'
-import type { Column, Filter, ModelInfo, Period, Tile, TileRequest } from '../api'
+import type { ReactNode } from 'react'
+import type { ChartTile, Column, Filter, ModelInfo, Period, TileRequest } from '../api'
 import { drillPath, fieldLabel } from '../api'
 import { applyDrill, nextDrill } from '../drill'
 import type { DrillStep } from '../drill'
@@ -10,7 +11,7 @@ import Chart from './Chart'
 import type { DrillClick } from './Chart'
 
 type Props = {
-  tile: Tile
+  tile: ChartTile
   model?: ModelInfo
   extraFilters?: Filter[]
   /** dashboard-wide period; a tile's own query.period wins, `options.period: false` opts out */
@@ -20,9 +21,11 @@ type Props = {
   editing?: boolean
   onEdit?: () => void
   onDelete?: () => void
+  /** more buttons while editing (move to another tab) */
+  actions?: ReactNode
 }
 
-export function tileTitle(tile: Tile, model?: ModelInfo, columns?: Column[]) {
+export function tileTitle(tile: ChartTile, model?: ModelInfo, columns?: Column[]) {
   if (tile.title) return tile.title
   if (columns?.length) {  // the server's labels: they know ad-hoc aggregations too
     const m = columns.filter(c => c.kind === 'measure' && !c.compare).map(c => c.label).join(', ')
@@ -34,7 +37,7 @@ export function tileTitle(tile: Tile, model?: ModelInfo, columns?: Column[]) {
   return [m, d].filter(Boolean).join(' by ') || tile.id
 }
 
-export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onDelete }: Props) {
+export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onDelete, actions }: Props) {
   const can = useCan()
   const [steps, setSteps] = useState<DrillStep[]>([])
   const [showSql, setShowSql] = useState(false)
@@ -79,6 +82,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
           {loading && <span className="spinner" title="Loading" />}
           {canDrill && steps.length === 0 && <span className="hint" title="Click a data point to drill down">⤓ drill</span>}
           {can('view_sql') && <button className="icon" title="Show SQL" onClick={() => setShowSql(s => !s)}>{'</>'}</button>}
+          {editing && actions}
           {editing && onEdit && <button className="icon" title="Edit tile" onClick={onEdit}>✎</button>}
           {editing && onDelete && <button className="icon" title="Remove tile" onClick={onDelete}>✕</button>}
         </div>

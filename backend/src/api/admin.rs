@@ -470,7 +470,7 @@ pub async fn publish(
         let mut missing: Vec<&str> = d
             .tiles
             .iter()
-            .map(|t| t.query.model.as_str())
+            .filter_map(|t| t.query.as_ref().map(|q| q.model.as_str()))
             .filter(|m| !(all && caller.project.models.contains_key(*m)) && !org.models.iter().any(|x| x == m))
             .collect();
         missing.sort_unstable();

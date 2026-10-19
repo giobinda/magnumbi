@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
-import type { DashboardSummary, Tile } from '../api'
+import type { DashboardSummary, ChartTile } from '../api'
 import Explorer from '../components/Explorer'
 import { useModels } from '../hooks'
 
@@ -9,7 +9,7 @@ export default function ExplorePage() {
   const { models, loaded, error } = useModels()
   const [params] = useSearchParams()
   const navigate = useNavigate()
-  const [pending, setPending] = useState<Tile | null>(null)
+  const [pending, setPending] = useState<ChartTile | null>(null)
   const [dashboards, setDashboards] = useState<DashboardSummary[]>([])
   const [target, setTarget] = useState('')
 

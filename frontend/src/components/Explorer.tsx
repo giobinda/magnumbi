@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { suggestChart } from '../suggest'
-import type { Aggregation, ChartType, Dimension, Filter, FilterOp, ModelInfo, Period, Tile, TopN, Value } from '../api'
+import type { Aggregation, ChartType, Dimension, Filter, FilterOp, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
 import { MultiSelect } from './FilterBar'
 import PeriodControl from './PeriodControl'
 import TileView from './TileView'
@@ -49,9 +49,9 @@ const isCountable = (d: Dimension) => d.type === 'number' || d.type === 'string'
 
 type Props = {
   models: ModelInfo[]
-  initial?: Tile
+  initial?: ChartTile
   submitLabel?: string
-  onSubmit?: (tile: Tile) => void
+  onSubmit?: (tile: ChartTile) => void
   onCancel?: () => void
 }
 
@@ -124,7 +124,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
     className: `shelf-drop${over === shelf ? ' over' : ''}`,
   })
 
-  const tile: Tile | null = useMemo(() => {
+  const tile: ChartTile | null = useMemo(() => {
     if (!model || (!dims.length && !measures.length)) return null
     const sortable = [...dims, ...measures, ...(period?.compare ? measures.flatMap(m => [`${m}__previous`, `${m}__change`]) : [])]
     const validSort = sort.filter(s => sortable.includes(s.replace(/^-/, '')))

@@ -174,12 +174,13 @@ impl ProjectState {
     ) -> Vec<String> {
         let mut warnings = vec![];
         for t in &d.tiles {
+            let Some(tq) = &t.query else { continue }; // text
             let check = || -> Result<(), String> {
-                if !available.contains(&t.query.model) {
-                    return Err(format!("unknown model {:?}", t.query.model));
+                if !available.contains(&tq.model) {
+                    return Err(format!("unknown model {:?}", tq.model));
                 }
-                let m = &self.models[&t.query.model];
-                let q = with_dashboard_period(d, t.query.clone(), &t.options, m);
+                let m = &self.models[&tq.model];
+                let q = with_dashboard_period(d, tq.clone(), &t.options, m);
                 match self.blends.get(&q.model) {
                     Some(b) => self.check_blend(b, &q, dialect_of)?,
                     None => check_query(m, &q, dialect_of)?,

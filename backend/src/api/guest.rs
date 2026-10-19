@@ -321,8 +321,12 @@ pub async fn dashboard(
     let (link, caller) = guest(&state, &jar, &org, &token).await?;
     let (d, _) = super::dashboards::load(&state, &caller, &link.dashboard_id).await?;
     // the dashboard's models, and a blend's own models (the link's limits are on those)
-    let mut names: BTreeSet<String> =
-        d.tiles.iter().map(|t| t.query.model.clone()).chain(d.filters.iter().map(|f| f.model.clone())).collect();
+    let mut names: BTreeSet<String> = d
+        .tiles
+        .iter()
+        .filter_map(|t| t.query.as_ref().map(|q| q.model.clone()))
+        .chain(d.filters.iter().map(|f| f.model.clone()))
+        .collect();
     for n in names.clone() {
         if let Some(b) = caller.project.blends.get(&n) {
             names.extend(std::iter::once(b.base.clone()).chain(b.joins.iter().map(|j| j.model.clone())));

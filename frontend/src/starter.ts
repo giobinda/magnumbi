@@ -1,5 +1,5 @@
 import { isTemporal } from './api'
-import type { Dashboard, ModelInfo, Tile } from './api'
+import type { ChartTile, Dashboard, ModelInfo } from './api'
 
 /** A first dashboard for a model, to change at will: its main numbers (and their trend when it
  *  has a date), activity over time, the top categories, and the details. */
@@ -10,8 +10,8 @@ export function starterDashboard(m: ModelInfo): Dashboard {
   const day = date ? `${date.name}:day` : null
   const [cat1, cat2] = m.dimensions.filter(d => d.type === 'string')
   const label = (x: { name: string; label?: string | null }) => x.label ?? x.name
-  const tiles: Tile[] = []
-  const add = (t: Omit<Tile, 'query'> & { query: Partial<Tile['query']> }) => tiles.push({ ...t, query: { model: m.name, ...t.query } as Tile['query'] })
+  const tiles: ChartTile[] = []
+  const add = (t: Omit<ChartTile, 'query'> & { query: Partial<ChartTile['query']> }) => tiles.push({ ...t, query: { model: m.name, ...t.query } as ChartTile['query'] })
   if (!first) return { title: `${m.label ?? m.name} overview`, filters: [], tiles }
 
   // the numbers

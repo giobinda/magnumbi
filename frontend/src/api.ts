@@ -73,12 +73,19 @@ export interface QueryResult {
 
 export interface TileLayout { x: number; y: number; w: number; h: number }
 export interface Tile {
-  id: string; title?: string | null; type: ChartType; query: Query
+  /** every tile but a text tile has a query */
+  id: string; title?: string | null; type: ChartType | 'text'; query?: Query
   drill?: string | string[] | null; layout: TileLayout; options?: Record<string, unknown>
+  /** a text tile's markdown */
+  text?: string | null
+  /** the tab it's on (none: the first) */
+  tab?: string | null
 }
+export type ChartTile = Tile & { type: ChartType; query: Query }
+export const isChart = (t: Tile): t is ChartTile => t.type !== 'text' && t.query !== undefined
 export interface DashboardFilter { model: string; field: string; label?: string | null; op?: FilterOp; default?: Value[] }
 export interface DashboardPeriod extends Period { model: string }
-export interface Dashboard { title: string; description?: string | null; theme?: string | null; period?: DashboardPeriod | null; filters: DashboardFilter[]; tiles: Tile[] }
+export interface Dashboard { title: string; description?: string | null; theme?: string | null; period?: DashboardPeriod | null; filters: DashboardFilter[]; tabs?: string[]; tiles: Tile[] }
 export interface DashboardResponse {
   id: string; dashboard: Dashboard; yaml: string | null; warnings: string[]
   /** send back as If-Match to save only over this version */
@@ -206,8 +213,8 @@ export interface ShareLink {
 
 /** What a public link shows: the layout (no queries) and the organisation's theme. */
 export interface PublicDashboard {
-  title: string; description?: string | null; cache_seconds: number; theme: Theme | null
-  tiles: { id: string; title?: string | null; type: ChartType; layout: TileLayout; options?: Record<string, unknown> }[]
+  title: string; description?: string | null; cache_seconds: number; theme: Theme | null; tabs?: string[]
+  tiles: { id: string; title?: string | null; type: ChartType | 'text'; layout: TileLayout; options?: Record<string, unknown>; text?: string | null; tab?: string | null }[]
 }
 export type PublicResult = QueryResult & { as_of: string; expires_at?: string; from_cache: boolean }
 

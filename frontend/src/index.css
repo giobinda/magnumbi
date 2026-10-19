@@ -124,6 +124,25 @@ table.data .prev { color: var(--text-muted); }
 .tile-body { flex: 1; min-height: 0; padding: 4px 8px 8px; position: relative; }
 .tile-body > .error, .tile-body > .warn { margin: 4px; }
 .tile-foot { font-size: 11px; color: var(--text-muted); padding: 0 12px 7px; }
+/* text tiles: words, no chart */
+.text-tile .tile-body { overflow: auto; padding: 4px 14px 10px; }
+.text-tile:not(:has(.tile-head)) .tile-body { padding-top: 12px; }
+.markdown h2, .markdown h3, .markdown h4 { margin: 6px 0 4px; } .markdown h2 { font-size: 18px; } .markdown h3 { font-size: 15px; } .markdown h4 { font-size: 13px; }
+.markdown p { margin: 0 0 8px; } .markdown ul, .markdown ol { margin: 0 0 8px; padding-left: 20px; }
+.markdown code { background: var(--surface-2); padding: 1px 4px; border-radius: 4px; }
+.markdown hr { border: 0; border-top: 1px solid var(--border); margin: 10px 0; }
+.text-editor { display: flex; flex-direction: column; gap: 10px; }
+.text-editor-panes { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+.text-editor textarea { font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--text); background: var(--surface); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; resize: vertical; }
+.text-preview { border: 1px dashed var(--border); border-radius: 7px; padding: 8px 12px; overflow: auto; max-height: 360px; }
+@media (max-width: 700px) { .text-editor-panes { grid-template-columns: 1fr; } }
+/* dashboard tabs */
+.tabs { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin: 4px 0 8px; border-bottom: 1px solid var(--border); }
+.tab { display: inline-flex; align-items: center; border-bottom: 2px solid transparent; margin-bottom: -1px; }
+.tab > button:first-child { border: 0; background: none; border-radius: 0; color: var(--text-muted); padding: 6px 10px; }
+.tab.active { border-bottom-color: var(--accent); } .tab.active > button:first-child { color: var(--text); font-weight: 600; }
+select.move-tab { appearance: none; width: 26px; text-align: center; min-height: 0; padding: 2px 4px; border: 0; background: none; color: var(--text-muted); font-size: 13px; cursor: pointer; }
+select.move-tab:hover { color: var(--text); background: var(--surface-2); }
 .sql { margin: 0; height: 100%; overflow: auto; background: var(--surface-2); border-radius: 6px; padding: 10px; white-space: pre; }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }
