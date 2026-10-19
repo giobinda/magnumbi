@@ -13,7 +13,7 @@ describe('starter dashboard', () => {
     const d = starterDashboard(model([['borough', 'string'], ['picked_up_at', 'time'], ['payment', 'string'], ['passengers', 'number']],
       [['count', 'count'], ['fare', 'sum'], ['avg_fare', 'avg']]))
     expect(d.title).toBe('Taxi trips overview')
-    expect(d.tiles.map(t => [t.type, t.query.dimensions ?? [], t.query.measures])).toEqual([
+    expect(d.tiles.map(t => [t.type, t.query?.dimensions ?? [], t.query?.measures])).toEqual([
       ['kpi', [], ['count']], ['kpi', [], ['fare']], ['trend', ['picked_up_at:day'], ['count']],
       ['line', ['picked_up_at:day'], ['count']], ['hbar', ['borough'], ['count']],
       ['pie', ['payment'], ['count']], ['table', ['borough', 'payment'], ['count', 'fare']],

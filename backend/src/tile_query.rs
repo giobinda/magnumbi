@@ -122,7 +122,8 @@ pub fn build(
     req: &TileRequest,
     allow_drill: bool,
 ) -> Result<Query, TileRequestError> {
-    let mut q = tile.query.clone();
+    let mut q =
+        tile.query.clone().ok_or_else(|| TileRequestError::Invalid(format!("tile {} has no query", tile.id)))?;
 
     // period: the tile's own, else the dashboard's (with the viewer's window), unless opted out
     let opted_out = tile.options.get("period") == Some(&Value::Bool(false));

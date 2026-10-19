@@ -14,7 +14,7 @@ use super::{Body, Source, available_names, execute, model_of};
 use crate::auth::{Auth, Caller};
 use crate::error::{ApiError, ApiResult};
 use crate::project::{DASHBOARD_ID, dump_dashboard, parse_dashboard};
-use crate::schema::{Dashboard, Query};
+use crate::schema::{Dashboard, Query, Tile};
 use crate::state::{AppState, Shared};
 use crate::store::Store;
 use crate::tile_query::{TileRequest, TileRequestError, build};
@@ -212,6 +212,11 @@ pub async fn run_tile(
 }
 
 /// A saved tile's data for this caller (signed in, or a guest link's guest).
+/// A tile's query: a text tile has none to run.
+pub(super) fn query_of(tile: &Tile) -> ApiResult<&Query> {
+    tile.query.as_ref().ok_or_else(|| ApiError::bad_request(format!("tile {:?} is text: nothing to run", tile.id)))
+}
+
 pub async fn tile_for(
     state: &AppState,
     caller: &Caller,
@@ -226,7 +231,7 @@ pub async fn tile_for(
         .iter()
         .find(|t| t.id == tile_id)
         .ok_or_else(|| ApiError::not_found(format!("tile {tile_id:?} not found")))?;
-    let model = model_of(caller, &tile.query.model)?;
+    let model = model_of(caller, &query_of(tile)?.model)?;
     let q = build(&d, tile, model, req, caller.can("drill")).map_err(|e| match e {
         TileRequestError::NoDrill => ApiError::forbidden("your role can't drill down"),
         TileRequestError::Invalid(m) => ApiError::bad_request(m),
@@ -350,5 +355,24 @@ mod agent_tests {
         assert_eq!(body["dry_run"], json!(true));
         let (_, list) = call(&app, &cookie, "GET", "/api/blends", None).await;
         assert!(!list.to_string().contains(&id), "not saved");
+    }
+
+    #[tokio::test]
+    async fn text_tiles_and_tabs() {
+        let Some((app, _, cookie)) = app().await else { return };
+        let id = format!("text_{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
+        let yaml = "title: Notes\ntabs: [Overview, Detail]\ntiles:\n  - {id: note, type: text, text: '## Read me', tab: Detail}\n  - {id: n, type: kpi, query: {model: sales, measures: [transactions]}}\n";
+        let (s, body) = put_yaml(&app, &cookie, &format!("/api/dashboards/{id}/yaml"), yaml, None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let (_, got) = call(&app, &cookie, "GET", &format!("/api/dashboards/{id}"), None).await;
+        assert_eq!(got["dashboard"]["tabs"], json!(["Overview", "Detail"]));
+        assert_eq!(got["dashboard"]["tiles"][0]["text"], json!("## Read me"));
+        assert_eq!(got["dashboard"]["tiles"][0]["tab"], json!("Detail"));
+        assert!(got["dashboard"]["tiles"][0].get("query").is_none(), "{got}");
+        let (s, body) =
+            call(&app, &cookie, "POST", &format!("/api/dashboards/{id}/tiles/note/query"), Some(json!({}))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+        assert!(body["detail"].as_str().unwrap().contains("text"), "{body}");
+        call(&app, &cookie, "DELETE", &format!("/api/dashboards/{id}"), None).await;
     }
 }

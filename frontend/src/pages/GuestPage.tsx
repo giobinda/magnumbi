@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
-import { useParams } from 'react-router-dom'
+import { useParams, useSearchParams } from 'react-router-dom'
 import GridLayout, { WidthProvider } from 'react-grid-layout'
-import { ApiError, api, setGuestBase } from '../api'
+import { ApiError, api, isChart, setGuestBase } from '../api'
 import type { GuestDashboard } from '../api'
 import { Brand, GuestAuth } from '../auth'
 import FilterBar from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
 import TileView from '../components/TileView'
+import TextTile from '../components/TextTile'
+import Tabs from '../components/Tabs'
+import { onTab, pickTab } from '../tabs'
 import { useDashboardInputs, initialFilterValues } from '../dashboardInputs'
 import { restrictionsLabel } from '../guest'
 import { usePhone } from '../hooks'
@@ -78,6 +81,7 @@ function GuestDashboardView({ data }: { data: GuestDashboard }) {
   const dash = data.dashboard
   const phone = usePhone()
   const { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
+  const [search, setSearch] = useSearchParams()
   useEffect(() => {
     setFilterValues(initialFilterValues(dash))
     setPeriod(dash.period ? periodFromUrl(dash.period, location.search) : null)
@@ -85,7 +89,10 @@ function GuestDashboardView({ data }: { data: GuestDashboard }) {
   useEffect(() => { document.title = `${dash.title} · Magnum BI` }, [dash])
 
   const limits = restrictionsLabel(data.filters, data.models)
-  const layout = phone ? phoneLayout(dash.tiles) : dash.tiles.map(t => ({ i: t.id, ...t.layout }))
+  const tabs = dash.tabs ?? []
+  const tab = pickTab(tabs, search.get('tab'))
+  const visible = onTab(dash.tiles, tabs, tab)
+  const layout = phone ? phoneLayout(visible) : visible.map(t => ({ i: t.id, ...t.layout }))
   return (
     <div className="page public">
       <div className="public-head">
@@ -102,12 +109,13 @@ function GuestDashboardView({ data }: { data: GuestDashboard }) {
       )}
       <FilterBar filters={dash.filters} models={data.models} values={filterValues} dashboardId={data.id}
         onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))} />
+      <Tabs tabs={tabs} current={tab} onPick={t => setSearch(p => { p.set('tab', t); return p }, { replace: true })} />
       <Grid className="grid" layout={layout} cols={12} rowHeight={64} margin={[12, 12]} isDraggable={false} isResizable={false} compactType="vertical">
-        {dash.tiles.map(t => (
+        {visible.map(t => (
           <div key={t.id}>
-            <TileView tile={t} model={data.models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
+            {!isChart(t) ? <TextTile title={t.title} text={t.text ?? ''} /> : <TileView tile={t} model={data.models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
               period={period && period.model === t.query.model ? tilePeriod : null}
-              source={{ dashboard: data.id, request: tileRequest }} />
+              source={{ dashboard: data.id, request: tileRequest }} />}
           </div>
         ))}
       </Grid>

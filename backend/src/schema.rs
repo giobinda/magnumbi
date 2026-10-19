@@ -468,7 +468,7 @@ impl Query {
 
 // --------------------------------------------------------------------------- dashboards
 
-pub const CHART_TYPES: [&str; 17] = [
+pub const CHART_TYPES: [&str; 18] = [
     "kpi",
     "table",
     "bar",
@@ -486,7 +486,11 @@ pub const CHART_TYPES: [&str; 17] = [
     "funnel",
     "waterfall",
     "histogram",
+    "text",
 ];
+
+/// The longest text a text tile may hold (characters).
+pub const MAX_TEXT: usize = 10_000;
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -533,7 +537,15 @@ pub struct Tile {
     pub title: Option<String>,
     #[serde(default = "default_chart", rename = "type")]
     pub kind: String,
-    pub query: Query,
+    /// every tile but a text tile has one
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub query: Option<Query>,
+    /// a text tile's words, in markdown
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub text: Option<String>,
+    /// the tab it is on (none: the first)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tab: Option<String>,
     /// drill path: a hierarchy name from the model, or an explicit list of dimensions
     #[serde(default)]
     pub drill: Option<Drill>,
@@ -581,6 +593,9 @@ pub struct Dashboard {
     pub period: Option<DashboardPeriod>,
     #[serde(default)]
     pub filters: Vec<DashboardFilter>,
+    /// tab names, in order (none: one page)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tabs: Vec<String>,
     #[serde(default)]
     pub tiles: Vec<Tile>,
 }
@@ -592,6 +607,11 @@ impl Dashboard {
         if ids.windows(2).any(|w| w[0] == w[1]) {
             return Err("tile ids must be unique".into());
         }
+        let mut tabs: Vec<&str> = self.tabs.iter().map(|t| t.trim()).collect();
+        tabs.sort_unstable();
+        if tabs.iter().any(|t| t.is_empty()) || tabs.windows(2).any(|w| w[0] == w[1]) {
+            return Err("tab names must be unique and not empty".into());
+        }
         for t in &self.tiles {
             if !CHART_TYPES.contains(&t.kind.as_str()) {
                 return Err(format!("tile {}: unknown chart type {:?}", t.id, t.kind));
@@ -599,7 +619,22 @@ impl Dashboard {
             if !(1..=12).contains(&t.layout.w) || t.layout.h < 1 {
                 return Err(format!("tile {}: layout w is 1-12 and h at least 1", t.id));
             }
-            t.query.validate().map_err(|e| format!("tile {}: {e}", t.id))?;
+            if let Some(tab) = &t.tab
+                && !self.tabs.contains(tab)
+            {
+                return Err(format!("tile {}: unknown tab {tab:?}", t.id));
+            }
+            match (t.kind.as_str(), &t.query, &t.text) {
+                ("text", Some(_), _) => return Err(format!("tile {}: a text tile has no query", t.id)),
+                ("text", None, None) => return Err(format!("tile {}: a text tile needs `text`", t.id)),
+                ("text", None, Some(text)) if text.chars().count() > MAX_TEXT => {
+                    return Err(format!("tile {}: text of at most {MAX_TEXT} characters", t.id));
+                }
+                ("text", ..) => {}
+                (kind, None, _) => return Err(format!("tile {}: a {kind} tile needs a query", t.id)),
+                (kind, Some(_), Some(_)) => return Err(format!("tile {}: only text tiles have `text` ({kind})", t.id)),
+                (_, Some(q), None) => q.validate().map_err(|e| format!("tile {}: {e}", t.id))?,
+            }
         }
         for f in &self.filters {
             if !FILTER_OPS.contains(&f.op.as_str()) {
@@ -641,6 +676,38 @@ mod tests {
         let p: Period =
             serde_yaml::from_str("field: d\ncurrent: {from: 2026-01-01}\ncompare: {from: 2025-01-01}").unwrap();
         assert!(matches!(p.compare, Some(Compare::From(_))));
+    }
+
+    fn dashboard(yaml: &str) -> Result<(), String> {
+        serde_yaml::from_str::<Dashboard>(yaml).map_err(|e| e.to_string())?.validate()
+    }
+
+    #[test]
+    fn text_tiles_have_text_and_no_query() {
+        let q = "query: {model: m, measures: [n]}";
+        assert_eq!(dashboard("title: x\ntiles:\n  - {id: a, type: text, text: '## Notes'}"), Ok(()));
+        let no_text = dashboard("title: x\ntiles:\n  - {id: a, type: text}").unwrap_err();
+        assert!(no_text.contains("tile a: a text tile needs `text`"), "{no_text}");
+        let both = dashboard(&format!("title: x\ntiles:\n  - {{id: a, type: text, text: hi, {q}}}")).unwrap_err();
+        assert!(both.contains("tile a: a text tile has no query"), "{both}");
+        let chart = dashboard("title: x\ntiles:\n  - {id: a, type: bar, text: hi}").unwrap_err();
+        assert!(chart.contains("tile a: a bar tile needs a query"), "{chart}");
+        assert_eq!(dashboard(&format!("title: x\ntiles:\n  - {{id: a, type: bar, {q}}}")), Ok(()));
+        let long = format!("title: x\ntiles:\n  - {{id: a, type: text, text: '{}'}}", "a".repeat(MAX_TEXT + 1));
+        assert!(dashboard(&long).unwrap_err().contains("at most"));
+    }
+
+    #[test]
+    fn tiles_go_on_listed_tabs() {
+        let t = "{id: a, type: text, text: hi, tab: Detail}";
+        assert_eq!(dashboard(&format!("title: x\ntabs: [Overview, Detail]\ntiles:\n  - {t}")), Ok(()));
+        let unknown = dashboard(&format!("title: x\ntabs: [Overview]\ntiles:\n  - {t}")).unwrap_err();
+        assert!(unknown.contains("tile a: unknown tab \"Detail\""), "{unknown}");
+        let twice = dashboard("title: x\ntabs: [A, A]").unwrap_err();
+        assert!(twice.contains("tab names must be unique"), "{twice}");
+        assert!(dashboard("title: x\ntabs: ['']").unwrap_err().contains("tab names"));
+        // no tab: the first one
+        assert_eq!(dashboard("title: x\ntabs: [A]\ntiles:\n  - {id: a, type: text, text: hi}"), Ok(()));
     }
 
     #[test]

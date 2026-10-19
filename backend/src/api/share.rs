@@ -210,9 +210,12 @@ pub async fn dashboard(State(state): State<Shared>, Path((org, token)): Path<(St
     let tiles: Vec<Value> = d
         .tiles
         .iter()
-        .map(|t| json!({"id": t.id, "title": t.title, "type": t.kind, "layout": t.layout, "options": t.options}))
+        .map(|t| {
+            json!({"id": t.id, "title": t.title, "type": t.kind, "layout": t.layout, "options": t.options,
+                   "text": t.text, "tab": t.tab})
+        })
         .collect();
-    let body = json!({"title": d.title, "description": d.description, "tiles": tiles, "theme": theme,
+    let body = json!({"title": d.title, "description": d.description, "tabs": d.tabs, "tiles": tiles, "theme": theme,
                       "cache_seconds": link.cache_seconds});
     Ok(public_response(body, "no-cache".into()))
 }
@@ -236,7 +239,7 @@ pub async fn tile(
     if let Some(hit) = kept().await? {
         return Ok(answer(hit, true)); // a visitor ahead of this one asked
     }
-    let model = model_of(&caller, &tile.query.model)?;
+    let model = model_of(&caller, &super::dashboards::query_of(tile)?.model)?;
     let q = build(&d, tile, model, &TileRequest::default(), false).map_err(|e| match e {
         TileRequestError::NoDrill => ApiError::forbidden("no drilling on a public link"),
         TileRequestError::Invalid(m) => ApiError::bad_request(m),
@@ -274,7 +277,7 @@ pub(crate) mod tests {
 
     use crate::api::tests::{OWNER, app, scramdb_config};
 
-    const DASHBOARD: &str = "title: Shared sales\ntiles:\n  - id: t\n    type: kpi\n    query: {model: sales, measures: [transactions]}\n    layout: {x: 0, y: 0, w: 3, h: 2}\n  - id: regions\n    type: bar\n    query: {model: sales, dimensions: [region], measures: [transactions]}\n    layout: {x: 3, y: 0, w: 6, h: 4}\n";
+    const DASHBOARD: &str = "title: Shared sales\ntabs: [Main, Notes]\ntiles:\n  - id: t\n    type: kpi\n    query: {model: sales, measures: [transactions]}\n    layout: {x: 0, y: 0, w: 3, h: 2}\n  - id: regions\n    type: bar\n    query: {model: sales, dimensions: [region], measures: [transactions]}\n    layout: {x: 3, y: 0, w: 6, h: 4}\n  - {id: note, type: text, text: Hello, tab: Notes}\n";
 
     /// A request, signed in (cookie) or not, in an organisation: (status, JSON, headers).
     pub(crate) async fn send(
@@ -383,6 +386,8 @@ pub(crate) mod tests {
         assert_eq!(d["title"], json!("Shared sales"));
         assert_eq!(d["tiles"][0]["id"], json!("t"));
         assert!(d["tiles"][0].get("query").is_none(), "{d}");
+        assert_eq!(d["tabs"], json!(["Main", "Notes"]));
+        assert_eq!((&d["tiles"][2]["text"], &d["tiles"][2]["tab"]), (&json!("Hello"), &json!("Notes")));
         assert_eq!(d["cache_seconds"], json!(3600));
         assert_eq!(headers["x-robots-tag"], "noindex");
 

@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useState } from 'react'
-import { Link, useNavigate, useParams } from 'react-router-dom'
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import GridLayout, { WidthProvider } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 import CodeMirror from '@uiw/react-codemirror'
 import { yaml as yamlLang } from '@codemirror/lang-yaml'
-import { ApiError, api, isTemporal } from '../api'
-import type { Dashboard, DashboardPeriod, Tile } from '../api'
+import { ApiError, api, isChart, isTemporal } from '../api'
+import type { ChartTile, Dashboard, DashboardPeriod, Tile } from '../api'
 import Explorer from '../components/Explorer'
 import FilterBar from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
@@ -18,6 +18,9 @@ import type { OrgRef } from '../api'
 import { periodFromUrl } from '../period'
 import { initialFilterValues, useDashboardInputs } from '../dashboardInputs'
 import TileView from '../components/TileView'
+import TextTile, { TextEditor } from '../components/TextTile'
+import Tabs, { MoveTab } from '../components/Tabs'
+import { onTab, pickTab } from '../tabs'
 import { useModels, usePhone } from '../hooks'
 import { phoneLayout } from '../phoneLayout'
 
@@ -44,7 +47,9 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   // the version loaded: saves are refused if someone (or an agent) changed it since
   const [version, setVersion] = useState<string | null>(null)
   const [view, setView] = useState<'dashboard' | 'yaml'>('dashboard')
-  const [editTile, setEditTile] = useState<Tile | 'new' | null>(null)
+  const [editTile, setEditTile] = useState<ChartTile | 'new' | null>(null)
+  const [editText, setEditText] = useState<Tile | 'new' | null>(null)
+  const [search, setSearch] = useSearchParams()
   const [showEmbed, setShowEmbed] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showGuests, setShowGuests] = useState(false)
@@ -85,7 +90,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     if (editing) update(d => ({ ...d, period: p }))
   }
   const addPeriod = () => {
-    const modelName = dash?.tiles[0]?.query.model ?? models[0]?.name
+    const modelName = dash?.tiles.find(isChart)?.query.model ?? models[0]?.name
     const m = models.find(x => x.name === modelName)
     const field = m?.dimensions.find(d => isTemporal(d.type))?.name
     if (!m || !field) { alert('No date/time dimension available on this dashboard\'s model.'); return }
@@ -119,23 +124,38 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       const t = dash.tiles.find(x => x.id === l.i)
       return t && (t.layout.x !== l.x || t.layout.y !== l.y || t.layout.w !== l.w || t.layout.h !== l.h)
     })
-    if (changed) update(d => ({ ...d, tiles: d.tiles.map(t => { const l = layout.find(x => x.i === t.id)!; return { ...t, layout: { x: l.x, y: l.y, w: l.w, h: l.h } } }) }))
+    // only the tiles on this tab are in the grid's layout
+    if (changed) update(d => ({ ...d, tiles: d.tiles.map(t => { const l = layout.find(x => x.i === t.id); return l ? { ...t, layout: { x: l.x, y: l.y, w: l.w, h: l.h } } : t }) }))
   }
 
-  const upsertTile = (tile: Tile) => {
+  const tabs = dash?.tabs ?? []
+  const tab = pickTab(tabs, search.get('tab'))
+  const setTab = (t: string) => setSearch(p => { p.set('tab', t); return p }, { replace: true })
+
+  /** A new tile goes at the bottom of the tab on screen; a changed one stays where it is. */
+  const upsertTile = (tile: Tile, isNew: boolean) => {
     update(d => {
-      if (d.tiles.some(t => t.id === tile.id) && editTile !== 'new') return { ...d, tiles: d.tiles.map(t => (t.id === tile.id ? tile : t)) }
-      const bottom = Math.max(0, ...d.tiles.map(t => t.layout.y + t.layout.h))
-      const newId = uniqueId(tile.title || tile.query.measures?.[0] || 'tile', d.tiles.map(t => t.id))
-      return { ...d, tiles: [...d.tiles, { ...tile, id: newId, layout: { x: 0, y: bottom, w: tile.type === 'kpi' ? 3 : 6, h: tile.type === 'kpi' ? 2 : 5 } }] }
+      if (!isNew) return { ...d, tiles: d.tiles.map(t => (t.id === tile.id ? tile : t)) }
+      const here = onTab(d.tiles, d.tabs ?? [], tab)
+      const bottom = Math.max(0, ...here.map(t => t.layout.y + t.layout.h))
+      const newId = uniqueId(tile.title || tile.query?.measures?.[0] || (tile.type === 'text' ? 'text' : 'tile'), d.tiles.map(t => t.id))
+      const [w, h] = tile.type === 'kpi' ? [3, 2] : tile.type === 'text' ? [6, 3] : [6, 5]
+      const onFirst = !tab || tab === d.tabs?.[0]
+      return { ...d, tiles: [...d.tiles, { ...tile, id: newId, tab: onFirst ? null : tab, layout: { x: 0, y: bottom, w, h } }] }
     })
-    setEditTile(null)
+    setEditTile(null); setEditText(null)
   }
+  const removeTab = (name: string) => update(d => ({
+    ...d, tabs: (d.tabs ?? []).filter(t => t !== name), tiles: d.tiles.map(t => (t.tab === name ? { ...t, tab: null } : t)),
+  }))
+  const moveTile = (id: string, to: string) =>
+    update(d => ({ ...d, tiles: d.tiles.map(t => (t.id === id ? { ...t, tab: to === d.tabs?.[0] ? null : to, layout: { ...t.layout, y: 1000 } } : t)) }))
 
   if (error) return <div className="page"><div className="error">{error}</div><Link to="/">← Dashboards</Link></div>
   if (!dash) return <div className="page"><div className="empty">Loading…</div></div>
 
-  const layout: Layout[] = phone ? phoneLayout(dash.tiles) : dash.tiles.map(t => ({ i: t.id, ...t.layout, minW: 2, minH: 2 }))
+  const visible = onTab(dash.tiles, tabs, tab)
+  const layout: Layout[] = phone ? phoneLayout(visible) : visible.map(t => ({ i: t.id, ...t.layout, minW: 2, minH: 2 }))
   const showFilters = !embed || new URLSearchParams(location.search).get('filters') !== '0'
 
   return (
@@ -148,7 +168,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               : <h1>{dash.title}</h1>}
             {dash.description && !editing && <p className="muted">{dash.description}</p>}
             {(() => {  // only the restrictions on models this dashboard uses
-              const used = new Set(dash.tiles.map(t => t.query.model))
+              const used = new Set(dash.tiles.flatMap(t => (t.query ? [t.query.model] : [])))
               const shown = allRestrictions.filter(r => used.has(r.model) || models.some(m => used.has(m.name) && m.extends === r.model))
               return shown.length > 0 && <p className="muted small">🔒 Showing only {shown.map(r => `${r.label}: ${r.values.join(', ')}`).join(' · ')}</p>
             })()}
@@ -165,6 +185,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
                 {themes.map(t => <option key={t.id} value={t.id}>Theme: {t.label}</option>)}
               </select>
               <button onClick={() => setEditTile('new')}>+ Add tile</button>
+              <button onClick={() => setEditText('new')}>+ Add text</button>
               <button onClick={() => { if (!dirty || confirm('Discard changes?')) { load(); setEditing(false) } }}>Cancel</button>
               <button className="primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
             </> : <>
@@ -206,19 +227,27 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
           {editing && !period && <div className="period-bar"><button className="link" onClick={addPeriod}>+ Add a dashboard period (with comparison)</button></div>}
           {showFilters && <FilterBar filters={dash.filters} models={models} values={filterValues} dashboardId={editing ? undefined : id}
             onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))} />}
+          <Tabs tabs={tabs} current={tab} onPick={setTab}
+            onAdd={editing ? name => { update(d => ({ ...d, tabs: [...(d.tabs ?? []), name] })); setTab(name) } : undefined}
+            onRemove={editing ? removeTab : undefined} />
           {dash.tiles.length === 0 && <div className="empty big">This dashboard has no tiles yet. {!embed && can('edit') && <button className="link" onClick={() => { setEditing(true); setEditTile('new') }}>Add one</button>}</div>}
           <Grid className={editing ? 'grid editing' : 'grid'} layout={layout} cols={12} rowHeight={64} margin={[12, 12]}
             isDraggable={editing && !phone} isResizable={editing && !phone} draggableHandle=".tile-head" draggableCancel="button,select,input"
             onLayoutChange={onLayoutChange} compactType="vertical">
-            {dash.tiles.map(t => (
-              <div key={t.id}>
-                <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
-                  period={period && period.model === t.query.model ? tilePeriod : null}
-                  source={{ dashboard: id, request: tileRequest }}
-                  editing={editing} onEdit={() => setEditTile(t)}
-                  onDelete={() => update(d => ({ ...d, tiles: d.tiles.filter(x => x.id !== t.id) }))} />
-              </div>
-            ))}
+            {visible.map(t => {
+              const remove = () => update(d => ({ ...d, tiles: d.tiles.filter(x => x.id !== t.id) }))
+              const move = editing && tabs.length > 1 ? <MoveTab tabs={tabs} current={tab} onMove={to => moveTile(t.id, to)} /> : null
+              return (
+                <div key={t.id}>
+                  {isChart(t)
+                    ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
+                        period={period && period.model === t.query.model ? tilePeriod : null}
+                        source={{ dashboard: id, request: tileRequest }}
+                        editing={editing} onEdit={() => setEditTile(t)} onDelete={remove} actions={move} />
+                    : <TextTile title={t.title} text={t.text ?? ''} editing={editing} onEdit={() => setEditText(t)} onDelete={remove} actions={move} />}
+                </div>
+              )
+            })}
           </Grid>
         </>
       )}
@@ -228,14 +257,28 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
           <div className="modal wide">
             <h2>{editTile === 'new' ? 'Add tile' : 'Edit tile'}</h2>
             <Explorer models={models} initial={editTile === 'new' ? undefined : editTile}
-              submitLabel={editTile === 'new' ? 'Add to dashboard' : 'Apply'} onSubmit={upsertTile} onCancel={() => setEditTile(null)} />
+              submitLabel={editTile === 'new' ? 'Add to dashboard' : 'Apply'}
+              onSubmit={t => upsertTile(editTile === 'new' ? t : { ...t, tab: editTile.tab }, editTile === 'new')} onCancel={() => setEditTile(null)} />
+          </div>
+        </div>
+      )}
+
+      {editText && (
+        <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setEditText(null) }}>
+          <div className="modal wide">
+            <h2>{editText === 'new' ? 'Add text' : 'Edit text'}</h2>
+            <TextEditor title={editText === 'new' ? null : editText.title} text={editText === 'new' ? null : editText.text}
+              onCancel={() => setEditText(null)}
+              onSubmit={(title, text) => editText === 'new'
+                ? upsertTile({ id: 'text', type: 'text', title, text, layout: { x: 0, y: 0, w: 6, h: 3 } }, true)
+                : upsertTile({ ...editText, title, text }, false)} />
           </div>
         </div>
       )}
 
       {showEmbed && <EmbedDialog id={id} onClose={() => setShowEmbed(false)} />}
       {showGuests && auth?.org && <GuestDialog id={id} myRole={auth.role ?? 'viewer'} me={auth.user?.email ?? ''} isAdmin={can('manage_members')}
-        models={limitModels([...dash.tiles.map(t => t.query.model), ...dash.filters.map(f => f.model)], models)}
+        models={limitModels([...dash.tiles.flatMap(t => (t.query ? [t.query.model] : [])), ...dash.filters.map(f => f.model)], models)}
         onClose={() => setShowGuests(false)} />}
       {showShare && auth?.org && <ShareDialog id={id} org={auth.org.name} tiles={dash.tiles.length} onClose={() => setShowShare(false)} />}
       {showPublish && <PublishDialog id={id} orgs={auth?.orgs ?? []} onClose={() => setShowPublish(false)} />}
