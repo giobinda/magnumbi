@@ -7,3 +7,4 @@ frontend/dist/
 project/access.yaml
 /data/
 testcreds.txt
+e2e/node_modules/
