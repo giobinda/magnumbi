@@ -9,8 +9,11 @@
 //! - `routes`: every route of the router is in the access matrix; who may call each one, and that
 //!   nobody else gets through (other roles, other organisations, forged headers, read tokens).
 //! - `secrets`: no planted secret comes back in any response or log line.
+//! - `row_filters`: a restricted organisation's answers equal an unrestricted person's answers
+//!   with the restriction written into the query, for random queries, on every path to data.
 
 mod routes;
+mod row_filters;
 mod secrets;
 
 use std::sync::{Arc, OnceLock};
@@ -111,7 +114,9 @@ impl World {
                 admin_a.clone(): "org_admin", power_a.clone(): "power_user", user_a.clone(): "user", viewer_a.clone(): "viewer"},
                 "oidc": {"label": "A's provider", "issuer": "https://login.a.example", "client_id": "a",
                          "client_secret_sealed": key.seal(&oidc_secret, &format!("{a}/oidc")).unwrap()}}},
-            b.clone(): {"name": "Attack B", "models": ["*"], "members": {"users": {admin_b.clone(): "org_admin"}}}}});
+            // everyone in B, its Org admin included, sees only EMEA's sales (attack::row_filters)
+            b.clone(): {"name": "Attack B", "models": ["*"], "filters": [{"model": "sales", "dimension": "region", "values": ["EMEA"]}],
+                        "members": {"users": {admin_b.clone(): "org_admin"}}}}});
         state.access.pin(crate::access::AccessConfig::from_document(access).unwrap());
         state.orgs.pin(&a, state.store.clone());
         state.orgs.pin(&b, state.store.clone());
