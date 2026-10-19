@@ -745,6 +745,4 @@ the "Powered by Magnum BI" credit must stay visible in the user interface, and t
 are covered by the [trademark policy](TRADEMARKS.md).
 
 You may use, modify and run Magnum BI commercially. If you offer a modified version to others over
-a network, you must publish your changes under the same license. If that doesn't suit you, for
-example for a closed-source hosted service, a commercial license is available from the author
-(gbinda@pm.me).
+a network, you must publish your changes under the same license.
