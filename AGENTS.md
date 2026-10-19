@@ -51,6 +51,7 @@ backend/migrations/org/      each organisation's ScramDB } new numbered file, ne
 frontend/src/      React + Vite + ECharts; api.ts mirrors the API types
 project/           models/, blends/, dashboards/ (YAML; dashboards are seeded on first start)
 devtools/          scramdb.sh (local ScramDB containers)
+e2e/               the browser attack (make e2e-attack, local only): Playwright, pinned in its package.json
 website/           the public site (plain HTML/CSS/JS, no build): landing page, docs, comparison;
                    on GitHub Pages via .github/workflows/website.yml
 Dockerfile, compose.yaml      the image (UI + server + project) and a one-machine stack
@@ -68,6 +69,7 @@ make test-db                    # also the tests that need ScramDB / DuckDB exte
 make check                      # validate project YAML (models, blends, dashboards)
 make demo [ORG=x] [MONTHS=13]   # the NYC taxi x weather demo (downloads; backend/src/demo.rs)
 make lint                       # cargo clippy --all-targets + oxlint
+make e2e-attack                 # local only: hostile names, labels, markdown and data in Chromium (e2e/)
 cargo fmt                       # rustfmt.toml: max_width 120
 docker compose up -d --build     # the packaged stack, from this checkout, on :8000
 helm lint deploy/helm/magnum-bi --set production=false          # after chart changes, also
@@ -95,6 +97,11 @@ frontend runs `npx tsc -b`, `npx vitest run`, `npx oxlint src` and `npm run buil
   - each test that writes a `members:<org>` setting uses its own organisation id;
   - a test needing an organisation with a database pins one: `state.orgs.pin(&org, state.store.clone())`
     with a unique `org` (its rows carry that id), and deletes its rows at the end.
+- **The attack suite** (`backend/src/attack/`, runs with `make test-db`) misuses the API as every
+  kind of caller. A new route must be added to `attack::routes::MATRIX` with the lowest role that
+  may call it (the build fails otherwise); a new secret gets a canary in `World::furnish`; a new
+  path to data gets a case in `attack::row_filters`. A finding is fixed with its test, not
+  excused in the suite. Before a release, also run `make e2e-attack`.
 - For external services, run a small axum stand-in on `127.0.0.1:0` inside the test, as the OIDC
   provider and BigQuery tests do. Passkeys are tested with `webauthn-authenticator-rs`'
   `SoftPasskey`.
@@ -109,6 +116,8 @@ frontend runs `npx tsc -b`, `npx vitest run`, `npx oxlint src` and `npm run buil
 - `COPY … FROM STDIN` only finds tables in the default schema (blend work tables live there).
 - `SUM` of an unconstrained `NUMERIC` after a join loses the scale: materialised decimals are
   `NUMERIC(38, 10)`.
+- `GROUP BY` and `DISTINCT` on a bare `NUMERIC` column return made-up values after the first run:
+  number dimensions are grouped by `(x + 0)` (`compiler::group_key`).
 - `CREATE DATABASE` doesn't isolate reliably; `COPY TO STDOUT` ignores CSV options; no
   `setseed()`.
 

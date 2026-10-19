@@ -1,0 +1,9 @@
+{
+  "name": "magnum-bi-e2e",
+  "private": true,
+  "description": "The browser attack (make e2e-attack): local only",
+  "type": "module",
+  "devDependencies": {
+    "playwright": "1.55.0"
+  }
+}

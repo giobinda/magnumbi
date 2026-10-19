@@ -95,6 +95,9 @@ ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on th
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
 for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
 ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
+`make test-db` includes an attack suite that misuses the API as every kind of caller (other
+roles and organisations, read-only tokens, hostile input, planted secrets, row filters on every
+path to data); `make e2e-attack` opens hostile dashboards in a real browser (local only).
 
 **How-to guides** on the website: [infrastructure](https://giobinda.github.io/magnumbi/guides/infrastructure.html), [platform owner](https://giobinda.github.io/magnumbi/guides/platform-owner.html), [Org admin](https://giobinda.github.io/magnumbi/guides/org-admin.html).
 

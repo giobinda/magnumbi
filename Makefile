@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint e2e-attack
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -63,6 +63,11 @@ test:               ## backend unit tests + frontend typecheck and tests
 
 test-db: seed        ## also the tests that need ScramDB, DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
 	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) MAGNUM_TEST_DUCKDB_EXTENSIONS=$(CURDIR)/data/duckdb/_extensions cargo test
+
+e2e-attack:         ## try script injection in a real browser (local only: Podman/Docker, Node, Chromium)
+	cd frontend && npm run build
+	cargo build
+	e2e/run.sh
 
 lint:
 	cargo clippy --all-targets
