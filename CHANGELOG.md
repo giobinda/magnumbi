@@ -16,6 +16,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 - **Email and webhooks, per tenant.** Each organisation, and the platform workspace, has its own
   mail server and Slack, Microsoft Teams or JSON webhooks (**Delivery**), with test buttons.
   Nothing is shared or inherited between tenants. Groundwork for scheduled reports and alerts.
+- **Scheduled reports.** **Schedule…** on a dashboard sends it daily, weekly or monthly at a
+  local time: the data (a zip of CSVs), a fresh guest link with a password, or a public link,
+  by email and to Slack/Teams webhooks, through the tenant's own delivery settings. Recipients
+  are members and domains Org admins allow; reports run as their maker and pause when the maker
+  can't send them; every email can be unsubscribed; Org admins see and pause them all.
 - **An attack suite** that misuses the API as every kind of caller, in `make test-db` and CI:
   every route in an access matrix, planted secrets, row filters on every path to data, hostile
   input, brute force, cross-site requests. `make e2e-attack` opens hostile dashboards in a real

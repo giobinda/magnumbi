@@ -5,12 +5,13 @@ mod auth;
 mod blends;
 mod connections;
 mod dashboards;
-mod delivery;
+pub(crate) mod delivery;
 mod exports;
 mod guest;
 mod mcp;
 mod models;
 mod org_models;
+mod schedules;
 mod setup;
 pub(crate) mod share;
 mod themes;
@@ -43,6 +44,11 @@ use crate::security::{MAX_BODY_BYTES, hardening};
 use crate::state::{AppState, Shared};
 use crate::store::Store;
 
+/// Send the scheduled reports that are due (the server's minute loop).
+pub async fn run_scheduled_reports(state: &AppState) {
+    schedules::tick(state, chrono::Utc::now()).await;
+}
+
 pub fn router(state: Shared) -> Router {
     let open = Router::new()
         .route("/api/health", get(|| async { axum::Json(json!({"ok": true})) }))
@@ -74,7 +80,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/guest/{org}/{token}/tiles/{tile}/export", post(guest::tile_export))
         .route("/api/guest/{org}/{token}/export", post(guest::export))
         .route("/api/guest/{org}/{token}/filters/values", get(guest::filter_values))
-        .route("/api/guest/{org}/{token}/period", post(guest::period));
+        .route("/api/guest/{org}/{token}/period", post(guest::period))
+        .route("/api/unsubscribe", post(schedules::unsubscribe));
     let protected = Router::new()
         .route("/api/models", get(models::list))
         .route("/api/mcp", post(mcp::endpoint))
@@ -108,6 +115,11 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/share-links", get(share::list).post(share::create))
         .route("/api/share-links/{id}", axum::routing::delete(share::revoke))
         .route("/api/dashboards/{id}/guest-links", get(guest::list).post(guest::create))
+        .route("/api/dashboards/{id}/schedules", get(schedules::list).post(schedules::create))
+        .route("/api/schedules", get(schedules::list_all))
+        .route("/api/schedules/{id}", axum::routing::delete(schedules::delete))
+        .route("/api/schedules/{id}/active", axum::routing::put(schedules::set_active))
+        .route("/api/schedules/{id}/run", post(schedules::run_now))
         .route("/api/guest-links/{id}", axum::routing::delete(guest::revoke))
         .route("/api/members", get(admin::get_members).put(admin::put_members))
         .route("/api/members/sign-in", get(admin::get_sign_in).put(admin::put_sign_in))

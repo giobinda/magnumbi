@@ -348,7 +348,8 @@ pub async fn link_caller(
     let project = state.project.current();
     let (access, access_errors) = state.access.get(state, &project).await;
     let mut scope = scope_of(&access, maker, Some(org));
-    if scope.org.as_deref() != Some(org) || scope.broken || !scope.role.is_some_and(|r| r >= link.min) {
+    // in that organisation ("": the platform workspace, its system owners)
+    if scope.org.as_deref().unwrap_or_default() != org || scope.broken || !scope.role.is_some_and(|r| r >= link.min) {
         return Ok(None);
     }
     scope.personal_filters.extend(link.filters.iter().cloned());

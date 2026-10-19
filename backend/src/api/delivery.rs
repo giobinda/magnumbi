@@ -78,6 +78,9 @@ pub struct MailInput {
     #[serde(default)]
     username: Option<String>,
     from: String,
+    /// besides members, the email domains reports may go to
+    #[serde(default)]
+    allowed_domains: Vec<String>,
     /// absent: keep the one stored; empty: none
     #[serde(default)]
     password: Option<String>,
@@ -97,6 +100,12 @@ pub async fn put_mail(
         security: i.security,
         username,
         from: i.from.trim().to_string(),
+        allowed_domains: i
+            .allowed_domains
+            .iter()
+            .map(|d| d.trim().trim_start_matches('@').to_lowercase())
+            .filter(|d| !d.is_empty())
+            .collect(),
     };
     let kept = match input.password {
         Some(_) => None,
@@ -204,7 +213,7 @@ pub async fn test_webhook(
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use axum::http::StatusCode;
     use serde_json::{Value, json};
     use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -214,7 +223,7 @@ mod tests {
     use crate::api::tests::OWNER;
 
     /// A stand-in mail server: accepts everything, hands over each message's text.
-    async fn fake_smtp() -> (u16, mpsc::UnboundedReceiver<String>) {
+    pub(crate) async fn fake_smtp() -> (u16, mpsc::UnboundedReceiver<String>) {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let port = listener.local_addr().unwrap().port();
         let (tx, rx) = mpsc::unbounded_channel();
@@ -255,7 +264,7 @@ mod tests {
     }
 
     /// A stand-in webhook: hands over each JSON body.
-    async fn fake_webhook() -> (u16, mpsc::UnboundedReceiver<Value>) {
+    pub(crate) async fn fake_webhook() -> (u16, mpsc::UnboundedReceiver<Value>) {
         let (tx, rx) = mpsc::unbounded_channel();
         let app = axum::Router::new().route(
             "/hook",
@@ -353,7 +362,7 @@ mod tests {
         let Some((app, state, cookie, org)) = org_with("title: x").await else { return };
         let c = Some(cookie.as_str());
         let tls = json!({"host": "smtp.example.com", "port": 587, "security": "starttls", "username": "bi",
-                         "password": "first-pw", "from": "bi@example.com"});
+                         "password": "first-pw", "from": "bi@example.com", "allowed_domains": ["@Partner.example"]});
         let (s, b, _) = send(&app, c, &org, "PUT", "/api/delivery/mail", Some(tls.clone()), None).await;
         assert_eq!(s, StatusCode::OK, "{b}");
         // saving again without a password keeps the one there
@@ -364,6 +373,7 @@ mod tests {
         assert_eq!(s, StatusCode::OK, "{b}");
         let (_, d, _) = send(&app, c, &org, "GET", "/api/delivery", None, None).await;
         assert_eq!((&d["mail"]["port"], &d["mail"]["has_password"]), (&json!(2525), &json!(true)));
+        assert_eq!(d["mail"]["allowed_domains"], json!(["partner.example"]));
         assert!(!d.to_string().contains("first-pw"));
         let row = state.store.mail_server(&org).await.unwrap().unwrap();
         assert!(!row.1.unwrap().contains("first-pw"), "sealed at rest");

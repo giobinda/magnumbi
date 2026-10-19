@@ -221,11 +221,25 @@ export type PublicResult = QueryResult & { as_of: string; expires_at?: string; f
 
 /** A tenant's mail server (GET /api/delivery); its password is never sent back. */
 export type MailSecurity = 'starttls' | 'tls' | 'none'
-export interface MailServerInfo { host: string; port: number; security: MailSecurity; username?: string | null; from: string; has_password: boolean }
+export interface MailServerInfo { host: string; port: number; security: MailSecurity; username?: string | null; from: string; has_password: boolean; allowed_domains?: string[] }
 export type WebhookKind = 'slack' | 'teams' | 'webhook'
 /** A webhook: its address is a secret, only its host is shown. */
 export interface WebhookInfo { name: string; kind: WebhookKind; host: string }
 export interface DeliverySettings { mail: MailServerInfo | null; webhooks: WebhookInfo[]; secret_key: boolean }
+
+/** A scheduled report (api/schedules.rs). */
+export interface ScheduleWhen { every: 'daily' | 'weekly' | 'monthly'; day?: number | null; at: string; timezone: string }
+export type ReportFormat = 'csv' | 'signed' | 'public'
+export interface Schedule {
+  id: string; dashboard: string; name: string; when: ScheduleWhen; format: ReportFormat
+  recipients: string[]; webhooks: string[]; guest_role?: string | null; share_link?: string | null
+  active: boolean; next_run_at: string; last_run_at?: string | null; last_status?: string | null
+  failures: number; created_by: string; created_at: string
+}
+export interface NewSchedule {
+  name: string; when: ScheduleWhen; format: ReportFormat; recipients: string[]; webhooks: string[]
+  request?: TileRequest; password?: string; guest_role?: string; share_link?: string
+}
 
 /** One step of "Get started" (GET /api/setup): worked out from what is set up. */
 export interface SetupStep {
@@ -443,6 +457,21 @@ export const api = {
     call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}`, json('PUT', url ? { kind, url } : { kind })),
   deleteWebhook: (name: string) => call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   testWebhook: (name: string) => call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}/test`, { method: 'POST' }),
+  schedules: (dash: string) =>
+    call<{ schedules: Schedule[]; webhooks: string[]; mail: boolean }>(`/api/dashboards/${encodeURIComponent(dash)}/schedules`),
+  allSchedules: () => call<{ schedules: Schedule[] }>('/api/schedules'),
+  createSchedule: (dash: string, s: NewSchedule) =>
+    call<Schedule & { password?: string }>(`/api/dashboards/${encodeURIComponent(dash)}/schedules`, json('POST', s)),
+  deleteSchedule: (id: string) => call<{ ok: boolean }>(`/api/schedules/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  setScheduleActive: (id: string, active: boolean) =>
+    call<Schedule>(`/api/schedules/${encodeURIComponent(id)}/active`, json('PUT', { active })),
+  runSchedule: (id: string) => call<{ ok: boolean; schedule: Schedule }>(`/api/schedules/${encodeURIComponent(id)}/run`, { method: 'POST' }),
+  unsubscribe: async (org: string, token: string) => {
+    const r = await fetch('/api/unsubscribe', json('POST', { org, token }))
+    const body = await r.json().catch(() => ({}))
+    if (!r.ok) throw new ApiError(r.status, typeof body.detail === 'string' ? body.detail : r.statusText)
+    return body as { ok: boolean; report: string; email: string }
+  },
   deleteDashboard: (id: string) => call<{ ok: boolean }>(`/api/dashboards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 

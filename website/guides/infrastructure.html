@@ -94,7 +94,7 @@ docker compose exec magnum magnum-bi demo --months 1      # optional: the NYC de
         <li><strong>A primary ScramDB</strong> (<code>MAGNUM_DATABASE_URL</code>) holds sign-in, settings, organisations and usage. ScramDB speaks the PostgreSQL protocol.</li>
         <li><strong>One ScramDB per organisation</strong> holds that organisation's dashboards, connections, models and cache. The platform owner points each organisation at its own.</li>
         <li><strong>A data folder</strong> (<code>/data</code> in the image, <code>MAGNUM_DUCKDB_DIR</code>) holds files read with DuckDB, one folder per organisation.</li>
-        <li><strong>Going out:</strong> besides organisations' databases, the server reaches the mail servers (ports 587, 465 or 25) and webhooks (https) that the platform workspace and each organisation set up for themselves. Allow that in your firewall if reports should leave.</li>
+        <li><strong>Going out:</strong> besides organisations' databases, the server reaches the mail servers (ports 587, 465 or 25) and webhooks (https) that the platform workspace and each organisation set up for themselves. Allow that in your firewall if reports should leave. Set <code>MAGNUM_PUBLIC_URL</code>: links in scheduled reports point there. Each server checks for due reports every minute; with several, each report is still sent once.</li>
       </ul>
       <p>The server applies database migrations itself when it starts, and waits up to a minute for its database, so the start order doesn't matter.</p>
     </section>

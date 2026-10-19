@@ -695,9 +695,41 @@ platform workspace has one. Org admins manage them (system owners, in the platfo
   redirects and need https outside development, and errors never show a webhook's address.
 
 API: `GET /api/delivery`, `PUT`/`DELETE /api/delivery/mail` (`{"host", "port", "security",
-"username", "password", "from"}`; no `password` keeps the stored one), `POST
+"username", "password", "from", "allowed_domains"}`; no `password` keeps the stored one), `POST
 /api/delivery/mail/test`, `PUT`/`DELETE /api/delivery/webhooks/{name}` (`{"kind", "url"}`), `POST
 /api/delivery/webhooks/{name}/test`.
+
+## Scheduled reports
+
+**Schedule…** on a dashboard (Users and up) sends it every day, week (on a weekday) or month (on
+a day from 1 to 28), at a local time in a time zone, with the filters and period on screen. It
+goes through the tenant's own mail server and webhooks, as one of three things:
+
+- **The data:** a zip with each chart's CSV, attached to the email (up to 10 MB; beyond, the
+  email links to the dashboard). Webhooks get a link to the dashboard.
+- **A guest link with a password** (Power users and up, in an organisation): each run makes a
+  fresh guest link that works until the next report (never more than 14 days), with the
+  password set when scheduling. The password is never in the email: send it once, separately.
+- **A public link** (Org admins): one of the dashboard's public links.
+
+Who and how:
+
+- **Recipients** are the tenant's members (system owners included), people of the domains its
+  members join by, and the email domains its Org admins allow on the **Delivery** page (exactly
+  those domains). This is checked when the report is made and again on every run.
+- **It runs as its maker**, with their restrictions. It pauses itself when they leave or lose
+  the right to send it, and after 5 failed runs in a row; its maker or an Org admin resumes it.
+- Each recipient gets their own email, with a link to stop receiving it (a button, so mail
+  scanners opening links don't unsubscribe anyone). Org admins see and pause every report on the
+  **Delivery** page. Runs are in the usage log.
+- The server checks for due reports every minute. With several replicas, each run is claimed
+  first, so it's sent once. Set `MAGNUM_PUBLIC_URL`: links in reports point there.
+
+API: `GET`/`POST /api/dashboards/{id}/schedules` (`{"name", "when": {"every": "weekly", "day": 1,
+"at": "08:00", "timezone": "Europe/Rome"}, "format": "csv" | "signed" | "public", "recipients",
+"webhooks", "request", "password", "guest_role", "share_link"}`), `GET /api/schedules` (Org
+admins), `DELETE /api/schedules/{id}`, `PUT /api/schedules/{id}/active`, `POST
+/api/schedules/{id}/run` (send now), `POST /api/unsubscribe`.
 
 ## Configuration
 
@@ -755,6 +787,8 @@ can become fully independent (own keys, credentials, servers) without rewrites.
 
 Next, in rough order:
 
+- **Alerts**: a message (email, Slack, Teams) when a number crosses a line, through the same
+  per-tenant delivery as scheduled reports.
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
 - Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next one).

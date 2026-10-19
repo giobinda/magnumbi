@@ -19,6 +19,8 @@ axum = { version = "0.8", features = ["macros"] }
 axum-extra = { version = "0.10", features = ["cookie"] }
 base64 = "0.22"
 chrono = { version = "0.4", features = ["serde"] }
+# scheduled reports at local time (schedule.rs)
+chrono-tz = "=0.10.4"
 cookie = "0.18"
 clap = { version = "4", features = ["derive", "env"] }
 deadpool-postgres = "0.14"
