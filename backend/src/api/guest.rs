@@ -34,7 +34,7 @@ pub const MAX_HOURS: i64 = 14 * 24;
 const UNLOCKED_HOURS: i64 = 12;
 const COOKIE: &str = "magnum_guest";
 /// What guests may do on a dashboard, whatever their role: never share, edit or explore.
-const GUEST_PERMISSIONS: [&str; 4] = ["view", "filter", "drill", "view_sql"];
+const GUEST_PERMISSIONS: [&str; 5] = ["view", "filter", "drill", "view_sql", "download"];
 
 fn gone() -> ApiError {
     ApiError::not_found("this link doesn't work: it expired, was removed, or never existed")
@@ -354,6 +354,31 @@ pub async fn tile(
     Ok(private(super::dashboards::tile_for(&state, &caller, &link.dashboard_id, &tile, &req).await?))
 }
 
+/// Downloads, for guests whose role has `download` (users and up).
+pub async fn tile_export(
+    State(state): State<Shared>,
+    Path((org, token, tile)): Path<(String, String, String)>,
+    jar: CookieJar,
+    Body(req): Body<TileRequest>,
+) -> ApiResult<Response> {
+    let (link, caller) = guest(&state, &jar, &org, &token).await?;
+    let mut r = super::exports::tile_csv(&state, &caller, &link.dashboard_id, &tile, &req).await?;
+    r.headers_mut().insert("x-robots-tag", HeaderValue::from_static("noindex"));
+    Ok(r)
+}
+
+pub async fn export(
+    State(state): State<Shared>,
+    Path((org, token)): Path<(String, String)>,
+    jar: CookieJar,
+    Body(req): Body<TileRequest>,
+) -> ApiResult<Response> {
+    let (link, caller) = guest(&state, &jar, &org, &token).await?;
+    let mut r = super::exports::dashboard_zip(&state, &caller, &link.dashboard_id, &req).await?;
+    r.headers_mut().insert("x-robots-tag", HeaderValue::from_static("noindex"));
+    Ok(r)
+}
+
 pub async fn filter_values(
     State(state): State<Shared>,
     Path((org, token)): Path<(String, String)>,
@@ -380,6 +405,7 @@ mod tests {
     use axum::http::{HeaderMap, StatusCode};
     use serde_json::{Value, json};
 
+    use crate::api::exports::tests::{raw, unzip};
     use crate::api::share::tests::{clean_up, org_with, send};
 
     const DASHBOARD: &str = "title: Guest sales\nfilters:\n  - {model: sales, field: region}\ntiles:\n  - id: regions\n    type: bar\n    drill: location\n    query: {model: sales, dimensions: [region], measures: [transactions]}\n    layout: {x: 0, y: 0, w: 6, h: 4}\n";
@@ -486,6 +512,8 @@ mod tests {
         assert_eq!(d["models"][0]["name"], json!("sales"));
         assert_eq!(d["role"], json!("viewer"));
         assert_eq!(d["permissions"], json!(["view", "filter"]));
+        let (s, _, _) = raw(&app, &guest, "", &format!("{api}/export"), json!({}), None).await;
+        assert_eq!(s, StatusCode::FORBIDDEN, "a viewer only looks");
         assert_eq!(d["filters"][0]["values"], json!(["EMEA", "APAC"]));
 
         // the link's filters narrow every query; guests filter further, but a viewer can't drill
@@ -539,7 +567,15 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         let guest = cookie_of(&headers);
         let (_, d) = as_guest(&app, &guest, "GET", &api, None).await;
-        assert_eq!(d["permissions"], json!(["view", "filter", "drill"]));
+        assert_eq!(d["permissions"], json!(["view", "filter", "drill", "download"]));
+        // a user may download: the link's limits and the guest's drill still apply
+        let drill = json!({"drill": [{"field": "region", "value": "EMEA"}]});
+        let (s, _, csv) = raw(&app, &guest, "", &format!("{api}/tiles/regions/export"), drill, None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(String::from_utf8(csv).unwrap().starts_with("\u{feff}Store,"), "drilled down to stores");
+        let (s, _, zip) = raw(&app, &guest, "", &format!("{api}/export"), json!({}), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(unzip(zip).len(), 1);
         let (s, r) = as_guest(
             &app,
             &guest,

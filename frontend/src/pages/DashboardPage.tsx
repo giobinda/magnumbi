@@ -23,6 +23,7 @@ import Tabs, { MoveTab } from '../components/Tabs'
 import { onTab, pickTab } from '../tabs'
 import { useModels, usePhone } from '../hooks'
 import { phoneLayout } from '../phoneLayout'
+import DownloadButton from '../components/DownloadButton'
 
 const Grid = WidthProvider(GridLayout)
 
@@ -189,6 +190,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               <button onClick={() => { if (!dirty || confirm('Discard changes?')) { load(); setEditing(false) } }}>Cancel</button>
               <button className="primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
             </> : <>
+              {can('download') && <DownloadButton dashboard={id} request={tileRequest} />}
               {isTemplate && <button title="Copy this template into organisations" onClick={() => setShowPublish(true)}>Publish…</button>}
               {can('share') && <button onClick={() => setShowEmbed(true)}>Embed</button>}
               {can('edit') && auth?.org && <button onClick={() => setShowGuests(true)}>Share with guests</button>}

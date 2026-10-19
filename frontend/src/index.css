@@ -141,8 +141,8 @@ table.data .prev { color: var(--text-muted); }
 .tab { display: inline-flex; align-items: center; border-bottom: 2px solid transparent; margin-bottom: -1px; }
 .tab > button:first-child { border: 0; background: none; border-radius: 0; color: var(--text-muted); padding: 6px 10px; }
 .tab.active { border-bottom-color: var(--accent); } .tab.active > button:first-child { color: var(--text); font-weight: 600; }
-select.move-tab { appearance: none; width: 26px; text-align: center; min-height: 0; padding: 2px 4px; border: 0; background: none; color: var(--text-muted); font-size: 13px; cursor: pointer; }
-select.move-tab:hover { color: var(--text); background: var(--surface-2); }
+select.move-tab, select.tile-menu { appearance: none; width: 26px; text-align: center; min-height: 0; padding: 2px 4px; border: 0; background: none; color: var(--text-muted); font-size: 13px; cursor: pointer; }
+select.move-tab:hover, select.tile-menu:hover { color: var(--text); background: var(--surface-2); }
 .sql { margin: 0; height: 100%; overflow: auto; background: var(--surface-2); border-radius: 6px; padding: 10px; white-space: pre; }
 .spinner { width: 12px; height: 12px; border: 2px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin .7s linear infinite; margin-right: 6px; }
 @keyframes spin { to { transform: rotate(360deg); } }

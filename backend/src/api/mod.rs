@@ -5,6 +5,7 @@ mod auth;
 mod blends;
 mod connections;
 mod dashboards;
+mod exports;
 mod guest;
 mod mcp;
 mod models;
@@ -69,6 +70,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/guest/{org}/{token}", get(guest::dashboard))
         .route("/api/guest/{org}/{token}/unlock", post(guest::unlock))
         .route("/api/guest/{org}/{token}/tiles/{tile}/query", post(guest::tile))
+        .route("/api/guest/{org}/{token}/tiles/{tile}/export", post(guest::tile_export))
+        .route("/api/guest/{org}/{token}/export", post(guest::export))
         .route("/api/guest/{org}/{token}/filters/values", get(guest::filter_values))
         .route("/api/guest/{org}/{token}/period", post(guest::period));
     let protected = Router::new()
@@ -90,6 +93,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/yaml", get(dashboards::export_yaml).put(dashboards::save_yaml))
         .route("/api/dashboards/{id}/history", get(dashboards::history))
         .route("/api/dashboards/{id}/tiles/{tile}/query", post(dashboards::run_tile))
+        .route("/api/dashboards/{id}/tiles/{tile}/export", post(exports::tile))
+        .route("/api/dashboards/{id}/export", post(exports::dashboard))
         .route("/api/dashboards/{id}/filters/values", get(dashboards::filter_values))
         .route("/api/dashboards/{id}/share-links", get(share::list).post(share::create))
         .route("/api/share-links/{id}", axum::routing::delete(share::revoke))

@@ -301,6 +301,7 @@ tiles:
         <li>17 chart types, drawn with ECharts in the theme's palette: KPIs (with a trend sparkline, or a gauge towards a target), tables and pivot tables with totals, bars (vertical, horizontal, stacked or 100%), lines, areas, bar + line combos on two scales, donuts, treemaps, funnels, heatmaps, waterfalls, histograms and scatter plots. Weekdays and months sort as on a calendar.</li>
         <li><strong>Text tiles</strong> (<code>type: text</code>, with <code>text:</code> in markdown) hold headings and notes: how to read the dashboard, what a number means. Links go to web, mail or in-app addresses only, and HTML stays plain text.</li>
         <li><strong>Tabs</strong> split a long dashboard into pages: <code>tabs: [Overview, Detail]</code>, and <code>tab: Detail</code> on a tile (none: the first tab). In the editor, <em>+ Tab</em> adds one and ⇄ moves a tile. The address keeps the open tab (<code>?tab=Detail</code>).</li>
+        <li><strong>Downloads</strong> (Users and up): a tile's data as CSV or a chart as a PNG from the tile's ⤓ menu, with the filters, period and drill-down on screen; the whole dashboard as a zip of CSVs (a folder per tab) with <em>Download</em>. Restrictions apply as on screen, and text a spreadsheet would run as a formula stays text. Guests with the User role can download too; public links can't.</li>
         <li>Explore suggests a chart from the fields you pick (a date and a measure: a line; two categories: a heatmap), until you choose one.</li>
         <li><strong>Two measures, two scales.</strong> A line or bar chart of two measures (say, daily trips and temperature) puts the second on its own right-hand axis, named and coloured after it.</li>
         <li><strong>Period comparison you can read.</strong> The previous period is drawn dashed, in a lighter (or, on dark themes, darker) shade of its measure's colour, on the same scale.</li>
@@ -392,7 +393,7 @@ cache: 1h</code></pre>
       <h2>Guest links</h2>
       <p>Power users and up can share a dashboard with colleagues or people outside the organisation through a link <strong>and a password</strong>: <strong>Share with guests</strong> on the dashboard. Guests need no account.</p>
       <ul>
-        <li><strong>Their role is yours or lower</strong>, Viewer by default: Viewers use the dashboard's filters and period, Users also drill down, Power users also see each tile's SQL. No editing, Explore or sharing. If you drop below Power user or leave, your links stop working.</li>
+        <li><strong>Their role is yours or lower</strong>, Viewer by default: Viewers use the dashboard's filters and period, Users also drill down and download the data, Power users also see each tile's SQL. No editing, Explore or sharing. If you drop below Power user or leave, your links stop working.</li>
         <li><strong>They see only what you allow:</strong> your own restrictions, plus the link's limits on any field of the dashboard's models (for example, <em>Pickup borough is Manhattan or Brooklyn</em>). Limits only narrow, on every tile, pick list and drill-down.</li>
         <li><strong>Every link expires</strong>, after 1 hour to 14 days, never longer. Removing it ends it at once, even for guests who already opened it.</li>
         <li><strong>The password</strong> is yours (at least 10 characters) or one Magnum BI makes up, shown only once: send it separately from the link. It opens the link in that browser for up to 12 hours; wrong passwords lock the link for 15 minutes after 5 tries.</li>
@@ -446,7 +447,7 @@ cache: 1h</code></pre>
           <thead><tr><th>Role</th><th>Can</th></tr></thead>
           <tbody>
             <tr><td>Viewer</td><td>View dashboards, use their filters and the period picker</td></tr>
-            <tr><td>User</td><td>+ drill down, embed</td></tr>
+            <tr><td>User</td><td>+ drill down, embed, download data (CSV, a zip per dashboard)</td></tr>
             <tr><td>Power user</td><td>+ create / edit / delete dashboards, Explore, see SQL and YAML</td></tr>
             <tr><td>Org admin</td><td>+ manage members, roles, personal filters, connections, models and public links</td></tr>
             <tr><td>System owner</td><td>Everything, in every organisation</td></tr>

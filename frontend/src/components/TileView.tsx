@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react'
+import { useMemo, useRef, useState } from 'react'
+import * as echarts from 'echarts'
 import type { ReactNode } from 'react'
 import type { ChartTile, Column, Filter, ModelInfo, Period, TileRequest } from '../api'
 import { drillPath, fieldLabel } from '../api'
@@ -7,6 +8,8 @@ import type { DrillStep } from '../drill'
 import { windowLabel } from '../period'
 import { useQuery, useTileQuery } from '../hooks'
 import { useCan } from '../auth'
+import { api } from '../api'
+import { blobOf, hasPicture, saveFile } from '../download'
 import Chart from './Chart'
 import type { DrillClick } from './Chart'
 
@@ -54,6 +57,24 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
   const tileReq = useMemo(() => ({ ...source?.request, drill: steps.map(s => s.click) }), [source, steps])
   const stored = useTileQuery(saved ? source!.dashboard : null, tile.id, tileReq)
   const { data, error, status, loading } = saved ? stored : free
+  const box = useRef<HTMLDivElement>(null)
+
+  // the data as on screen (filters, period, drill), from the server; the chart as drawn
+  const download = async (what: string) => {
+    try {
+      if (what === 'csv' && source) {
+        const { blob, name } = await api.download(source.dashboard, tile.id, tileReq)
+        saveFile(blob, name)
+      } else if (what === 'png') {
+        const el = box.current?.querySelector<HTMLElement>('[_echarts_instance_]')
+        const chart = el && echarts.getInstanceByDom(el)
+        if (!chart) return
+        const background = getComputedStyle(el).getPropertyValue('--surface').trim() || '#fff'
+        const blob = blobOf(chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: background }))
+        saveFile(blob, `${tile.id}.png`)
+      }
+    } catch (e) { alert(`Download failed: ${(e as Error).message}`) }
+  }
 
   const canDrill = !editing && can('drill') && (path.length > 0 ||
     (tile.query.dimensions ?? []).some(d => d.includes(':') && d.split(':')[0] !== effectivePeriod?.field))
@@ -65,7 +86,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
     : undefined
 
   return (
-    <div className="tile">
+    <div className="tile" ref={box}>
       <div className="tile-head">
         <div className="tile-title" title={tileTitle(tile, model, data?.columns)}>
           {tileTitle(tile, model, data?.columns)}
@@ -81,6 +102,13 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
         <div className="tile-actions">
           {loading && <span className="spinner" title="Loading" />}
           {canDrill && steps.length === 0 && <span className="hint" title="Click a data point to drill down">⤓ drill</span>}
+          {saved && data && can('download') && (
+            <select className="tile-menu" title="Download" value="" onChange={e => { const v = e.target.value; e.target.value = ''; download(v) }}>
+              <option value="">⤓</option>
+              <option value="csv">Data (CSV)</option>
+              {hasPicture(tile.type) && <option value="png">Picture (PNG)</option>}
+            </select>
+          )}
           {can('view_sql') && <button className="icon" title="Show SQL" onClick={() => setShowSql(s => !s)}>{'</>'}</button>}
           {editing && actions}
           {editing && onEdit && <button className="icon" title="Edit tile" onClick={onEdit}>✎</button>}

@@ -1,5 +1,6 @@
 import type { Theme } from './theme'
 import { guestPath } from './guest'
+import { fileNameOf } from './download'
 import type { ModelDef } from './modelEditor'
 // Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
 
@@ -94,7 +95,7 @@ export interface DashboardResponse {
 export interface DashboardSummary { id: string; title: string; description?: string | null; tiles?: number; error?: string }
 
 export type Role = 'viewer' | 'user' | 'power_user' | 'org_admin' | 'system_owner'
-export type Permission = 'view' | 'filter' | 'drill' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'manage_orgs' | 'manage_system'
+export type Permission = 'view' | 'filter' | 'drill' | 'download' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'manage_orgs' | 'manage_system'
 export interface AuthState {
   required: boolean; authenticated: boolean; user: { name?: string; email?: string } | null
   /** the sign-in methods this server offers */
@@ -283,7 +284,8 @@ export class ApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status }
 }
 
-async function call<T>(path: string, init?: RequestInit): Promise<T> {
+/** A request with the session's organisation and view-as role; throws an ApiError unless it worked. */
+async function request(path: string, init?: RequestInit): Promise<Response> {
   const viewAs = getViewAs()
   const headers = new Headers(init?.headers)
   if (viewAs) headers.set('x-magnum-view-as', viewAs)
@@ -302,6 +304,11 @@ async function call<T>(path: string, init?: RequestInit): Promise<T> {
     } catch { /* not json */ }
     throw new ApiError(r.status, msg)
   }
+  return r
+}
+
+async function call<T>(path: string, init?: RequestInit): Promise<T> {
+  const r = await request(path, init)
   const ct = r.headers.get('content-type') ?? ''
   return (ct.includes('json') ? r.json() : r.text()) as Promise<T>
 }
@@ -314,6 +321,11 @@ export const api = {
   query: (q: Query, signal?: AbortSignal) => call<QueryResult>('/api/query', { ...json('POST', q), signal }),
   tileQuery: (dash: string, tile: string, req: TileRequest, signal?: AbortSignal) =>
     call<QueryResult>(guestPath(guestBase, dash, { tile }), { ...json('POST', req), signal }),
+  /** A tile's data as CSV, or (tile null) the dashboard's as a zip, with the viewer's inputs. */
+  download: async (dash: string, tile: string | null, req: TileRequest) => {
+    const r = await request(guestPath(guestBase, dash, { export: tile }), json('POST', req))
+    return { blob: await r.blob(), name: fileNameOf(r.headers.get('content-disposition'), tile === null ? `${dash}.zip` : `${tile}.csv`) }
+  },
   filterValues: (dash: string, key: string) => call<QueryResult>(guestPath(guestBase, dash, { key })),
   members: () => call<MembersResponse>('/api/members'),
   saveMembers: (m: Members) => call<MembersResponse>('/api/members', json('PUT', m)),

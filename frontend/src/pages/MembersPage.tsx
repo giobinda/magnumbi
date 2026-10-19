@@ -7,7 +7,7 @@ import SignInSettings from '../components/SignInSettings'
 import { useModels } from '../hooks'
 
 export const PERM_LABELS: Record<Permission, string> = {
-  view: 'View', filter: 'Filter', drill: 'Drill down', share: 'Share', explore: 'Explore',
+  view: 'View', filter: 'Filter', drill: 'Drill down', download: 'Download data', share: 'Share', explore: 'Explore',
   create: 'Create', edit: 'Edit', view_sql: 'See SQL & YAML', manage_members: 'Manage members',
   manage_orgs: 'Manage organisations', manage_system: 'Manage system',
 }

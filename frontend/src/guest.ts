@@ -21,8 +21,13 @@ export function restrictionsLabel(rules: Rule[], models: ModelLike[]): string {
 
 /** Where a dashboard's requests go: to the guest link while one is open, else the dashboard's
  *  own endpoints. */
-export function guestPath(base: string | null, dashboard: string, what: { tile: string } | { key: string } | { model: string }): string {
+export function guestPath(base: string | null, dashboard: string,
+  what: { tile: string } | { key: string } | { model: string } | { export: string | null }): string {
   const e = encodeURIComponent
+  if ('export' in what) {  // a tile's CSV, or (null) the dashboard's zip
+    const tile = what.export === null ? '' : `/tiles/${e(what.export)}`
+    return `${base ?? `/api/dashboards/${e(dashboard)}`}${tile}/export`
+  }
   if ('tile' in what) return base ? `${base}/tiles/${e(what.tile)}/query` : `/api/dashboards/${e(dashboard)}/tiles/${e(what.tile)}/query`
   if ('key' in what) return `${base ?? `/api/dashboards/${e(dashboard)}`}/filters/values?key=${e(what.key)}`
   return `${base ?? '/api'}/period?model=${e(what.model)}`

@@ -457,7 +457,7 @@ Two safety nets for changes made by agents (and people):
 | role         | can                                                                   |
 |--------------|-----------------------------------------------------------------------|
 | Viewer       | view dashboards, use their filters and the period picker              |
-| User         | + drill down, embed                                                   |
+| User         | + drill down, embed, download data (CSV, a zip per dashboard)         |
 | Power user   | + create / edit / delete dashboards, Explore, see SQL and YAML        |
 | Org admin    | + manage members, roles, personal filters, connections, models, links |
 | System owner | everything, in every organisation (switch with the organisation picker) |
@@ -629,7 +629,7 @@ Power users and up can share a dashboard with colleagues or people outside the o
 through a link **and a password**: **Share with guests** on the dashboard. Guests need no account.
 
 - **Their role is the maker's or lower**, Viewer by default: Viewers use the dashboard's filters
-  and period, Users also drill down, Power users also see each tile's SQL. Nothing else: no
+  and period, Users also drill down and download the data, Power users also see each tile's SQL. Nothing else: no
   editing, no Explore, no sharing. The role is checked again on every request: the link's, or
   the maker's current role if that's lower. A link stops working if its maker drops below Power
   user or leaves.
@@ -651,7 +651,27 @@ API: `GET`/`POST /api/dashboards/{id}/guest-links`
 "dimension": "pickup_borough", "values": ["Manhattan"]}]}`; an empty password is made up and
 returned once), `DELETE /api/guest-links/{id}`; guests' `POST /api/guest/{org}/{token}/unlock`,
 then `GET /api/guest/{org}/{token}`, `POST …/tiles/{tile}/query`, `GET …/filters/values`,
-`POST …/period`.
+`POST …/period`, and for Users and up `POST …/tiles/{tile}/export` and `POST …/export`.
+
+## Downloads
+
+Users and up (not Viewers) can take the data with them:
+
+- **A tile's data as CSV**, from the ⤓ menu on the tile: the rows on screen, with the filters,
+  period and drill-down they're looking at, under their restrictions. Column labels come first;
+  the file opens in Excel as UTF-8, and text a spreadsheet would run as a formula (`=…`, `+…`,
+  `-…`, `@…`) is kept as text.
+- **A chart as a picture** (PNG), from the same menu, drawn by the browser.
+- **The whole dashboard as a zip**, with **Download**: a CSV per chart (text tiles have no data),
+  in a folder per tab, with the dashboard's filters and period on screen. A tile that fails is
+  listed in `errors.txt` instead of failing the rest.
+
+Each download runs the tile's query again and is in the usage log. Guests whose role is User or
+higher can download too; public links can't. A role without `download` only stops these
+buttons and endpoints: what's on screen can always be copied by hand. There is no PDF export.
+
+API: `POST /api/dashboards/{id}/tiles/{tile}/export` (CSV) and `POST /api/dashboards/{id}/export`
+(zip), with the same body as a tile query (`{"filters": {…}, "period": {…}, "drill": […]}`).
 
 ## Configuration
 

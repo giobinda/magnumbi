@@ -211,18 +211,30 @@ pub async fn run_tile(
     Ok(Json(tile_for(&state, &caller, &id, &tile_id, &req).await?))
 }
 
-/// A saved tile's data for this caller (signed in, or a guest link's guest).
 /// A tile's query: a text tile has none to run.
 pub(super) fn query_of(tile: &Tile) -> ApiResult<&Query> {
     tile.query.as_ref().ok_or_else(|| ApiError::bad_request(format!("tile {:?} is text: nothing to run", tile.id)))
 }
 
+/// A saved tile's data for this caller (signed in, or a guest link's guest).
 pub async fn tile_for(
     state: &AppState,
     caller: &Caller,
     id: &str,
     tile_id: &str,
     req: &TileRequest,
+) -> ApiResult<Value> {
+    run_saved(state, caller, id, tile_id, req, "tile").await
+}
+
+/// Run a saved tile; `kind` says why in the usage log (tile, export).
+pub async fn run_saved(
+    state: &AppState,
+    caller: &Caller,
+    id: &str,
+    tile_id: &str,
+    req: &TileRequest,
+    kind: &'static str,
 ) -> ApiResult<Value> {
     caller.require("view")?;
     let (d, _) = load(state, caller, id).await?;
@@ -236,7 +248,7 @@ pub async fn tile_for(
         TileRequestError::NoDrill => ApiError::forbidden("your role can't drill down"),
         TileRequestError::Invalid(m) => ApiError::bad_request(m),
     })?;
-    execute(state, caller, &q, Source { kind: "tile", dashboard: Some(id) }).await
+    execute(state, caller, &q, Source { kind, dashboard: Some(id) }).await
 }
 
 #[derive(Deserialize)]

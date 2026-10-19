@@ -73,7 +73,7 @@ impl Role {
     pub fn permissions(self) -> Vec<&'static str> {
         let mut p = vec!["view", "filter"];
         if self >= Role::User {
-            p.extend(["drill", "share"]);
+            p.extend(["drill", "share", "download"]);
         }
         if self >= Role::PowerUser {
             p.extend(["explore", "create", "edit", "view_sql"]);
@@ -679,6 +679,8 @@ mod tests {
     #[test]
     fn roles_only_grow() {
         assert!(Role::Viewer.can("view") && !Role::Viewer.can("drill"));
+        // downloading data: users and up (viewers only look)
+        assert!(!Role::Viewer.can("download") && Role::User.can("download"));
         assert!(Role::PowerUser.can("explore") && !Role::PowerUser.can("manage_members"));
         assert!(Role::SystemOwner.can("manage_orgs"));
         assert_eq!(effective_role(Some(Role::OrgAdmin), Some("viewer")), Some(Role::Viewer));
