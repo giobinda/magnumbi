@@ -360,6 +360,10 @@ fn literal(dl: Dialect, v: &Value, ftype: &str) -> Result<String, QueryError> {
             if v.is_boolean() || !NUMBER.is_match(&text) {
                 return err(format!("expected a number, got {v}"));
             }
+            // and one every database can hold (beyond, NUMERIC overflows in the warehouse)
+            if text.parse::<f64>().map_or(true, |x| !x.is_finite() || x.abs() >= 1e30) {
+                return err(format!("the number {text} is too large"));
+            }
             Ok(text)
         }
         "boolean" => {
@@ -747,6 +751,7 @@ pub fn compile_query_up_to(
             return err(format!("top {}: {:?} must be one of the query's dimensions", t.n, t.dimension));
         }
         let d = model.dimension(name).ok_or_else(|| QueryError(format!("top {}: unknown dimension {name:?}", t.n)))?;
+        dim_expr(dl, d, grain, None)?; // its grain, if any, is a real one for this field
         let m = model.measure(&t.by).ok_or_else(|| QueryError(format!("top {}: unknown measure {:?}", t.n, t.by)))?;
         let direction = if t.bottom { "" } else { "-" };
         let selected = alias_of(&aliases, &t.by).is_some();
@@ -876,6 +881,19 @@ hierarchies:
     }
 
     #[test]
+    fn number_values_must_fit_a_database_number() {
+        let f = |v: Value| {
+            compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"],
+                                         "filters": [{"field": "amount", "op": "gt", "values": [v]}]}))
+        };
+        assert!(f(json!(12.5)).is_ok() && f(json!("-3e5")).is_ok());
+        for v in [json!("1e400"), json!(format!("1{}", "0".repeat(60))), json!("-1e31")] {
+            let e = f(v.clone()).unwrap_err().0;
+            assert!(e.contains("number"), "{v}: {e}");
+        }
+    }
+
+    #[test]
     fn number_dimensions_are_grouped_by_value_on_scramdb() {
         // ScramDB 1.0 corrupts GROUP BY / DISTINCT on a bare NUMERIC column after its first run;
         // a computed value (x + 0, exact for every number type) groups correctly
@@ -885,6 +903,10 @@ hierarchies:
                                  "top": {"dimension": "amount", "n": 3, "by": "revenue"}}))
         .unwrap();
         assert!(!top.sql.contains("GROUP BY \"amount\""), "{}", top.sql);
+        // Top N names a dimension the way the query does: no made-up grains
+        let junk = compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"],
+                                  "top": {"dimension": "region:'; --", "n": 3, "by": "revenue"}}));
+        assert!(junk.is_err(), "{junk:?}");
         // filters stay on the column itself
         let f = compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"],
                                "filters": [{"field": "amount", "op": "gt", "values": [10]}]}))

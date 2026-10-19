@@ -17,6 +17,12 @@ use serde_json::{Value, json};
 
 use crate::netguard::NetGuard;
 
+/// A DNS name: dot-separated labels of letters, digits and inner dashes.
+static HOST: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+    regex::Regex::new(r"^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?)*$")
+        .unwrap()
+});
+
 /// How the connection to the mail server is protected.
 #[derive(Debug, Clone, Copy, PartialEq, Deserialize, Serialize)]
 #[serde(rename_all = "lowercase")]
@@ -46,6 +52,9 @@ impl MailServer {
     pub fn check(&self, has_password: bool) -> Result<(), String> {
         if self.host.trim().is_empty() || self.port == 0 {
             return Err("the mail server needs a host and a port".into());
+        }
+        if self.host.parse::<std::net::IpAddr>().is_err() && !HOST.is_match(&self.host) {
+            return Err(format!("{:?} isn't a host name", self.host));
         }
         Mailbox::from_str(&self.from).map_err(|_| format!("{:?} isn't an email address", self.from))?;
         let user = self.username.as_deref().is_some_and(|u| !u.trim().is_empty());
@@ -199,6 +208,22 @@ mod tests {
         assert!(MailServer { host: " ".into(), ..server(Security::Tls, None) }.check(false).is_err());
         assert!(MailServer { port: 0, ..server(Security::Tls, None) }.check(false).is_err());
         assert!(MailServer { from: "not an address".into(), ..server(Security::Tls, None) }.check(false).is_err());
+        for host in [
+            "smtp.example.com\r\nRCPT TO:<x@y.z>",
+            "a b",
+            "-smtp.example.com",
+            "smtp..example.com",
+            "smtp.example.com/x",
+        ] {
+            assert!(MailServer { host: host.into(), ..server(Security::Tls, None) }.check(false).is_err(), "{host:?}");
+        }
+        for host in ["smtp.example.com", "127.0.0.1", "::1", "mail-1.eu.example.com"] {
+            assert_eq!(
+                MailServer { host: host.into(), ..server(Security::Tls, None) }.check(false),
+                Ok(()),
+                "{host:?}"
+            );
+        }
     }
 
     #[test]

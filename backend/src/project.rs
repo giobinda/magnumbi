@@ -44,9 +44,33 @@ pub fn expand_env(text: &str) -> String {
         .into_owned()
 }
 
+/// How deep `[...]` and `{...}` may nest. Nothing real comes close, and the YAML parser takes
+/// quadratic time on deep nesting (100,000 levels: 40 seconds of CPU), so it never sees more.
+const MAX_YAML_DEPTH: usize = 100;
+
+/// The deepest nesting of brackets, counted everywhere (telling quoted text apart would need a
+/// YAML parser; a string with 100 unclosed brackets in a row is refused too, which is fine).
+fn flow_depth(text: &str) -> usize {
+    let (mut depth, mut deepest) = (0usize, 0usize);
+    for c in text.chars() {
+        match c {
+            '[' | '{' => {
+                depth += 1;
+                deepest = deepest.max(depth);
+            }
+            ']' | '}' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    deepest
+}
+
 pub fn load_yaml<T: serde::de::DeserializeOwned>(text: &str) -> Result<T, String> {
     if text.len() > MAX_YAML_BYTES {
         return Err(format!("larger than {} KB", MAX_YAML_BYTES / 1024));
+    }
+    if flow_depth(text) > MAX_YAML_DEPTH {
+        return Err(format!("nested more than {MAX_YAML_DEPTH} levels deep"));
     }
     serde_yaml::from_str(text).map_err(|e| format!("invalid YAML: {e}"))
 }
@@ -473,6 +497,23 @@ fn extend(models: &BTreeMap<String, Model>, ext: &Model) -> Result<Model, String
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn deeply_nested_yaml_is_refused_before_parsing() {
+        // the YAML parser takes quadratic time on deep nesting: 100k brackets took 40 s
+        let deep = format!("title: {}{}", "[".repeat(100_000), "]".repeat(100_000));
+        let t = std::time::Instant::now();
+        let e = load_yaml::<Value>(&deep).unwrap_err();
+        assert!(t.elapsed() < std::time::Duration::from_millis(200), "{:?}", t.elapsed());
+        assert!(e.contains("nested"), "{e}");
+        // an apostrophe can't hide what follows it
+        let sneaky = format!("a: it's x\nb: {}{}", "[".repeat(100_000), "]".repeat(100_000));
+        assert!(load_yaml::<Value>(&sneaky).unwrap_err().contains("nested"));
+        // text full of closed brackets is fine (markdown links), as is ordinary nesting
+        let links = format!("text: \"{}\"\n", "[a](b) ".repeat(2000));
+        assert!(load_yaml::<Value>(&links).is_ok());
+        assert!(load_yaml::<Value>("a: {b: [1, {c: [2, 3]}]}").is_ok());
+    }
 
     fn tmp_project(files: &[(&str, &str)]) -> PathBuf {
         let dir = std::env::temp_dir().join(format!("magnum-test-{}", uuid::Uuid::new_v4()));
