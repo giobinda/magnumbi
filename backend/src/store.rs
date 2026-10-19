@@ -1142,6 +1142,76 @@ impl Store {
         Ok(c.execute("DELETE FROM org_models WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ delivery
+
+    /// The tenant's mail server and its sealed password.
+    pub async fn mail_server(&self, org: &str) -> Result<Option<(crate::delivery::MailServer, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let row = c.query_opt("SELECT config, password_sealed FROM mail_servers WHERE org = $1", &[&org]).await?;
+        row.map(|r| Ok((serde_json::from_str(&r.get::<_, String>(0))?, r.get(1)))).transpose()
+    }
+
+    pub async fn put_mail_server(
+        &self,
+        org: &str,
+        server: &crate::delivery::MailServer,
+        password_sealed: Option<&str>,
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO mail_servers (org, config, password_sealed, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org) DO UPDATE SET config = EXCLUDED.config, password_sealed = EXCLUDED.password_sealed,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &serde_json::to_string(server)?, &password_sealed, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_mail_server(&self, org: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM mail_servers WHERE org = $1", &[&org]).await? > 0)
+    }
+
+    /// The tenant's webhooks: (name, kind, host), without their addresses.
+    pub async fn webhooks(&self, org: &str) -> Result<Vec<(String, String, String)>> {
+        let c = self.pool.get().await?;
+        let rows = c.query("SELECT name, kind, host FROM webhooks WHERE org = $1 ORDER BY name", &[&org]).await?;
+        Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get(2))).collect())
+    }
+
+    /// A webhook's kind and sealed address.
+    pub async fn webhook(&self, org: &str, name: &str) -> Result<Option<(String, String)>> {
+        let c = self.pool.get().await?;
+        let row =
+            c.query_opt("SELECT kind, url_sealed FROM webhooks WHERE org = $1 AND name = $2", &[&org, &name]).await?;
+        Ok(row.map(|r| (r.get(0), r.get(1))))
+    }
+
+    pub async fn put_webhook(
+        &self,
+        org: &str,
+        name: &str,
+        (kind, host, url_sealed): (&str, &str, &str),
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO webhooks (org, name, kind, host, url_sealed, updated_by) VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (org, name) DO UPDATE SET kind = EXCLUDED.kind, host = EXCLUDED.host,
+               url_sealed = EXCLUDED.url_sealed, updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &name, &kind, &host, &url_sealed, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_webhook(&self, org: &str, name: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM webhooks WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
+    }
+
     // ------------------------------------------------------------------ settings
 
     pub async fn setting(&self, key: &str) -> Result<Option<Value>> {

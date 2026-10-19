@@ -219,6 +219,14 @@ export interface PublicDashboard {
 }
 export type PublicResult = QueryResult & { as_of: string; expires_at?: string; from_cache: boolean }
 
+/** A tenant's mail server (GET /api/delivery); its password is never sent back. */
+export type MailSecurity = 'starttls' | 'tls' | 'none'
+export interface MailServerInfo { host: string; port: number; security: MailSecurity; username?: string | null; from: string; has_password: boolean }
+export type WebhookKind = 'slack' | 'teams' | 'webhook'
+/** A webhook: its address is a secret, only its host is shown. */
+export interface WebhookInfo { name: string; kind: WebhookKind; host: string }
+export interface DeliverySettings { mail: MailServerInfo | null; webhooks: WebhookInfo[]; secret_key: boolean }
+
 /** One step of "Get started" (GET /api/setup): worked out from what is set up. */
 export interface SetupStep {
   id: string; title: string; detail: string; done: boolean; optional: boolean
@@ -427,6 +435,14 @@ export const api = {
     publicCall<PublicDashboard>(`/api/public/${encodeURIComponent(org)}/${encodeURIComponent(token)}`),
   publicTile: (org: string, token: string, tile: string, signal?: AbortSignal) =>
     publicCall<PublicResult>(`/api/public/${encodeURIComponent(org)}/${encodeURIComponent(token)}/tiles/${encodeURIComponent(tile)}`, signal),
+  delivery: () => call<DeliverySettings>('/api/delivery'),
+  saveMail: (body: Record<string, unknown>) => call<{ ok: boolean }>('/api/delivery/mail', json('PUT', body)),
+  deleteMail: () => call<{ ok: boolean }>('/api/delivery/mail', { method: 'DELETE' }),
+  testMail: () => call<{ sent_to: string }>('/api/delivery/mail/test', { method: 'POST' }),
+  saveWebhook: (name: string, kind: WebhookKind, url?: string) =>
+    call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}`, json('PUT', url ? { kind, url } : { kind })),
+  deleteWebhook: (name: string) => call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}`, { method: 'DELETE' }),
+  testWebhook: (name: string) => call<{ ok: boolean }>(`/api/delivery/webhooks/${encodeURIComponent(name)}/test`, { method: 'POST' }),
   deleteDashboard: (id: string) => call<{ ok: boolean }>(`/api/dashboards/${encodeURIComponent(id)}`, { method: 'DELETE' }),
 }
 

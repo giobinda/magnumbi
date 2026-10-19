@@ -12,6 +12,7 @@ mod connections;
 mod connectors;
 mod crypto;
 mod db;
+mod delivery;
 mod demo;
 mod error;
 mod export;

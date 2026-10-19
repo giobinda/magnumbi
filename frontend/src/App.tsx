@@ -15,6 +15,7 @@ import Home from './pages/Home'
 import UsagePage from './pages/UsagePage'
 import BlendsPage from './pages/BlendsPage'
 import ConnectionsPage from './pages/ConnectionsPage'
+import DeliveryPage from './pages/DeliveryPage'
 import ThemesPage from './pages/ThemesPage'
 import ModelsPage from './pages/ModelsPage'
 
@@ -49,6 +50,7 @@ function SignedIn() {
                 <Guarded perm="manage_members"><NavLink to="/connections">Connections</NavLink></Guarded>
                 <OrgOnly><Guarded perm="manage_members"><NavLink to="/models">Models</NavLink></Guarded></OrgOnly>
                 <Guarded perm="manage_members"><NavLink to="/themes">Themes</NavLink></Guarded>
+                <Guarded perm="manage_members"><NavLink to="/delivery">Delivery</NavLink></Guarded>
                 <Guarded perm="manage_members"><NavLink to="/usage">Usage</NavLink></Guarded>
                 <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
                 <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
@@ -58,6 +60,7 @@ function SignedIn() {
                 <Route path="/explore" element={<Guarded perm="explore" page><ExplorePage /></Guarded>} />
                 <Route path="/blends" element={<Guarded perm="explore" page><BlendsPage /></Guarded>} />
                 <Route path="/themes" element={<Guarded perm="manage_members" page><ThemesPage /></Guarded>} />
+                <Route path="/delivery" element={<Guarded perm="manage_members" page><DeliveryPage /></Guarded>} />
                 <Route path="/connections" element={<Guarded perm="manage_members" page><ConnectionsPage /></Guarded>} />
                 <Route path="/models" element={<Guarded perm="manage_members" page><ModelsPage /></Guarded>} />
                 <Route path="/usage" element={<Guarded perm="manage_members" page><UsagePage /></Guarded>} />

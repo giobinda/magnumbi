@@ -29,6 +29,7 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
             organisations: orgs.len(),
             with_database: orgs.keys().filter(|o| databases.contains_key(*o)).count(),
             with_admin,
+            delivery: has_delivery(&state.store, "").await?,
         };
         return Ok(Json(json!({"for": "platform", "steps": platform_steps(&facts)})));
     }
@@ -51,8 +52,14 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
         members: members.users.len() + usize::from(domains),
         themed: !themes.themes.is_empty() || themes.default_light.is_some() || themes.default_dark.is_some(),
         sign_in: members.sign_in.is_some(),
+        delivery: has_delivery(&store, &org).await?,
     };
     Ok(Json(json!({"for": "organisation", "steps": org_steps(&facts)})))
+}
+
+/// The tenant has a mail server or a webhook of its own.
+async fn has_delivery(store: &crate::store::Store, org: &str) -> ApiResult<bool> {
+    Ok(store.mail_server(org).await?.is_some() || !store.webhooks(org).await?.is_empty())
 }
 
 #[cfg(test)]
