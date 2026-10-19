@@ -8,6 +8,7 @@ import { Brand, GuestAuth } from '../auth'
 import FilterBar from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
 import TileView from '../components/TileView'
+import DownloadButton from '../components/DownloadButton'
 import TextTile from '../components/TextTile'
 import Tabs from '../components/Tabs'
 import { onTab, pickTab } from '../tabs'
@@ -100,6 +101,7 @@ function GuestDashboardView({ data }: { data: GuestDashboard }) {
         {dash.description && <p className="muted">{dash.description}</p>}
         <p className="muted small">Shared by {data.shared_by} until {new Date(data.expires_at).toLocaleString()}
           {limits && <> · you see only {limits}</>}</p>
+        {data.permissions.includes('download') && <DownloadButton dashboard={data.id} request={tileRequest} />}
       </div>
       {period && (
         <div className="period-bar">

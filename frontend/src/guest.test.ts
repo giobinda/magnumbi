@@ -22,6 +22,10 @@ describe('guest links', () => {
     expect(guestPath(null, 'd', { key: 'sales.region' })).toBe('/api/dashboards/d/filters/values?key=sales.region')
     expect(guestPath(base, 'd', { model: 'sales' })).toBe('/api/guest/acme/tok/period?model=sales')
     expect(guestPath(null, 'd', { model: 'sales' })).toBe('/api/period?model=sales')
+    expect(guestPath(base, 'd', { export: 't' })).toBe('/api/guest/acme/tok/tiles/t/export')
+    expect(guestPath(null, 'd', { export: 't' })).toBe('/api/dashboards/d/tiles/t/export')
+    expect(guestPath(base, 'd', { export: null })).toBe('/api/guest/acme/tok/export')
+    expect(guestPath(null, 'd', { export: null })).toBe('/api/dashboards/d/export')
   })
 
   it('limit the models behind a dashboard, a blend\'s parts rather than the blend', () => {

@@ -1856,6 +1856,7 @@ dependencies = [
  "webauthn-authenticator-rs",
  "webauthn-rs",
  "webpki-roots",
+ "zip",
 ]
 
 [[package]]
