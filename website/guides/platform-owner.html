@@ -61,6 +61,7 @@
         <li><a href="#sign-in">Sign-in rules</a></li>
         <li><a href="#templates">Templates and the demo</a></li>
         <li><a href="#usage">Usage, sharing and keeping watch</a></li>
+        <li><a href="#delivery">Email and webhooks</a></li>
       </ol>
     </details>
   </aside>
@@ -129,6 +130,15 @@
         <li><strong>Usage</strong> shows the whole platform (or one organisation): who looks at what, queries, how long they take, failures, and admin actions.</li>
         <li>Org admins can share dashboards publicly (from a cache) and Power users with guests (link + password, at most 14 days). <code>MAGNUM_PUBLIC_LINKS=0</code> turns public links off for the server.</li>
         <li>System owners can open any organisation and work inside it, with every permission.</li>
+      </ul>
+    </section>
+
+    <section id="delivery">
+      <h2>Email and webhooks</h2>
+<ul>
+        <li><strong>Delivery</strong>, in the platform workspace, sets the platform workspace's own mail server and webhooks, for reports on its dashboards.</li>
+        <li><strong>They aren't shared.</strong> Each organisation sets up its own on its <strong>Delivery</strong> page, kept in its own database; an organisation without one can't send email, and nothing falls back to the platform's.</li>
+        <li>Mail servers and webhooks go through the same network guard as connections: private addresses only where the server allows them (<code>MAGNUM_ALLOW_PRIVATE_CONNECTIONS</code>, <code>MAGNUM_CONNECTION_ALLOWED_HOSTS</code>).</li>
       </ul>
     </section>
   </main>

@@ -39,6 +39,8 @@ pub struct PlatformFacts {
     pub with_database: usize,
     /// organisations with at least one Org admin
     pub with_admin: usize,
+    /// the platform workspace's own mail server or webhooks
+    pub delivery: bool,
 }
 
 pub fn platform_steps(f: &PlatformFacts) -> Vec<Step> {
@@ -95,6 +97,17 @@ pub fn platform_steps(f: &PlatformFacts) -> Vec<Step> {
             "/organisations",
             "guides/platform-owner.html#org-admins",
         ),
+        Step {
+            optional: true,
+            ..step(
+                "delivery",
+                "Email and webhooks for the platform workspace",
+                f.delivery,
+                "The platform workspace's own mail server or Slack/Teams webhooks. Organisations set up theirs.".into(),
+                "/delivery",
+                "guides/platform-owner.html#delivery",
+            )
+        },
     ]
 }
 
@@ -109,6 +122,8 @@ pub struct OrgFacts {
     pub themed: bool,
     /// its own sign-in rules or single sign-on
     pub sign_in: bool,
+    /// its own mail server or webhooks
+    pub delivery: bool,
 }
 
 pub fn org_steps(f: &OrgFacts) -> Vec<Step> {
@@ -163,6 +178,14 @@ pub fn org_steps(f: &OrgFacts) -> Vec<Step> {
             "/members",
             "guides/org-admin.html#sign-in",
         )),
+        optional(step(
+            "delivery",
+            "Email and webhooks",
+            f.delivery,
+            "Your own mail server, or Slack and Teams webhooks, for reports and alerts.".into(),
+            "/delivery",
+            "guides/org-admin.html#delivery",
+        )),
     ]
 }
 
@@ -176,8 +199,14 @@ mod tests {
 
     #[test]
     fn the_platforms_steps_follow_what_is_set_up() {
-        let fresh =
-            PlatformFacts { secret_key: false, https: false, organisations: 0, with_database: 0, with_admin: 0 };
+        let fresh = PlatformFacts {
+            secret_key: false,
+            https: false,
+            organisations: 0,
+            with_database: 0,
+            with_admin: 0,
+            delivery: false,
+        };
         assert_eq!(
             ids(&platform_steps(&fresh)),
             [
@@ -185,17 +214,33 @@ mod tests {
                 ("https", false),
                 ("organisation", false),
                 ("org_database", false),
-                ("org_admin", false)
+                ("org_admin", false),
+                ("delivery", false)
             ]
         );
-        let ready = PlatformFacts { secret_key: true, https: true, organisations: 2, with_database: 1, with_admin: 2 };
+        let ready = PlatformFacts {
+            secret_key: true,
+            https: true,
+            organisations: 2,
+            with_database: 1,
+            with_admin: 2,
+            delivery: true,
+        };
         assert!(platform_steps(&ready).iter().all(|s| s.done));
         assert!(platform_steps(&fresh).iter().all(|s| s.link.starts_with('/') && s.guide.contains('#')));
     }
 
     #[test]
     fn an_organisations_steps_follow_what_it_has() {
-        let fresh = OrgFacts { connections: 0, models: 0, dashboards: 0, members: 1, themed: false, sign_in: false };
+        let fresh = OrgFacts {
+            connections: 0,
+            models: 0,
+            dashboards: 0,
+            members: 1,
+            themed: false,
+            sign_in: false,
+            delivery: false,
+        };
         let steps = org_steps(&fresh);
         assert_eq!(
             ids(&steps),
@@ -205,11 +250,23 @@ mod tests {
                 ("dashboard", false),
                 ("members", false),
                 ("theme", false),
-                ("sign_in", false)
+                ("sign_in", false),
+                ("delivery", false)
             ]
         );
-        assert_eq!(steps.iter().filter(|s| s.optional).map(|s| s.id).collect::<Vec<_>>(), ["theme", "sign_in"]);
-        let busy = OrgFacts { connections: 1, models: 3, dashboards: 2, members: 4, themed: true, sign_in: true };
+        assert_eq!(
+            steps.iter().filter(|s| s.optional).map(|s| s.id).collect::<Vec<_>>(),
+            ["theme", "sign_in", "delivery"]
+        );
+        let busy = OrgFacts {
+            connections: 1,
+            models: 3,
+            dashboards: 2,
+            members: 4,
+            themed: true,
+            sign_in: true,
+            delivery: true,
+        };
         assert!(org_steps(&busy).iter().all(|s| s.done));
     }
 }

@@ -352,6 +352,8 @@ pub(crate) mod tests {
             "dashboards",
             "dashboard_versions",
             "connections",
+            "mail_servers",
+            "webhooks",
         ] {
             c.execute(&format!("DELETE FROM {table} WHERE org = $1"), &[&org]).await.unwrap();
         }

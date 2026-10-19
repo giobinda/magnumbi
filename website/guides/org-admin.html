@@ -61,6 +61,7 @@
         <li><a href="#themes">Your colours</a></li>
         <li><a href="#sign-in">Sign-in and single sign-on</a></li>
         <li><a href="#sharing">Share dashboards</a></li>
+        <li><a href="#delivery">Email and webhooks</a></li>
       </ol>
     </details>
   </aside>
@@ -141,6 +142,15 @@
         <li><strong>Share with guests</strong> (Power users and up): a link and a password, for up to 14 days, with a role and limits you choose.</li>
         <li><strong>Share publicly</strong> (Org admins): anyone with the link, from a cache that keeps your database from being overloaded.</li>
         <li><strong>AI assistants and scripts:</strong> <strong>Security › API tokens</strong>, then connect an assistant over MCP; it works with your permissions or fewer.</li>
+      </ul>
+    </section>
+
+    <section id="delivery">
+      <h2>Email and webhooks</h2>
+<ul>
+        <li><strong>Delivery › Mail server:</strong> your organisation's own mail server (host, port, STARTTLS or TLS, a user and password if it needs one, the sender). <em>Send me a test</em> sends a message to you. It's yours alone: other organisations and the platform use their own.</li>
+        <li><strong>Delivery › Webhooks:</strong> Slack or Microsoft Teams incoming webhooks, or any address that takes JSON. Give each a name; <em>Test</em> posts a message.</li>
+        <li>Passwords and webhook addresses are stored encrypted and never shown again. The addresses must be reachable from the server, over https for webhooks.</li>
       </ul>
     </section>
   </main>

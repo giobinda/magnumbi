@@ -83,6 +83,7 @@
         <li><a href="#embedding">Embedding</a></li>
         <li><a href="#public-links">Public links</a></li>
         <li><a href="#guest-links">Guest links</a></li>
+        <li><a href="#delivery">Email &amp; webhooks</a></li>
         <li><a href="#themes">Themes &amp; brand colours</a></li>
         <li><a href="#agents">AI agents &amp; MCP</a></li>
       </ol>
@@ -397,6 +398,16 @@ cache: 1h</code></pre>
         <li><strong>They see only what you allow:</strong> your own restrictions, plus the link's limits on any field of the dashboard's models (for example, <em>Pickup borough is Manhattan or Brooklyn</em>). Limits only narrow, on every tile, pick list and drill-down.</li>
         <li><strong>Every link expires</strong>, after 1 hour to 14 days, never longer. Removing it ends it at once, even for guests who already opened it.</li>
         <li><strong>The password</strong> is yours (at least 10 characters) or one Magnum BI makes up, shown only once: send it separately from the link. It opens the link in that browser for up to 12 hours; wrong passwords lock the link for 15 minutes after 5 tries.</li>
+      </ul>
+    </section>
+
+    <section id="delivery">
+      <h2>Email &amp; webhooks</h2>
+      <p>Each organisation, and the platform workspace, has its own <strong>Delivery</strong> page for the reports and alerts it sends: its mail server, and Slack, Microsoft Teams or other webhooks. They're kept in its own database, with secrets encrypted for it, and nothing is shared: an organisation without a mail server can't send email, even if the platform has one.</p>
+      <ul>
+        <li><strong>Mail server:</strong> host, port, STARTTLS or TLS (or none, for an internal relay without a password), an optional user name and password, and the sender. <em>Send me a test</em> emails you, and only you.</li>
+        <li><strong>Webhooks:</strong> a name, a kind (Slack, Teams, or any address taking JSON <code>{title, text, link}</code>) and the address, which is a secret: only its host is shown again. <em>Test</em> posts a message.</li>
+        <li>Like connections, they go through the network guard: private addresses only where the server allows them, https for webhooks, no redirects.</li>
       </ul>
     </section>
 

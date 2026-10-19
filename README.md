@@ -673,6 +673,29 @@ buttons and endpoints: what's on screen can always be copied by hand. There is n
 API: `POST /api/dashboards/{id}/tiles/{tile}/export` (CSV) and `POST /api/dashboards/{id}/export`
 (zip), with the same body as a tile query (`{"filters": {…}, "period": {…}, "drill": […]}`).
 
+## Email and webhooks
+
+Every tenant, meaning each organisation and the platform workspace, has its own **Delivery**
+settings, for the reports and alerts it sends: a mail server, and Slack, Microsoft Teams or other
+webhooks. They're kept in the tenant's own database with their secrets sealed for it, and nothing
+is shared or inherited: an organisation without a mail server can't send email, even when the
+platform workspace has one. Org admins manage them (system owners, in the platform workspace).
+
+- **Mail server:** host, port, security (STARTTLS, TLS, or none for an internal relay, which never
+  gets a password), an optional user name and password, and the sender. **Send me a test** sends a
+  message to the person asking, and no one else.
+- **Webhooks:** a name, a kind (`slack`, `teams`, or `webhook`: JSON `{title, text, link}`), and
+  the address. The address is the secret (whoever has it can post): it's stored sealed, and only
+  its host is shown. **Test** posts a message.
+- Both go through the network guard, like connections: their addresses are resolved and checked,
+  the server connects to the checked address (no second DNS answer), webhooks don't follow
+  redirects and need https outside development, and errors never show a webhook's address.
+
+API: `GET /api/delivery`, `PUT`/`DELETE /api/delivery/mail` (`{"host", "port", "security",
+"username", "password", "from"}`; no `password` keeps the stored one), `POST
+/api/delivery/mail/test`, `PUT`/`DELETE /api/delivery/webhooks/{name}` (`{"kind", "url"}`), `POST
+/api/delivery/webhooks/{name}/test`.
+
 ## Configuration
 
 | variable | default | |

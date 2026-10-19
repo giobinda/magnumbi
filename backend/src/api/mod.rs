@@ -5,6 +5,7 @@ mod auth;
 mod blends;
 mod connections;
 mod dashboards;
+mod delivery;
 mod exports;
 mod guest;
 mod mcp;
@@ -95,6 +96,14 @@ pub fn router(state: Shared) -> Router {
         .route("/api/dashboards/{id}/tiles/{tile}/query", post(dashboards::run_tile))
         .route("/api/dashboards/{id}/tiles/{tile}/export", post(exports::tile))
         .route("/api/dashboards/{id}/export", post(exports::dashboard))
+        .route("/api/delivery", get(delivery::get))
+        .route("/api/delivery/mail", axum::routing::put(delivery::put_mail).delete(delivery::delete_mail))
+        .route("/api/delivery/mail/test", post(delivery::test_mail))
+        .route(
+            "/api/delivery/webhooks/{name}",
+            axum::routing::put(delivery::put_webhook).delete(delivery::delete_webhook),
+        )
+        .route("/api/delivery/webhooks/{name}/test", post(delivery::test_webhook))
         .route("/api/dashboards/{id}/filters/values", get(dashboards::filter_values))
         .route("/api/dashboards/{id}/share-links", get(share::list).post(share::create))
         .route("/api/share-links/{id}", axum::routing::delete(share::revoke))

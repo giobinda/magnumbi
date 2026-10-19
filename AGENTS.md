@@ -27,6 +27,9 @@ organisation owns.
     sandbox, CSRF/origin checks, session and token checks, write-only secrets;
   - organisations' own models (`org_models.rs`): no SQL, columns and aggregations only, Org
     admins only;
+  - each tenant's delivery settings (`api/delivery.rs`): the platform workspace and every
+    organisation have their own mail server and webhooks, never shared or inherited; their
+    addresses go through `netguard`, and passwords and webhook addresses are write-only;
   - the two ways in without an account, both through `auth::link_caller`: public links
     (`api/share.rs`: cache-first, fail closed, the maker's row filters, no filtering or
     drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or
@@ -40,7 +43,7 @@ organisation owns.
 
 ```
 backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs, share.rs, guest.rs),
-                   org_models.rs (organisations' own models),
+                   org_models.rs (organisations' own models), delivery.rs (mail and webhooks), export.rs,
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs
 backend/migrations/primary/  the control-plane ScramDB   } embedded, applied at start; add a
