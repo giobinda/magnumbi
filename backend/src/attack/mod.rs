@@ -9,9 +9,11 @@
 //! - `routes`: every route of the router is in the access matrix; who may call each one, and that
 //!   nobody else gets through (other roles, other organisations, forged headers, read tokens).
 //! - `secrets`: no planted secret comes back in any response or log line.
+//! - `hostile`: injection, traversal, bombs and absurd values in every field are refused cleanly.
 //! - `row_filters`: a restricted organisation's answers equal an unrestricted person's answers
 //!   with the restriction written into the query, for random queries, on every path to data.
 
+mod hostile;
 mod routes;
 mod row_filters;
 mod secrets;
