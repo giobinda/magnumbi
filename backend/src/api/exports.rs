@@ -42,6 +42,12 @@ pub async fn tile_csv(
 /// A dashboard's charts as a zip of CSVs, with the person's filters and period (no drilling).
 /// A tile that fails is listed in errors.txt rather than failing the rest.
 pub async fn dashboard_zip(state: &AppState, caller: &Caller, id: &str, req: &TileRequest) -> ApiResult<Response> {
+    let (name, bytes) = zip_of(state, caller, id, req).await?;
+    Ok(attachment("application/zip", &name, bytes))
+}
+
+/// The dashboard's zip: (file name, bytes). Downloads and scheduled reports.
+pub async fn zip_of(state: &AppState, caller: &Caller, id: &str, req: &TileRequest) -> ApiResult<(String, Vec<u8>)> {
     caller.require("download")?;
     let (d, _) = load(state, caller, id).await?;
     let req = TileRequest { drill: vec![], ..req.clone() };
@@ -67,7 +73,7 @@ pub async fn dashboard_zip(state: &AppState, caller: &Caller, id: &str, req: &Ti
         files.push(("errors.txt".into(), errors.join("\n") + "\n"));
     }
     let bytes = zip(&files).map_err(|e| ApiError::Internal(e.into()))?;
-    Ok(attachment("application/zip", &format!("{}.zip", file_name(id, "dashboard")), bytes))
+    Ok((format!("{}.zip", file_name(id, "dashboard")), bytes))
 }
 
 pub async fn tile(

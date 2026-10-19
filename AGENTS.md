@@ -30,6 +30,10 @@ organisation owns.
   - each tenant's delivery settings (`api/delivery.rs`): the platform workspace and every
     organisation have their own mail server and webhooks, never shared or inherited; their
     addresses go through `netguard`, and passwords and webhook addresses are write-only;
+  - scheduled reports (`api/schedules.rs`): they run as their maker through `auth::link_caller`
+    (the platform workspace's for its system owners only), only through their tenant's own
+    delivery settings, and only to its members and the domains its Org admins allow, checked on
+    every run;
   - the two ways in without an account, both through `auth::link_caller`: public links
     (`api/share.rs`: cache-first, fail closed, the maker's row filters, no filtering or
     drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or

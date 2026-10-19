@@ -11,6 +11,7 @@ import FilterBar from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
 import ShareDialog from '../components/ShareDialog'
 import GuestDialog from '../components/GuestDialog'
+import ScheduleDialog from '../components/ScheduleDialog'
 import { limitModels } from '../guest'
 import { useTheme, useThemeOverride } from '../theme'
 import { useAuth, useCan } from '../auth'
@@ -54,6 +55,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [showEmbed, setShowEmbed] = useState(false)
   const [showShare, setShowShare] = useState(false)
   const [showGuests, setShowGuests] = useState(false)
+  const [showSchedules, setShowSchedules] = useState(false)
   const { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
   const [saving, setSaving] = useState(false)
   const can = useCan()
@@ -192,6 +194,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             </> : <>
               {can('download') && <DownloadButton dashboard={id} request={tileRequest} />}
               {isTemplate && <button title="Copy this template into organisations" onClick={() => setShowPublish(true)}>Publish…</button>}
+              {can('share') && <button onClick={() => setShowSchedules(true)}>Schedule…</button>}
               {can('share') && <button onClick={() => setShowEmbed(true)}>Embed</button>}
               {can('edit') && auth?.org && <button onClick={() => setShowGuests(true)}>Share with guests</button>}
               {can('manage_members') && auth?.org && <button onClick={() => setShowShare(true)}>Share publicly</button>}
@@ -282,6 +285,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       {showGuests && auth?.org && <GuestDialog id={id} myRole={auth.role ?? 'viewer'} me={auth.user?.email ?? ''} isAdmin={can('manage_members')}
         models={limitModels([...dash.tiles.flatMap(t => (t.query ? [t.query.model] : [])), ...dash.filters.map(f => f.model)], models)}
         onClose={() => setShowGuests(false)} />}
+      {showSchedules && <ScheduleDialog id={id} me={auth?.user?.email ?? ''} myRole={auth?.role ?? 'viewer'} isAdmin={can('manage_members')}
+        inOrg={Boolean(auth?.org)} request={tileRequest} onClose={() => setShowSchedules(false)} />}
       {showShare && auth?.org && <ShareDialog id={id} org={auth.org.name} tiles={dash.tiles.length} onClose={() => setShowShare(false)} />}
       {showPublish && <PublishDialog id={id} orgs={auth?.orgs ?? []} onClose={() => setShowPublish(false)} />}
     </div>

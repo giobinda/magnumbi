@@ -120,7 +120,48 @@ impl ShareLink {
 const GUEST_LINK: &str = "SELECT token_hash, token_sealed, dashboard_id, password_hash, role, filters, \
     expires_at, created_by, created_at FROM guest_links";
 
+/// A scheduled report (api/schedules.rs).
+#[derive(Debug, Clone)]
+pub struct Schedule {
+    pub id: String,
+    pub dashboard_id: String,
+    pub created_by: String,
+    pub config: crate::schedule::ScheduleConfig,
+    /// a signed-link report's password (Argon2id): each run's guest link gets it
+    pub password_hash: Option<String>,
+    pub active: bool,
+    pub next_run_at: DateTime<Utc>,
+    pub last_run_at: Option<DateTime<Utc>>,
+    /// what the last run did, in words
+    pub last_status: Option<String>,
+    /// runs that failed in a row (5 pause it)
+    pub failures: i64,
+    pub created_at: DateTime<Utc>,
+}
+
+const SCHEDULE: &str = "id, dashboard_id, created_by, config, password_hash, active, next_run_at, last_run_at, last_status, \
+                        failures, created_at";
+
+impl Schedule {
+    fn from_row(r: &tokio_postgres::Row) -> Result<Schedule> {
+        Ok(Schedule {
+            id: r.get(0),
+            dashboard_id: r.get(1),
+            created_by: r.get(2),
+            config: serde_json::from_str(&r.get::<_, String>(3))?,
+            password_hash: r.get(4),
+            active: r.get(5),
+            next_run_at: r.get(6),
+            last_run_at: r.get(7),
+            last_status: r.get(8),
+            failures: r.get(9),
+            created_at: r.get(10),
+        })
+    }
+}
+
 /// A guest link (api/guest.rs): a dashboard for whoever has the link and its password.
+#[derive(Debug, Clone)]
 pub struct GuestLink {
     pub token_hash: String,
     /// the token, sealed for "<org>/guest": to show the link again
@@ -1210,6 +1251,87 @@ impl Store {
     pub async fn delete_webhook(&self, org: &str, name: &str) -> Result<bool> {
         let c = self.pool.get().await?;
         Ok(c.execute("DELETE FROM webhooks WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
+    }
+
+    // ------------------------------------------------------------------ schedules
+
+    /// The tenant's scheduled reports (of one dashboard, or all), oldest first.
+    pub async fn schedules(&self, org: &str, dashboard: Option<&str>) -> Result<Vec<Schedule>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                &format!("SELECT {SCHEDULE} FROM schedules WHERE org = $1 AND ($2::TEXT IS NULL OR dashboard_id = $2::TEXT) ORDER BY created_at"),
+                &[&org, &dashboard],
+            )
+            .await?;
+        rows.iter().map(Schedule::from_row).collect()
+    }
+
+    pub async fn schedule(&self, org: &str, id: &str) -> Result<Option<Schedule>> {
+        let c = self.pool.get().await?;
+        let row =
+            c.query_opt(&format!("SELECT {SCHEDULE} FROM schedules WHERE org = $1 AND id = $2"), &[&org, &id]).await?;
+        row.as_ref().map(Schedule::from_row).transpose()
+    }
+
+    /// Active schedules due at `now`.
+    pub async fn due_schedules(&self, org: &str, now: DateTime<Utc>) -> Result<Vec<Schedule>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                &format!(
+                    "SELECT {SCHEDULE} FROM schedules WHERE org = $1 AND active AND next_run_at <= $2::TIMESTAMPTZ"
+                ),
+                &[&org, &now],
+            )
+            .await?;
+        rows.iter().map(Schedule::from_row).collect()
+    }
+
+    pub async fn put_schedule(&self, org: &str, s: &Schedule) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO schedules (org, id, dashboard_id, created_by, config, password_hash, active, next_run_at, last_run_at,
+               last_status, failures, created_at)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMPTZ, $9::TIMESTAMPTZ, $10, $11::BIGINT, $12::TIMESTAMPTZ)
+             ON CONFLICT (org, id) DO UPDATE SET config = EXCLUDED.config, active = EXCLUDED.active,
+               next_run_at = EXCLUDED.next_run_at, last_run_at = EXCLUDED.last_run_at,
+               last_status = EXCLUDED.last_status, failures = EXCLUDED.failures",
+            &[
+                &org,
+                &s.id,
+                &s.dashboard_id,
+                &s.created_by,
+                &serde_json::to_string(&s.config)?,
+                &s.password_hash,
+                &s.active,
+                &s.next_run_at,
+                &s.last_run_at,
+                &s.last_status,
+                &s.failures,
+                &s.created_at,
+            ],
+        )
+        .await?;
+        Ok(())
+    }
+
+    /// Take a due run: only one server does it (the one whose update finds it still due then).
+    pub async fn claim_schedule(&self, org: &str, id: &str, due: DateTime<Utc>, next: DateTime<Utc>) -> Result<bool> {
+        let c = self.pool.get().await?;
+        let n = c
+            .execute(
+                "UPDATE schedules SET next_run_at = $4::TIMESTAMPTZ
+                 WHERE org = $1 AND id = $2 AND active AND next_run_at = $3::TIMESTAMPTZ",
+                &[&org, &id, &due, &next],
+            )
+            .await?;
+        Ok(n == 1)
+    }
+
+    pub async fn delete_schedule(&self, org: &str, id: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM schedules WHERE org = $1 AND id = $2", &[&org, &id]).await? > 0)
     }
 
     // ------------------------------------------------------------------ settings

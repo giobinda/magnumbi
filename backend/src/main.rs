@@ -25,6 +25,7 @@ mod orgdb;
 mod period;
 mod project;
 mod sample;
+mod schedule;
 mod schema;
 mod security;
 mod setup;
@@ -277,6 +278,15 @@ async fn serve(config: Config) -> Result<()> {
     let addr = format!("{}:{}", state.config.host, state.config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;
     tracing::info!("Magnum BI on http://{addr}");
+    // scheduled reports: what's due, every minute (each run is claimed, so replicas don't repeat it)
+    let reports = state.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(std::time::Duration::from_secs(60));
+        loop {
+            every.tick().await;
+            api::run_scheduled_reports(&reports).await;
+        }
+    });
     let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
     Ok(())

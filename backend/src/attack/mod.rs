@@ -90,6 +90,8 @@ pub struct World {
     pub write_token: (String, String),
     /// B's Org admin's write token
     pub token_b: String,
+    /// a signed-link report (its password is a planted secret)
+    pub schedule_id: String,
     /// every secret planted, to look for in what comes back
     pub canaries: Vec<String>,
     suffix: String,
@@ -151,6 +153,7 @@ impl World {
             read_token: Default::default(),
             write_token: Default::default(),
             token_b: String::new(),
+            schedule_id: String::new(),
             canaries: vec![oidc_secret],
             suffix,
         };
@@ -228,6 +231,14 @@ impl World {
             .await;
         ok(r, "webhook");
         self.canaries.extend([mail_password, hook]);
+
+        let report_password = canary("report-password");
+        let report = json!({"name": "Attack report", "format": "signed", "recipients": [OWNER], "password": report_password,
+                            "when": {"every": "daily", "at": "08:00", "timezone": "UTC"}});
+        let path = format!("/api/dashboards/{}/schedules", self.dashboard);
+        let r = ok(self.send(&owner(&a), "POST", &path, Some(report)).await, "scheduled report");
+        self.schedule_id = r["id"].as_str().unwrap().into();
+        self.canaries.push(report_password);
     }
 
     /// The cookie of someone in the world.

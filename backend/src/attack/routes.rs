@@ -58,6 +58,7 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("POST", "/api/guest/{org}/{token}/export", Open),
     ("GET", "/api/guest/{org}/{token}/filters/values", Open),
     ("POST", "/api/guest/{org}/{token}/period", Open),
+    ("POST", "/api/unsubscribe", Open),
     ("GET", "/api/models", VIEWER),
     ("POST", "/api/mcp", VIEWER),
     ("GET", "/api/org-themes", ADMIN),
@@ -98,6 +99,12 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("GET", "/api/dashboards/{id}/guest-links", POWER),
     ("POST", "/api/dashboards/{id}/guest-links", POWER),
     ("DELETE", "/api/guest-links/{id}", POWER),
+    ("GET", "/api/dashboards/{id}/schedules", USER),
+    ("POST", "/api/dashboards/{id}/schedules", USER),
+    ("GET", "/api/schedules", ADMIN),
+    ("DELETE", "/api/schedules/{id}", USER),
+    ("PUT", "/api/schedules/{id}/active", USER),
+    ("POST", "/api/schedules/{id}/run", USER),
     ("GET", "/api/members", ADMIN),
     ("PUT", "/api/members", ADMIN),
     ("GET", "/api/members/sign-in", ADMIN),
@@ -171,6 +178,8 @@ pub fn fill(w: &World, path: &str) -> String {
         w.guest_id.clone()
     } else if path.starts_with("/api/tokens/") {
         w.write_token.0.clone()
+    } else if path.starts_with("/api/schedules/") {
+        w.schedule_id.clone()
     } else if path.starts_with("/api/themes/") {
         "aloha".into()
     } else {
@@ -217,6 +226,9 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/delivery/webhooks/{name}" => json!({"kind": "slack", "url": "https://hooks.evil.example/x"}),
         "/api/dashboards/{id}/share-links" => json!({"cache_seconds": 300}),
         "/api/dashboards/{id}/guest-links" => json!({"expires_in_hours": 1, "password": "Evil-Password-1"}),
+        "/api/dashboards/{id}/schedules" => json!({"name": "evil", "format": "csv", "recipients": [OWNER],
+            "when": {"every": "daily", "at": "08:00", "timezone": "UTC"}}),
+        "/api/schedules/{id}/active" => json!({"active": false}),
         "/api/members" => json!({"users": {"evil@evil.example": "org_admin"}}),
         "/api/members/sign-in" => json!({"sign_in": null}),
         "/api/members/password" => json!({"email": w.user_a}),
@@ -272,6 +284,9 @@ pub async fn assert_intact(w: &World) {
     assert_eq!(d["webhooks"][0]["host"], json!("hooks.attack.example"), "the webhook changed: {d}");
     let c = w.send(&owner, "GET", "/api/connections", None).await.json();
     assert_eq!(c["connections"].as_array().map(|c| c.len()), Some(2), "connections changed: {c}");
+    let s = w.send(&owner, "GET", "/api/schedules", None).await.json();
+    let report = s["schedules"].as_array().and_then(|s| s.iter().find(|x| x["id"] == json!(w.schedule_id)).cloned());
+    assert!(report.as_ref().is_some_and(|r| r["active"] == json!(true)), "the scheduled report changed: {s}");
     let p = w.send(&owner, "GET", "/api/platform", None).await.json();
     assert!(!p.to_string().contains("evil"), "the platform settings changed: {p}");
     let m = w.send(&owner, "GET", "/api/members", None).await.json();
@@ -314,6 +329,15 @@ async fn nobody_gets_past_their_role() {
             if !refused(r.status) {
                 leaks.push(format!("{method} {path}: a viewer asking to view as {min:?} got {} {}", r.status, r.body));
             }
+        }
+    }
+    // a colleague at the right role, but neither its maker nor an Org admin, can't touch a report
+    let power = As { who: Who::Person(w.power_a.clone()), org: w.a.clone(), view_as: None };
+    for (method, path) in [("DELETE", ""), ("PUT", "/active"), ("POST", "/run")] {
+        let p = format!("/api/schedules/{}{path}", w.schedule_id);
+        let r = w.send(&power, method, &p, Some(json!({"active": false}))).await;
+        if r.status != StatusCode::FORBIDDEN {
+            leaks.push(format!("{method} {p} by a colleague: {} {}", r.status, r.body));
         }
     }
     assert!(leaks.is_empty(), "requests that got past their role:\n{}", leaks.join("\n"));

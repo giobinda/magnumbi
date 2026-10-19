@@ -49,7 +49,7 @@ fn gone() -> ApiError {
     ApiError::not_found("this link doesn't work: it was removed, or never existed")
 }
 
-fn sealed_for(org: &str) -> String {
+pub(super) fn sealed_for(org: &str) -> String {
     format!("{org}/share")
 }
 
@@ -354,6 +354,7 @@ pub(crate) mod tests {
             "connections",
             "mail_servers",
             "webhooks",
+            "schedules",
         ] {
             c.execute(&format!("DELETE FROM {table} WHERE org = $1"), &[&org]).await.unwrap();
         }

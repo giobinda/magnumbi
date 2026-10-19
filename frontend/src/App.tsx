@@ -16,6 +16,7 @@ import UsagePage from './pages/UsagePage'
 import BlendsPage from './pages/BlendsPage'
 import ConnectionsPage from './pages/ConnectionsPage'
 import DeliveryPage from './pages/DeliveryPage'
+import UnsubscribePage from './pages/UnsubscribePage'
 import ThemesPage from './pages/ThemesPage'
 import ModelsPage from './pages/ModelsPage'
 
@@ -28,6 +29,7 @@ export default function App() {
         {/* public links: no sign-in */}
         <Route path="/s/:org/:token" element={<PublicPage />} />
         <Route path="/g/:org/:token" element={<GuestPage />} />
+        <Route path="/unsubscribe" element={<UnsubscribePage />} />
         <Route path="*" element={<SignedIn />} />
       </Routes>
     </BrowserRouter>

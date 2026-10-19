@@ -40,7 +40,7 @@ fn gone() -> ApiError {
     ApiError::not_found("this link doesn't work: it expired, was removed, or never existed")
 }
 
-fn sealed_for(org: &str) -> String {
+pub(super) fn sealed_for(org: &str) -> String {
     format!("{org}/guest")
 }
 
@@ -58,7 +58,7 @@ pub struct NewLink {
 }
 
 /// Power users and up, in an organisation (the platform workspace's dashboards are templates).
-fn require_maker(caller: &Caller) -> ApiResult<()> {
+pub(super) fn require_maker(caller: &Caller) -> ApiResult<()> {
     caller.require("edit")?;
     if caller.org().is_empty() {
         return Err(ApiError::bad_request(
@@ -69,7 +69,7 @@ fn require_maker(caller: &Caller) -> ApiResult<()> {
 }
 
 /// The roles a guest can be given: Viewer to Power user, and never above the maker.
-fn guest_role(caller: &Caller, asked: Option<&str>) -> ApiResult<Role> {
+pub(super) fn guest_role(caller: &Caller, asked: Option<&str>) -> ApiResult<Role> {
     let role = match asked {
         None => Role::Viewer,
         Some(r) => Role::parse(r).ok_or_else(|| ApiError::bad_request(format!("unknown role {r:?}")))?,

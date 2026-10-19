@@ -7,10 +7,12 @@ describe('delivery settings', () => {
   })
 
   it('keep the stored password unless a new one is typed', () => {
-    const form = { host: ' smtp.example.com ', port: '587', security: 'starttls' as const, username: 'bi', from: 'bi@example.com' }
-    expect(mailBody(form, '')).toEqual({ host: 'smtp.example.com', port: 587, security: 'starttls', username: 'bi', from: 'bi@example.com' })
-    expect(mailBody(form, 'new-pw')).toEqual({ host: 'smtp.example.com', port: 587, security: 'starttls', username: 'bi', from: 'bi@example.com', password: 'new-pw' })
+    const form = { host: ' smtp.example.com ', port: '587', security: 'starttls' as const, username: 'bi', from: 'bi@example.com', domains: '' }
+    expect(mailBody(form, '')).toEqual({ host: 'smtp.example.com', port: 587, security: 'starttls', username: 'bi', from: 'bi@example.com', allowed_domains: [] })
+    expect(mailBody(form, 'new-pw')).toEqual({ host: 'smtp.example.com', port: 587, security: 'starttls', username: 'bi', from: 'bi@example.com', allowed_domains: [], password: 'new-pw' })
     // no user name: no password either
-    expect(mailBody({ ...form, username: ' ', security: 'none' }, 'x')).toEqual({ host: 'smtp.example.com', port: 587, security: 'none', username: null, from: 'bi@example.com', password: '' })
+    expect(mailBody({ ...form, username: ' ', security: 'none' }, 'x')).toEqual({ host: 'smtp.example.com', port: 587, security: 'none', username: null, from: 'bi@example.com', allowed_domains: [], password: '' })
+    // the domains reports may also go to, however they're typed
+    expect(mailBody({ ...form, domains: '@Partner.example, other.example\n' }, '').allowed_domains).toEqual(['partner.example', 'other.example'])
   })
 })

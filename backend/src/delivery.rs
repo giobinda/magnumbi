@@ -46,6 +46,9 @@ pub struct MailServer {
     pub username: Option<String>,
     /// the sender, e.g. "Reports <reports@example.com>"
     pub from: String,
+    /// besides the tenant's members, email domains reports may be sent to (exactly these)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub allowed_domains: Vec<String>,
 }
 
 impl MailServer {
@@ -55,6 +58,9 @@ impl MailServer {
         }
         if self.host.parse::<std::net::IpAddr>().is_err() && !HOST.is_match(&self.host) {
             return Err(format!("{:?} isn't a host name", self.host));
+        }
+        if let Some(d) = self.allowed_domains.iter().find(|d| !HOST.is_match(d)) {
+            return Err(format!("{d:?} isn't an email domain"));
         }
         Mailbox::from_str(&self.from).map_err(|_| format!("{:?} isn't an email address", self.from))?;
         let user = self.username.as_deref().is_some_and(|u| !u.trim().is_empty());
@@ -195,6 +201,7 @@ mod tests {
             security,
             username: username.map(Into::into),
             from: "Reports <reports@example.com>".into(),
+            allowed_domains: vec![],
         }
     }
 
@@ -217,6 +224,9 @@ mod tests {
         ] {
             assert!(MailServer { host: host.into(), ..server(Security::Tls, None) }.check(false).is_err(), "{host:?}");
         }
+        let partners = |d: &str| MailServer { allowed_domains: vec![d.into()], ..server(Security::Tls, None) };
+        assert_eq!(partners("partner.example").check(false), Ok(()));
+        assert!(partners("*.example").check(false).is_err() && partners("a b").check(false).is_err());
         for host in ["smtp.example.com", "127.0.0.1", "::1", "mail-1.eu.example.com"] {
             assert_eq!(
                 MailServer { host: host.into(), ..server(Security::Tls, None) }.check(false),

@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
-import type { DeliverySettings, MailSecurity, MailServerInfo, WebhookKind } from '../api'
+import type { DeliverySettings, MailSecurity, MailServerInfo, Schedule, WebhookKind } from '../api'
+import { describeWhen } from '../schedule'
 import { useAuth } from '../auth'
 import { defaultPort, mailBody } from '../delivery'
 import type { MailForm } from '../delivery'
@@ -47,7 +48,40 @@ export default function DeliveryPage() {
       {data?.webhooks.length === 0 && <p className="muted small">No webhooks yet.</p>}
       {!newHook ? <div className="row"><button onClick={() => setNewHook(true)}>+ Add a webhook</button></div>
         : <WebhookEditor onDone={() => { setNewHook(false); load() }} onCancel={() => setNewHook(false)} />}
+
+      <h2 className="section">Scheduled reports</h2>
+      <AllReports />
     </div>
+  )
+}
+
+/** Everything that leaves on a schedule from here: who made it, where it goes; pause or remove it. */
+function AllReports() {
+  const [list, setList] = useState<Schedule[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const load = () => api.allSchedules().then(r => setList(r.schedules), e => setError(e.message))
+  useEffect(() => { load() }, [])
+  const act = async (f: () => Promise<unknown>) => { try { await f(); await load() } catch (e) { setError((e as Error).message) } }
+  if (error) return <div className="error">{error}</div>
+  if (!list) return null
+  if (!list.length) return <p className="muted small">No scheduled reports yet: anyone from the User role up can schedule a dashboard (Schedule… on it).</p>
+  return (
+    <div className="table-scroll"><table className="data small reports">
+      <thead><tr><th>Report</th><th>Dashboard</th><th>When</th><th>To</th><th>Last run</th><th /></tr></thead>
+      <tbody>{list.map(s => (
+        <tr key={s.id} className={s.active ? '' : 'muted'}>
+          <td><b>{s.name}</b><div className="muted">by {s.created_by}</div></td>
+          <td><a href={`/dashboards/${encodeURIComponent(s.dashboard)}`}>{s.dashboard}</a></td>
+          <td>{describeWhen(s.when)}</td>
+          <td>{[...s.recipients, ...s.webhooks.map(w => `#${w}`)].join(', ')}</td>
+          <td>{s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '–'}<div>{s.last_status}</div></td>
+          <td className="nowrap">
+            <button className="link" onClick={() => act(() => api.setScheduleActive(s.id, !s.active))}>{s.active ? 'Pause' : 'Resume'}</button>{' '}
+            <button className="link danger" onClick={() => confirm(`Delete "${s.name}"?`) && act(() => api.deleteSchedule(s.id))}>Delete</button>
+          </td>
+        </tr>
+      ))}</tbody>
+    </table></div>
   )
 }
 
@@ -67,6 +101,7 @@ function MailSummary({ mail, onEdit, onRemoved }: { mail: MailServerInfo; onEdit
     <div className="card org-card">
       <p><b>{mail.from}</b></p>
       <p className="small muted mono">{mail.host}:{mail.port} · {SECURITY[mail.security]}{mail.username ? ` · ${mail.username} (password ${mail.has_password ? 'set' : 'missing'})` : ''}</p>
+      <p className="small">Reports go to members{mail.allowed_domains?.length ? <> and to <b>{mail.allowed_domains.join(', ')}</b></> : ' only'}.</p>
       {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
       <div className="row">
         <button className="link danger" onClick={remove}>Remove</button>
@@ -79,8 +114,8 @@ function MailSummary({ mail, onEdit, onRemoved }: { mail: MailServerInfo; onEdit
 
 function MailEditor({ initial, onDone, onCancel }: { initial: MailServerInfo | null; onDone: () => void; onCancel: () => void }) {
   const [f, setF] = useState<MailForm>(initial
-    ? { host: initial.host, port: String(initial.port), security: initial.security, username: initial.username ?? '', from: initial.from }
-    : { host: '', port: '587', security: 'starttls', username: '', from: '' })
+    ? { host: initial.host, port: String(initial.port), security: initial.security, username: initial.username ?? '', from: initial.from, domains: (initial.allowed_domains ?? []).join(', ') }
+    : { host: '', port: '587', security: 'starttls', username: '', from: '', domains: '' })
   const [password, setPassword] = useState('')
   const [error, setError] = useState<string | null>(null)
   const keep = Boolean(initial?.has_password)
@@ -107,6 +142,9 @@ function MailEditor({ initial, onDone, onCancel }: { initial: MailServerInfo | n
           <input type="password" autoComplete="new-password" value={password} required={!keep} onChange={e => setPassword(e.target.value)} />
         </label>}
       </>}
+      <label className="small">Reports may also go to these email domains <span className="muted">(besides your members; e.g. a partner's)</span>
+        <input value={f.domains} placeholder="partner.example" onChange={e => set('domains', e.target.value)} />
+      </label>
       {error && <div className="error">{error}</div>}
       <div className="row"><button type="button" onClick={onCancel}>Cancel</button><button className="primary">Save</button></div>
     </form>
