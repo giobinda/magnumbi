@@ -9,10 +9,12 @@
 //! - `routes`: every route of the router is in the access matrix; who may call each one, and that
 //!   nobody else gets through (other roles, other organisations, forged headers, read tokens).
 //! - `secrets`: no planted secret comes back in any response or log line.
+//! - `abuse`: brute force, cross-site requests, floods of visitors, sessions and tokens that ended.
 //! - `hostile`: injection, traversal, bombs and absurd values in every field are refused cleanly.
 //! - `row_filters`: a restricted organisation's answers equal an unrestricted person's answers
 //!   with the restriction written into the query, for random queries, on every path to data.
 
+mod abuse;
 mod hostile;
 mod routes;
 mod row_filters;
@@ -246,7 +248,23 @@ impl World {
     }
 
     pub async fn raw(&self, who: &As, method: &str, path: &str, content_type: Option<&str>, body: String) -> Reply {
+        self.raw_with(who, method, path, &[], content_type, body).await
+    }
+
+    /// A request with extra headers (Origin, Sec-Fetch-Site, ...).
+    pub async fn raw_with(
+        &self,
+        who: &As,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        content_type: Option<&str>,
+        body: String,
+    ) -> Reply {
         let mut req = axum::http::Request::builder().method(method).uri(path);
+        for (k, v) in headers {
+            req = req.header(*k, *v);
+        }
         match &who.who {
             Who::Anonymous => {}
             Who::Person(email) => req = req.header("cookie", self.cookie(email)),

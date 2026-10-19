@@ -167,6 +167,21 @@ impl<S: Send + Sync, T: DeserializeOwned> FromRequest<S> for Body<T> {
     type Rejection = ApiError;
 
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        // A browser posts text/plain or a form to another site without asking first (no CORS
+        // preflight). Requests on a session cookie come from the app, which always sends JSON:
+        // anything else is refused (scripts with a bearer token may be less careful).
+        let h = req.headers();
+        let json = h
+            .get(axum::http::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|ct| ct.split(';').next().unwrap_or_default().trim().to_ascii_lowercase())
+            .is_some_and(|ct| ct == "application/json" || ct.ends_with("+json"));
+        if !json && h.contains_key(axum::http::header::COOKIE) && !h.contains_key(axum::http::header::AUTHORIZATION) {
+            return Err(ApiError::Status(
+                StatusCode::UNSUPPORTED_MEDIA_TYPE,
+                "send JSON (Content-Type: application/json)".into(),
+            ));
+        }
         let bytes = axum::body::Bytes::from_request(req, state)
             .await
             .map_err(|e| ApiError::Status(StatusCode::PAYLOAD_TOO_LARGE, e.body_text()))?;
