@@ -137,10 +137,12 @@ pub struct Schedule {
     /// runs that failed in a row (5 pause it)
     pub failures: i64,
     pub created_at: DateTime<Utc>,
+    /// an alert's condition held at its last check (it was told then)
+    pub firing: bool,
 }
 
 const SCHEDULE: &str = "id, dashboard_id, created_by, config, password_hash, active, next_run_at, last_run_at, last_status, \
-                        failures, created_at";
+                        failures, created_at, firing";
 
 impl Schedule {
     fn from_row(r: &tokio_postgres::Row) -> Result<Schedule> {
@@ -156,6 +158,7 @@ impl Schedule {
             last_status: r.get(8),
             failures: r.get(9),
             created_at: r.get(10),
+            firing: r.get(11),
         })
     }
 }
@@ -1292,11 +1295,11 @@ impl Store {
         let c = self.pool.get().await?;
         c.execute(
             "INSERT INTO schedules (org, id, dashboard_id, created_by, config, password_hash, active, next_run_at, last_run_at,
-               last_status, failures, created_at)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMPTZ, $9::TIMESTAMPTZ, $10, $11::BIGINT, $12::TIMESTAMPTZ)
+               last_status, failures, created_at, firing)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMPTZ, $9::TIMESTAMPTZ, $10, $11::BIGINT, $12::TIMESTAMPTZ, $13)
              ON CONFLICT (org, id) DO UPDATE SET config = EXCLUDED.config, active = EXCLUDED.active,
                next_run_at = EXCLUDED.next_run_at, last_run_at = EXCLUDED.last_run_at,
-               last_status = EXCLUDED.last_status, failures = EXCLUDED.failures",
+               last_status = EXCLUDED.last_status, failures = EXCLUDED.failures, firing = EXCLUDED.firing",
             &[
                 &org,
                 &s.id,
@@ -1310,6 +1313,7 @@ impl Store {
                 &s.last_status,
                 &s.failures,
                 &s.created_at,
+                &s.firing,
             ],
         )
         .await?;

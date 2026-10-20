@@ -228,17 +228,20 @@ export interface WebhookInfo { name: string; kind: WebhookKind; host: string }
 export interface DeliverySettings { mail: MailServerInfo | null; webhooks: WebhookInfo[]; secret_key: boolean }
 
 /** A scheduled report (api/schedules.rs). */
-export interface ScheduleWhen { every: 'daily' | 'weekly' | 'monthly'; day?: number | null; at: string; timezone: string }
-export type ReportFormat = 'csv' | 'signed' | 'public'
+export interface ScheduleWhen { every: 'hourly' | 'daily' | 'weekly' | 'monthly'; day?: number | null; at: string; timezone: string }
+export type ReportFormat = 'csv' | 'signed' | 'public' | 'alert'
+/** An alert: a number on the dashboard crossing a line (rises/falls: percent on the comparison period). */
+export interface AlertRule { tile: string; measure?: string | null; op: 'above' | 'below' | 'rises_by' | 'falls_by'; value: number }
 export interface Schedule {
   id: string; dashboard: string; name: string; when: ScheduleWhen; format: ReportFormat
   recipients: string[]; webhooks: string[]; guest_role?: string | null; share_link?: string | null
+  alert?: AlertRule | null; firing?: boolean
   active: boolean; next_run_at: string; last_run_at?: string | null; last_status?: string | null
   failures: number; created_by: string; created_at: string
 }
 export interface NewSchedule {
   name: string; when: ScheduleWhen; format: ReportFormat; recipients: string[]; webhooks: string[]
-  request?: TileRequest; password?: string; guest_role?: string; share_link?: string
+  request?: TileRequest; password?: string; guest_role?: string; share_link?: string; alert?: AlertRule
 }
 
 /** One step of "Get started" (GET /api/setup): worked out from what is set up. */

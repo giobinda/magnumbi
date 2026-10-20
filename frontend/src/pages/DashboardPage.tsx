@@ -286,7 +286,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
         models={limitModels([...dash.tiles.flatMap(t => (t.query ? [t.query.model] : [])), ...dash.filters.map(f => f.model)], models)}
         onClose={() => setShowGuests(false)} />}
       {showSchedules && <ScheduleDialog id={id} me={auth?.user?.email ?? ''} myRole={auth?.role ?? 'viewer'} isAdmin={can('manage_members')}
-        inOrg={Boolean(auth?.org)} request={tileRequest} onClose={() => setShowSchedules(false)} />}
+        inOrg={Boolean(auth?.org)} request={tileRequest} tiles={dash.tiles} onClose={() => setShowSchedules(false)} />}
       {showShare && auth?.org && <ShareDialog id={id} org={auth.org.name} tiles={dash.tiles.length} onClose={() => setShowShare(false)} />}
       {showPublish && <PublishDialog id={id} orgs={auth?.orgs ?? []} onClose={() => setShowPublish(false)} />}
     </div>

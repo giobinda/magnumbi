@@ -30,7 +30,7 @@ organisation owns.
   - each tenant's delivery settings (`api/delivery.rs`): the platform workspace and every
     organisation have their own mail server and webhooks, never shared or inherited; their
     addresses go through `netguard`, and passwords and webhook addresses are write-only;
-  - scheduled reports (`api/schedules.rs`): they run as their maker through `auth::link_caller`
+  - scheduled reports and alerts (`api/schedules.rs`): they run as their maker through `auth::link_caller`
     (the platform workspace's for its system owners only), only through their tenant's own
     delivery settings, and only to its members and the domains its Org admins allow, checked on
     every run;

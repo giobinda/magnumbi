@@ -21,6 +21,9 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   by email and to Slack/Teams webhooks, through the tenant's own delivery settings. Recipients
   are members and domains Org admins allow; reports run as their maker and pause when the maker
   can't send them; every email can be unsubscribed; Org admins see and pause them all.
+- **Alerts.** On the same Schedule… dialog: a number on the dashboard (a KPI) above or below a
+  value, or rising or falling by a percentage on the comparison period, checked hourly, daily,
+  weekly or monthly. People are told once when it crosses, and again only after it came back.
 - **An attack suite** that misuses the API as every kind of caller, in `make test-db` and CI:
   every route in an access matrix, planted secrets, row filters on every path to data, hostile
   input, brute force, cross-site requests. `make e2e-attack` opens hostile dashboards in a real

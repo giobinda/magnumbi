@@ -84,7 +84,7 @@
         <li><a href="#public-links">Public links</a></li>
         <li><a href="#guest-links">Guest links</a></li>
         <li><a href="#delivery">Email &amp; webhooks</a></li>
-        <li><a href="#reports">Scheduled reports</a></li>
+        <li><a href="#reports">Reports &amp; alerts</a></li>
         <li><a href="#themes">Themes &amp; brand colours</a></li>
         <li><a href="#agents">AI agents &amp; MCP</a></li>
       </ol>
@@ -413,7 +413,7 @@ cache: 1h</code></pre>
     </section>
 
     <section id="reports">
-      <h2>Scheduled reports</h2>
+      <h2>Scheduled reports &amp; alerts</h2>
       <p><strong>Schedule…</strong> on a dashboard (Users and up) sends it every day, week or month at a local time, with the filters and period on screen, through your organisation's own mail server and webhooks. It sends one of:</p>
       <ul>
         <li><strong>The data:</strong> a zip of each chart's CSV, attached to the email (webhooks get a link to the dashboard).</li>
@@ -421,6 +421,7 @@ cache: 1h</code></pre>
         <li><strong>A public link</strong> (Org admins): one of the dashboard's public links.</li>
       </ul>
       <p>Reports go only to your members and to the email domains your Org admins allow on <strong>Delivery</strong>, checked on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it, and Org admins can see and pause every report on <strong>Delivery</strong>. Set <code>MAGNUM_PUBLIC_URL</code> so the links in reports work.</p>
+      <p><strong>Alerts</strong> are scheduled the same way: pick a number on the dashboard (a KPI tile) and a line (above or below a value, or rising or falling by a percentage on the comparison period), checked every hour, day, week or month. A message goes out only when the number crosses the line, and again only after it came back.</p>
     </section>
 
     <section id="themes">
@@ -604,7 +605,6 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
       <p>Magnum BI is an early <strong>alpha</strong>. The features on this page work and are covered by tests, but expect changes before a stable release: configuration variables, API shapes and YAML formats in particular, without an upgrade path guaranteed. It's for trying out and pilots, not yet for production. Pin a version, read the changes before upgrading, and please report anything that breaks.</p>
       <p>Next, roughly in order:</p>
       <ul>
-        <li><strong>Alerts:</strong> a message when a number crosses a line, by email, Slack or Teams.</li>
         <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
         <li><strong>Formulas:</strong> a calculated-field language, shared per organisation.</li>
         <li><strong>Apply from git:</strong> models, dashboards and blends already live in git; next, <em>plan / apply</em> organisations (members, connections, sign-in rules) and dashboards to a running server.</li>
