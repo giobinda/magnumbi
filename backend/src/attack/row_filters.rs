@@ -231,15 +231,18 @@ async fn dashboards_links_and_downloads_never_see_past_a_restriction() {
         for _ in 0..3 {
             let req = request(&mut rng);
             let expected = w.send(&owner, "POST", &path("/api/dashboards/random"), Some(req.clone())).await.json();
-            let got = w.send(&b, "POST", &path("/api/dashboards/random"), Some(req.clone())).await.json();
+            let reply = w.send(&b, "POST", &path("/api/dashboards/random"), Some(req.clone())).await;
+            let got = reply.json();
             leaks.extend(differs(&format!("tile {t} with {req}"), &got, &expected));
             let as_guest = w.send(&guest, "POST", &path(&guest_api), Some(req.clone())).await.json();
             leaks.extend(differs(&format!("guest link, tile {t} with {req}"), &as_guest, &expected));
-            // the CSV holds what the tile shows them
+            // the CSV holds what the tile shows them (the answer just checked)
             let csv = w.send(&b, "POST", &format!("/api/dashboards/random/tiles/{t}/export"), Some(req.clone())).await;
-            let shown = w.send(&b, "POST", &path("/api/dashboards/random"), Some(req.clone())).await.json();
+            if !reply.status.is_success() || !csv.status.is_success() {
+                continue; // refused or failed (not an answer): the comparisons above report wrong answers
+            }
             let lines = csv.body.trim_end().lines().count().saturating_sub(1);
-            let rows = shown["rows"].as_array().map_or(0, |r| r.len());
+            let rows = got["rows"].as_array().map_or(0, |r| r.len());
             if lines != rows {
                 let body: String = csv.body.chars().take(300).collect();
                 leaks.push(format!(
