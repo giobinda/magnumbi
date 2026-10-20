@@ -21,9 +21,30 @@ export interface Dimension {
   name: string; label?: string | null; description?: string | null; type: DimType
   /** how it aggregates when used as a number (numbers: sum; identifiers: count_distinct) */
   aggregation?: Aggregation | null
+  /** a per-row formula, e.g. "amount * qty" */
+  formula?: string | null
+  /** one of the organisation's shared formulas */
+  shared?: boolean
+  /** Explore: one of this chart's own formulas */
+  own?: boolean
 }
 export interface TopN { dimension: string; n: number; by: string; bottom?: boolean }
-export interface Measure { name: string; label?: string | null; description?: string | null; type: string; format: 'number' | 'currency' | 'percent'; higher_is_better?: boolean }
+export type Format = 'number' | 'currency' | 'percent'
+export interface Measure {
+  name: string; label?: string | null; description?: string | null; type: string; format: Format; higher_is_better?: boolean
+  /** type formula: the calculation, e.g. "(revenue - cost) / revenue" */
+  formula?: string | null
+  /** one of the organisation's shared formulas (its admins edit it) */
+  shared?: boolean
+}
+/** A calculation on a model's measures, in the formula language (backend/src/formula.rs). */
+export interface Formula {
+  name: string; label?: string | null; expr: string; format?: Format | null; description?: string | null
+  /** a field of each row (grouped by, filtered, summed), not a calculation on totals */
+  per_row?: boolean
+}
+export interface SharedFormula { model: string; formula: Formula; updated_at: string; updated_by: string | null; problem?: string | null }
+export interface FormulaCheck { ok: boolean; error?: string; at?: number; type?: DimType }
 export interface ModelInfo {
   name: string; label: string; description?: string | null; connection: string
   /** the organisation's connection of that name: null when it has none yet */
@@ -57,6 +78,8 @@ export interface Query {
   period?: Period | null
   /** keep the N best (or worst) values of a dimension, ranked by a measure */
   top?: TopN | null
+  /** calculations of this query, each one of its measures */
+  formulas?: Formula[]
 }
 export interface Column {
   name: string; field: string; label: string; kind: 'dimension' | 'measure'; type: string
@@ -384,6 +407,15 @@ export const api = {
   resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(guestPath(guestBase, '', { model }), json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
   blends: () => call<{ blends: Blend[] }>('/api/blends'),
+  /** `formulas`: the chart's others, which this one may use */
+  checkFormula: (model: string, expr: string, perRow = false, formulas: Formula[] = [], signal?: AbortSignal) =>
+    call<FormulaCheck>('/api/formulas/check', { ...json('POST', { model, expr, per_row: perRow, formulas }), signal }),
+  /** Org admins: the organisation's shared formulas */
+  formulas: () => call<{ formulas: SharedFormula[] }>('/api/formulas'),
+  saveFormula: (model: string, f: Formula) =>
+    call<{ ok: boolean }>(`/api/formulas/${encodeURIComponent(model)}/${encodeURIComponent(f.name)}`, json('PUT', f)),
+  deleteFormula: (model: string, name: string) =>
+    call<{ ok: boolean }>(`/api/formulas/${encodeURIComponent(model)}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   saveBlend: (b: Blend) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}`, json('PUT', { ...b, editable: undefined })),
   deleteBlend: (name: string) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   me: () => call<AuthState>('/api/auth/me'),

@@ -7,6 +7,25 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Formulas.** Calculations on a model's measures and columns, written like a spreadsheet:
+  `(revenue - cost) / revenue`, `sum(amount) / count_distinct(store)`, `if(…)`, `round(…)` and
+  more. In Explore, **ƒ New formula** offers the fields and functions to click and checks as you
+  type, showing where a mistake is. A formula is a measure like any other, period comparisons
+  included. In YAML as a model's measure (`type: formula`) or a query's `formulas:`; for agents
+  in MCP's `run_query`. Formulas carry no SQL: they're parsed, and only model fields, numbers
+  and a few functions reach the database, written for each engine.
+- **Per-row formulas:** fields of each row from its columns (`amount * qty`,
+  `if(amount * qty > 500, 'large', 'small')`, `concat(region, ' / ', category)`), to group by,
+  filter on or add up (`sum(line_total)`). In Explore, **ƒ New field**; in YAML a dimension with
+  `formula:`, or a query formula with `per_row: true`. Formulas now take text (`'EMEA'`) and
+  `lower`, `upper`, `concat`.
+- **Calculations on a chart's results:** `running_sum`, `moving_avg(x, rows)`, `previous`, `rank`,
+  `percent_of_total`, offered in Explore's formula editor. They run on ScramDB over the chart's
+  result (which stays cached), along the first date dimension or across the others.
+- **Shared formulas.** Org admins add a formula to a model for the whole organisation, from
+  Explore or Models › Shared formulas (`/api/formulas`, with `?dry_run=1`). Saved in the
+  organisation's own database.
+- The sample model's "Revenue per unit" is now a formula.
 - **Docs with "In the app" and "In code" tabs** on every section that has a screen (models,
   dashboards, connections, blends, cache, embedding, links, delivery, reports, themes, tokens,
   members, sign-in), with screenshots. `make screenshots` retakes them from a demo company.

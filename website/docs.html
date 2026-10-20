@@ -76,6 +76,7 @@
       <h4>Building</h4>
       <ol>
         <li><a href="#models">Models</a></li>
+        <li><a href="#formulas">Formulas</a></li>
         <li><a href="#dashboards">Dashboards</a></li>
         <li><a href="#connections">Data connections</a></li>
         <li><a href="#blends">Blends</a></li>
@@ -263,7 +264,8 @@ dimensions:
 measures:
   - {name: revenue, type: sum, sql: amount, format: currency}
   - {name: transactions, type: count}
-  - {name: revenue_per_unit, type: number, sql: SUM(amount) / NULLIF(SUM(qty), 0)}
+  - {name: units, type: sum, sql: qty}
+  - {name: revenue_per_unit, type: formula, formula: revenue / units}  <span class="c"># see Formulas</span>
 hierarchies:
   location: [region, store]    <span class="c"># drill path</span>
 cache: 15m                     <span class="c"># optional</span></code></pre>
@@ -284,6 +286,66 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
       <div class="note"><strong>One model, many organisations.</strong> Models only <em>name</em> a connection. Each organisation's <code>warehouse</code> decides where the data really is, so the same model serves everyone from their own data.</div>
       <h3>Get started</h3>
       <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours, single sign-on, email and webhooks). Each step links to where it's done and to its guide.</p>
+    </section>
+
+    <section id="formulas">
+      <h2>Formulas</h2>
+      <p>Formulas are calculations written like a spreadsheet, of three kinds:</p>
+      <ul>
+        <li><strong>On totals</strong>, a measure: <code>(revenue - cost) / revenue</code>, <code>sum(amount) / count_distinct(store)</code>, <code>if(units &gt; 0, revenue / units, null)</code>. You can filter, sort, rank (Top N) and compare periods with it: with a comparison, each measure it uses is taken from the right period.</li>
+        <li><strong>Per row</strong>, a field of each row, from its columns: <code>amount * qty</code>, <code>if(amount * qty &gt; 500, 'large', 'small')</code>, <code>concat(region, ' / ', category)</code>. Group by it, filter on it, or add it up (<code>sum(line_total)</code>, in a chart or a formula on totals).</li>
+        <li><strong>On a chart's results</strong>: <code>running_sum(revenue)</code>, <code>moving_avg(revenue, 3)</code>, <code>revenue - previous(revenue)</code>, <code>rank(revenue)</code>, <code>percent_of_total(revenue)</code>. They run after the chart's query, on the rows it returns, on your organisation's ScramDB, so changing one never queries the warehouse again while the result is cached.</li>
+      </ul>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <ol>
+            <li>In <strong>Explore</strong>, click <strong>ƒ New formula</strong> next to <em>Measures</em> (on totals), or <strong>ƒ New field</strong> next to <em>Dimensions</em> (per row).</li>
+            <li>Name it, and build it by clicking the model's measures, its columns (as Σ aggregations) and the functions, or by typing. It's checked as you type, and a mistake is shown where it is (<em>unknown field "revnue"; did you mean revenue?</em>).</li>
+            <li><strong>Add</strong> puts it in your chart. Click its <strong>ƒ</strong> to change it.</li>
+          </ol>
+          <figure class="shot"><a href="assets/screens/formula.jpg"><img src="assets/screens/formula.jpg" alt="The formula editor: a name, the formula, and the model's measures, columns and functions to click" width="760" height="610" loading="lazy"></a><figcaption>A formula on the sample sales, checked as it's typed.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/explore-formula.jpg"><img src="assets/screens/explore-formula.jpg" alt="Explore with the formula as a measure of the chart" width="1280" height="820" loading="lazy"></a><figcaption>The formula in the chart, next to the model's measures.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/formula-row.jpg"><img src="assets/screens/formula-row.jpg" alt="The formula editor per row: the columns and functions, including text" width="760" height="628" loading="lazy"></a><figcaption>A field of each row, from its columns: it gives text, so it groups.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/explore-row.jpg"><img src="assets/screens/explore-row.jpg" alt="Explore grouping revenue by the new field" width="1280" height="820" loading="lazy"></a><figcaption>Revenue by the new field. A field of the chart is listed with the model's, to edit (✎) or remove (×).</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/formula-results.jpg"><img src="assets/screens/formula-results.jpg" alt="The formula editor with the functions on the chart's results" width="760" height="740" loading="lazy"></a><figcaption>A running total: the functions <em>on the chart's results</em> are offered in Explore.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/explore-results.jpg"><img src="assets/screens/explore-results.jpg" alt="Revenue by month with its running total" width="1280" height="820" loading="lazy"></a><figcaption>Revenue by month, and revenue so far.</figcaption></figure>
+          <p><strong>Shared formulas:</strong> Org admins can tick <em>Share with everyone in the organisation</em>, or use <strong>Models › Shared formulas</strong>. A shared formula becomes one of the model's measures (or fields, per row) for the whole organisation, marked <strong>ƒ</strong> in the field list.</p>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">a model's measure (project/models/*.yaml)</span>
+<pre><code>dimensions:
+  - {name: line_total, type: number, formula: amount * qty}     <span class="c"># per row; type: what it gives</span>
+measures:
+  - {name: revenue_per_unit, label: Revenue per unit, type: formula, formula: revenue / units, format: currency}</code></pre>
+      </div>
+<div class="code">
+        <span class="label">a tile's (or an API query's) own formulas</span>
+<pre><code>query:
+  model: sales
+  dimensions: [region]
+  measures: [revenue]
+  formulas:                      <span class="c"># each one is a column too</span>
+    - {name: per_sale, label: Per sale, expr: "round(revenue / transactions, 2)", format: currency}
+    - {name: size, expr: "if(amount * qty > 500, 'large', 'small')", per_row: true}   <span class="c"># a field: list it in dimensions to group by it</span></code></pre>
+      </div>
+          <ul>
+            <li>Shared formulas: <code>GET /api/formulas</code>, <code>PUT</code> and <code>DELETE /api/formulas/{model}/{name}</code> (Org admins; <code>?dry_run=1</code> to check only). <code>POST /api/formulas/check</code> with <code>{model, expr, per_row?, formulas?}</code> says what's wrong and where (and, per row, what it gives).</li>
+            <li>Agents pass <code>formulas</code> to the MCP <code>run_query</code> tool the same way.</li>
+          </ul>
+        </div>
+      </div>
+      <h3>The language</h3>
+      <ul>
+        <li><strong>Fields:</strong> on totals, the model's measures (and other formulas) by name, and columns through an aggregation: <code>sum</code>, <code>avg</code>, <code>min</code>, <code>max</code>, <code>count</code>, <code>count_distinct</code>, e.g. <code>avg(amount)</code>. Per row, the row's columns by name (number, text and yes/no columns; dates not yet: group by <code>sold_at:month</code> and the like).</li>
+        <li><strong>Text</strong> in single quotes (<code>'EMEA'</code>, <code>'it''s'</code>), compared with <code>=</code> and <code>&lt;&gt;</code>; <code>lower</code>, <code>upper</code>, <code>concat</code>.</li>
+        <li><strong>Operators:</strong> <code>+ - * /</code>, brackets, comparisons (<code>= &lt;&gt; &lt; &lt;= &gt; &gt;=</code>) and <code>and</code>, <code>or</code>, <code>not</code>. Dividing by zero gives an empty value, not an error, and never rounds to whole numbers.</li>
+        <li><strong>Functions:</strong> <code>if(condition, then, else)</code>, <code>coalesce(x, 0)</code>, <code>round(x, places)</code>, <code>abs</code>, <code>least</code>, <code>greatest</code>. Also <code>true</code>, <code>false</code> and <code>null</code>.</li>
+        <li><strong>No SQL:</strong> a formula is parsed, and only the model's fields, numbers and these functions reach the database, written for its engine (ScramDB, PostgreSQL, DuckDB, BigQuery). So formulas are safe for anyone who explores, and the model's data restrictions apply as always.</li>
+        <li><strong>On results:</strong> <code>running_sum</code>, <code>moving_avg(x, rows)</code> and <code>previous</code> go along the first date dimension (or the first dimension), separately for each value of the others: revenue so far, per region. <code>rank</code> (1 for the largest) and <code>percent_of_total</code> go across the other dimensions, within each value of the first: each region's share of each month. They work on the rows the chart shows (after its limit or Top N), use measures (shown or not), stay with their chart (not shared, nor a model's), and can't be filtered on yet; charts can sort by them. They work on blends too.</li>
+        <li>Formulas on totals and per row work on models; on blends, not yet.</li>
+      </ul>
     </section>
 
     <section id="dashboards">
@@ -838,7 +900,6 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
       <p>Next, roughly in order:</p>
       <ul>
         <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
-        <li><strong>Formulas:</strong> a calculated-field language, shared per organisation.</li>
         <li><strong>Apply from git:</strong> models, dashboards and blends already live in git; next, <em>plan / apply</em> organisations (members, connections, sign-in rules) and dashboards to a running server.</li>
         <li><strong>TLS to ScramDB</strong> for the platform's own databases (data connections already support it).</li>
       </ul>

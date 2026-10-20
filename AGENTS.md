@@ -47,6 +47,7 @@ organisation owns.
 
 ```
 backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs, share.rs, guest.rs),
+                   formula.rs (the formula language: parsed, never SQL from people),
                    org_models.rs (organisations' own models), delivery.rs (mail and webhooks), export.rs,
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs

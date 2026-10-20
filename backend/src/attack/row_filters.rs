@@ -60,6 +60,21 @@ fn query(rng: &mut StdRng) -> Value {
         q["top"] =
             json!({"dimension": dims[0].split(':').next().unwrap(), "n": rng.gen_range(1..4), "by": measures[0]});
     }
+    if rng.gen_bool(0.3) {
+        // formulas aimed at other regions' rows: per row, grouped by, and on totals
+        q["formulas"] = json!([
+            {"name": "elsewhere", "expr": "if(region <> 'EMEA', amount, 0)", "per_row": true},
+            {"name": "where_from", "expr": "concat(region, ' / ', category)", "per_row": true},
+            {"name": "share_elsewhere", "expr": "sum(elsewhere) / revenue"},
+            // on the results, on ScramDB: the rows B may see, and no others
+            {"name": "share_of_all", "expr": "percent_of_total(revenue)"},
+            {"name": "best", "expr": "rank(sum(elsewhere) + revenue)"},
+        ]);
+        q["measures"].as_array_mut().unwrap().push(json!("sum(elsewhere)"));
+        if q["top"].is_null() && rng.gen_bool(0.5) {
+            q["dimensions"].as_array_mut().unwrap().push(json!("where_from"));
+        }
+    }
     q
 }
 
@@ -113,12 +128,14 @@ async fn explore_and_agents_never_see_past_a_restriction() {
     let token = As { who: Who::Token(w.token_b.clone()), org: w.b.clone(), view_as: None };
     let mut rng = StdRng::seed_from_u64(20261019);
     let mut leaks = vec![];
+    let mut with_formulas = 0;
     for i in 0..120 {
         let q = query(&mut rng);
         let expected = w.send(&owner, "POST", "/api/query", Some(restricted(&q))).await;
         if !expected.status.is_success() {
             continue; // a query the model refuses (both would)
         }
+        with_formulas += usize::from(q.get("formulas").is_some());
         let got = w.send(&b, "POST", "/api/query", Some(q.clone())).await.json();
         if let Some(d) = differs(&format!("query {i} {q}"), &got, &expected.json()) {
             leaks.push(d);
@@ -135,6 +152,7 @@ async fn explore_and_agents_never_see_past_a_restriction() {
         }
     }
     assert!(leaks.is_empty(), "answers past the restriction:\n{}", leaks.join("\n"));
+    assert!(with_formulas >= 10, "only {with_formulas} queries with formulas ran");
     w.clean_up().await;
 }
 

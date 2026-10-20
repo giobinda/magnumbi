@@ -75,6 +75,8 @@ await api('POST', '/api/dashboards/sales_overview/share-links', { cache_seconds:
 await api('POST', '/api/dashboards/sales_overview/guest-links', { expires_in_hours: 168, password: 'Partner-Preview-1', role: 'viewer',
   filters: [{ model: 'sales', dimension: 'region', values: ['EMEA'] }] })
 await api('POST', '/api/tokens', { name: 'Claude Code', scope: 'read' })
+await api('PUT', '/api/formulas/sales/revenue_per_store', { name: 'revenue_per_store', label: 'Revenue per store',
+  expr: 'revenue / count_distinct(store)', format: 'currency' })
 
 /** Open a page, wait for it to settle, photograph it (or one element of it). */
 async function shot(name, path, { el, before, height } = {}) {
@@ -96,6 +98,58 @@ await shot('dashboard-edit', '/dashboards/sales_overview?edit', { height: 640 })
 await shot('explore', '/explore', {
   before: async () => {
     for (const f of ['Region', 'Revenue']) await page.dblclick(`.field-item:has(.flabel:text-is("${f}"))`)
+  },
+})
+await shot('formula', '/explore', {
+  el: '.modal',
+  before: async () => {
+    for (const f of ['Region', 'Revenue']) await page.dblclick(`.field-item:has(.flabel:text-is("${f}"))`)
+    await page.click('button:has-text("ƒ New formula")')
+    await page.fill('.formula-name', 'Revenue per sale')
+    await page.selectOption('.formula-editor select', 'currency')
+    await page.fill('.formula-editor textarea', 'round(revenue / transactions, 2)')
+    await page.waitForSelector('.formula-check.fine')
+  },
+})
+await shot('explore-formula', null, {
+  before: async () => {
+    await page.click('.formula-editor button.primary')
+    await page.waitForSelector('.chip.formula')
+  },
+})
+await shot('formula-row', '/explore', {
+  el: '.modal',
+  before: async () => {
+    await page.click('button:has-text("ƒ New field")')
+    await page.fill('.formula-name', 'Order size')
+    await page.fill('.formula-editor textarea', "if(amount * qty > 500, 'large', 'small')")
+    await page.waitForSelector('.formula-check.fine')
+  },
+})
+await shot('explore-row', null, {
+  before: async () => {
+    await page.click('.formula-editor button.primary')
+    await page.waitForSelector('.chip.dimension:has-text("Order size")')
+    await page.dblclick('.field-item:has(.flabel:text-is("Revenue"))')
+    await page.click('.chart-types button:has-text("Donut")')
+  },
+})
+await shot('formula-results', '/explore', {
+  el: '.modal',
+  before: async () => {
+    for (const f of ['Sale time', 'Revenue']) await page.dblclick(`.field-item:has(.flabel:text-is("${f}"))`)
+    await page.click('button:has-text("ƒ New formula")')
+    await page.fill('.formula-name', 'Revenue so far')
+    await page.selectOption('.formula-editor select', 'currency')
+    await page.fill('.formula-editor textarea', 'running_sum(revenue)')
+    await page.waitForSelector('.formula-check.fine')
+  },
+})
+await shot('explore-results', null, {
+  before: async () => {
+    await page.click('.formula-editor button.primary')
+    await page.waitForSelector('.chip.formula')
+    await page.click('.chart-types button:has-text("Line")')
   },
 })
 await shot('models', '/models', {

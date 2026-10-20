@@ -112,6 +112,7 @@ pub fn propose(
             description: None,
             kind: kind.into(),
             sql: None,
+            formula: None,
             hidden: false,
             aggregation: None,
         });
@@ -142,6 +143,7 @@ fn measure(name: &str, kind: &str, sql: Option<String>) -> Measure {
         description: None,
         kind: kind.into(),
         sql,
+        formula: None,
         format: "number".into(),
         higher_is_better: true,
         hidden: false,

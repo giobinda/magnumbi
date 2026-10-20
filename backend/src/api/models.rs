@@ -33,7 +33,8 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
             let aggregation =
                 d.aggregation.map(|a| a.as_str()).or((d.kind == "number").then_some("sum")).filter(|_| blend.is_none());
             json!({"name": d.name, "label": d.label, "description": d.description, "type": d.kind,
-                   "hidden": d.hidden, "aggregation": aggregation})
+                   "hidden": d.hidden, "aggregation": aggregation, "formula": d.formula,
+                   "shared": caller.project.formulas.contains(&(m.name.clone(), d.name.clone()))})
         })
         .collect();
     let measures: Vec<Value> = m
@@ -42,7 +43,9 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
         .filter(|x| !x.hidden)
         .map(|x| {
             json!({"name": x.name, "label": x.label, "description": x.description, "type": x.kind, "format": x.format,
-                   "higher_is_better": x.higher_is_better, "hidden": x.hidden})
+                   "higher_is_better": x.higher_is_better, "hidden": x.hidden, "formula": x.formula,
+                   // one of the organisation's shared formulas (its admins edit it in the app)
+                   "shared": caller.project.formulas.contains(&(m.name.clone(), x.name.clone()))})
         })
         .collect();
     json!({

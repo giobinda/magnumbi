@@ -46,8 +46,9 @@ measures:
     format: currency
   - name: revenue_per_unit
     label: Revenue per unit
-    type: number
-    sql: SUM(amount) / NULLIF(SUM(qty), 0)
+    # a formula: a calculation on other measures (no SQL; division by zero gives empty)
+    type: formula
+    formula: revenue / units
     format: currency
 
 hierarchies:

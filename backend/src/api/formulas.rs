@@ -1,0 +1,376 @@
+//! Shared formulas: calculations Org admins add to a model (`margin = (revenue - cost) / revenue`),
+//! for everyone in the organisation, as measures of that model. Formulas carry no SQL (see
+//! formula.rs), and they're saved per organisation in its own database.
+
+use axum::Json;
+use axum::extract::{Path, Query as UrlQuery, State};
+use serde::Deserialize;
+use serde_json::{Value, json};
+
+use super::Body;
+use crate::auth::{Auth, Caller};
+use crate::error::{ApiError, ApiResult};
+use crate::schema::Formula;
+use crate::state::Shared;
+
+/// Shared with everyone in the organisation, so its admins decide (policies may refine this later).
+fn require_admin(caller: &Caller) -> ApiResult<()> {
+    caller.require("manage_members")
+}
+
+/// The organisation's shared formulas, as saved.
+pub async fn list(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
+    require_admin(&caller)?;
+    let formulas = state.orgs.store(caller.org()).await?.formulas(caller.org()).await?;
+    let out: Vec<Value> = formulas
+        .into_iter()
+        .map(|(model, f, at, by)| {
+            let problem = caller.project.errors.get(&format!("formula {model}.{}", f.name));
+            json!({"model": model, "formula": f, "updated_at": at, "updated_by": by, "problem": problem})
+        })
+        .collect();
+    Ok(Json(json!({"formulas": out})))
+}
+
+/// Save a shared formula (`?dry_run=1`: check only).
+pub async fn save(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    Path((model, name)): Path<(String, String)>,
+    UrlQuery(p): UrlQuery<super::dashboards::WriteParams>,
+    Body(f): Body<Formula>,
+) -> ApiResult<Json<Value>> {
+    require_admin(&caller)?;
+    if f.name != name {
+        return Err(ApiError::bad_request("the formula's name must match the address it's saved to"));
+    }
+    super::model_of(&caller, &model)?;
+    caller.project.formula_fits(&model, &f).map_err(ApiError::bad_request)?;
+    if p.dry_run {
+        return Ok(Json(json!({"ok": true, "dry_run": true})));
+    }
+    state.orgs.store(caller.org()).await?.put_formula(caller.org(), &model, &f, Some(caller.email())).await?;
+    state.formulas.forget(caller.org());
+    state.usage.record(crate::usage::Event { model: Some(model), ..caller.event("formula_saved") });
+    Ok(Json(json!({"ok": true})))
+}
+
+pub async fn delete(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    Path((model, name)): Path<(String, String)>,
+) -> ApiResult<Json<Value>> {
+    require_admin(&caller)?;
+    if !state.orgs.store(caller.org()).await?.delete_formula(caller.org(), &model, &name).await? {
+        return Err(ApiError::not_found(format!("no shared formula {name:?} on {model:?}")));
+    }
+    state.formulas.forget(caller.org());
+    state.usage.record(crate::usage::Event { model: Some(model), ..caller.event("formula_deleted") });
+    Ok(Json(json!({"ok": true})))
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Check {
+    model: String,
+    expr: String,
+    #[serde(default)]
+    per_row: bool,
+    /// the chart's other formulas, which this one may use
+    #[serde(default)]
+    formulas: Vec<Formula>,
+}
+
+/// Checks a formula as it's typed (Explore's editor): fine, or what's wrong and where.
+pub async fn check(Auth(caller): Auth, Body(c): Body<Check>) -> ApiResult<Json<Value>> {
+    caller.require("explore")?;
+    let mut model = super::model_of(&caller, &c.model)?.clone();
+    if caller.project.blends.contains_key(&c.model) {
+        return Ok(Json(json!({"ok": false, "error": "formulas aren't available on blends yet", "at": 0})));
+    }
+    if c.formulas.len() > crate::schema::MAX_FORMULAS {
+        return Err(ApiError::bad_request("too many formulas"));
+    }
+    for other in &c.formulas {
+        other.check().map_err(ApiError::bad_request)?;
+        if model.dimension(&other.name).is_some() || model.measure(&other.name).is_some() {
+            continue; // being edited, or a name the model has: the model's wins
+        }
+        if other.per_row {
+            model.dimensions.push(other.as_dimension());
+        } else if crate::formula::is_on_results(&other.expr).unwrap_or(true) {
+            continue; // a calculation on results isn't a measure to use
+        } else {
+            model.measures.push(other.as_measure());
+        }
+    }
+    let f = Formula {
+        name: "formula__".into(),
+        label: None,
+        expr: c.expr,
+        format: None,
+        description: None,
+        per_row: c.per_row,
+    };
+    if f.per_row {
+        model.dimensions.push(f.as_dimension());
+    } else {
+        model.measures.push(f.as_measure());
+    }
+    // a calculation on the chart's results
+    if !f.per_row && crate::formula::is_on_results(&f.expr).unwrap_or(false) {
+        let model = crate::compiler::with_row_formulas(&model, crate::compiler::Dialect::Postgres)?;
+        return Ok(Json(match crate::compiler::result_formula_error(&model, &f.expr) {
+            None => json!({"ok": true}),
+            Some(e) => json!({"ok": false, "error": e.message, "at": e.at}),
+        }));
+    }
+    Ok(Json(match crate::compiler::formula_error(&model, &f.name) {
+        // a field of each row: what it gives (number, string or boolean, as a dimension's type)
+        None if f.per_row => {
+            let model = crate::compiler::with_row_formulas(&model, crate::compiler::Dialect::Postgres)?;
+            json!({"ok": true, "type": model.dimension(&f.name).map(|d| d.kind.clone())})
+        }
+        None => json!({"ok": true}),
+        Some(e) => json!({"ok": false, "error": e.message, "at": e.at}),
+    }))
+}
+
+#[cfg(test)]
+mod tests {
+    use axum::http::StatusCode;
+    use serde_json::json;
+
+    use crate::api::share::tests::{clean_up, org_with, send};
+
+    const DASHBOARD: &str = "title: Formulas test\ntiles: []\n";
+
+    #[tokio::test]
+    async fn org_admins_share_formulas_and_everyone_uses_them() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let name = format!("per_sale_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let path = format!("/api/formulas/sales/{name}");
+        let f = json!({"name": name, "label": "Per sale", "expr": "revenue / transactions", "format": "currency"});
+
+        // Org admins only
+        let (s, _, _) = send(&app, c, &org, "PUT", &path, Some(f.clone()), Some("power_user")).await;
+        assert_eq!(s, StatusCode::FORBIDDEN);
+        let (s, _, _) = send(&app, c, &org, "GET", "/api/formulas", None, Some("power_user")).await;
+        assert_eq!(s, StatusCode::FORBIDDEN);
+
+        // what's refused, with the reason
+        for (edit, says) in [
+            (json!({"expr": "revnue / 2"}), "did you mean revenue"),
+            (json!({"expr": "revenue +"}), "ends too early"),
+            (json!({"name": "revenue"}), "already has a field"),
+            (json!({"format": "bytes"}), "format"),
+        ] {
+            let mut bad = f.clone();
+            for (k, v) in edit.as_object().unwrap() {
+                bad[k] = v.clone();
+            }
+            let at = format!("/api/formulas/sales/{}", bad["name"].as_str().unwrap());
+            let (s, b, _) = send(&app, c, &org, "PUT", &at, Some(bad), None).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{edit} -> {b}");
+            assert!(b["detail"].as_str().unwrap().contains(says), "{edit} -> {b}");
+        }
+        let (s, _, _) = send(&app, c, &org, "PUT", &format!("/api/formulas/nope/{name}"), Some(f.clone()), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+
+        // a dry run checks only; saving shares it with everyone, as a measure of the model
+        let (s, b, _) = send(&app, c, &org, "PUT", &format!("{path}?dry_run=1"), Some(f.clone()), None).await;
+        assert_eq!((s, &b["dry_run"]), (StatusCode::OK, &json!(true)), "{b}");
+        let (s, b, _) = send(&app, c, &org, "PUT", &path, Some(f.clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (_, list, _) = send(&app, c, &org, "GET", "/api/formulas", None, None).await;
+        assert_eq!(list["formulas"][0]["formula"]["expr"], json!("revenue / transactions"), "{list}");
+        let (_, models, _) = send(&app, c, &org, "GET", "/api/models", None, Some("viewer")).await;
+        let sales = models["models"].as_array().unwrap().iter().find(|m| m["name"] == "sales").unwrap();
+        let m = sales["measures"].as_array().unwrap().iter().find(|m| m["name"] == json!(name)).unwrap();
+        assert_eq!(
+            (&m["type"], &m["formula"], &m["shared"]),
+            (&json!("formula"), &json!("revenue / transactions"), &json!(true))
+        );
+        let q = json!({"model": "sales", "dimensions": ["region"], "measures": [name]});
+        let (s, r, _) = send(&app, c, &org, "POST", "/api/query", Some(q.clone()), Some("power_user")).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        assert_eq!(r["rows"].as_array().unwrap().len(), 3, "{r}");
+        // per row: a field everyone can group by
+        let line = format!("{name}_line");
+        let f2 =
+            json!({"name": line, "label": "Big sale", "expr": "if(amount > 200, 'big', 'small')", "per_row": true});
+        let (s, b, _) = send(&app, c, &org, "PUT", &format!("/api/formulas/sales/{line}"), Some(f2), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (_, models, _) = send(&app, c, &org, "GET", "/api/models", None, Some("viewer")).await;
+        let sales = models["models"].as_array().unwrap().iter().find(|m| m["name"] == "sales").unwrap();
+        let d = sales["dimensions"].as_array().unwrap().iter().find(|d| d["name"] == json!(line)).unwrap();
+        assert_eq!(
+            (&d["type"], &d["formula"], &d["shared"]),
+            (&json!("string"), &json!("if(amount > 200, 'big', 'small')"), &json!(true))
+        );
+        let q2 = json!({"model": "sales", "dimensions": [line], "measures": ["transactions", "sum(qty)"]});
+        let (s, r, _) = send(&app, c, &org, "POST", "/api/query", Some(q2), Some("power_user")).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let groups: Vec<&str> = r["rows"].as_array().unwrap().iter().map(|x| x[0].as_str().unwrap()).collect();
+        assert!(groups.contains(&"big") && groups.contains(&"small"), "{r}");
+        let (s, _, _) = send(&app, c, &org, "DELETE", &format!("/api/formulas/sales/{line}"), None, None).await;
+        assert_eq!(s, StatusCode::OK);
+        // edited in place
+        let (s, b, _) =
+            send(&app, c, &org, "PUT", &path, Some(json!({"name": name, "expr": "revenue / units"})), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+
+        // another organisation doesn't see it
+        let other = format!("other{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        state.orgs.pin(&other, state.store.clone());
+        let (_, models, _) = send(&app, c, &other, "GET", "/api/models", None, None).await;
+        assert!(!models.to_string().contains(&name));
+
+        let (s, _, _) = send(&app, c, &org, "DELETE", &path, None, None).await;
+        assert_eq!(s, StatusCode::OK);
+        let (s, _, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn formulas_run_on_the_warehouse() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let q = json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue", "transactions"],
+            "formulas": [{"name": "per_sale", "expr": "round(revenue / transactions, 2)", "format": "currency"},
+                         {"name": "stores", "expr": "if(count_distinct(store) > 0, count_distinct(store), null)"}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap();
+        for row in body["rows"].as_array().unwrap() {
+            // region, revenue, transactions, per_sale, stores
+            assert!((num(&row[3]) - num(&row[1]) / num(&row[2])).abs() < 0.006, "{row}");
+            assert!(num(&row[4]) >= 1.0, "{row}");
+        }
+        // with the previous period alongside
+        let q = json!({"model": "sales", "measures": ["per_sale"],
+            "period": {"field": "sold_at", "current": {"last_n_days": 90}, "compare": "previous_period"},
+            "formulas": [{"name": "per_sale", "expr": "revenue / transactions"}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let row = &body["rows"][0]; // per_sale, its previous value, the change
+        assert!(num(&row[0]) > 0.0 && num(&row[1]) > 0.0 && row[2].is_number(), "{body}");
+        // per row: grouped by a computed number, every sale is counted once
+        let total = json!({"model": "sales", "measures": ["transactions"]});
+        let (_, t, _) = send(&app, c, &org, "POST", "/api/query", Some(total), None).await;
+        let q = json!({"model": "sales", "dimensions": ["band"], "measures": ["transactions", "sum(line)"],
+            "formulas": [{"name": "line", "expr": "amount * qty", "per_row": true},
+                         {"name": "band", "expr": "round(line / 100) * 100", "per_row": true}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let rows = body["rows"].as_array().unwrap();
+        let counted: f64 = rows.iter().map(|r| num(&r[1])).sum();
+        assert_eq!(counted, num(&t["rows"][0][0]), "{body}");
+        let mut bands: Vec<i64> = rows.iter().map(|r| num(&r[0]) as i64).collect();
+        let n = bands.len();
+        bands.sort_unstable();
+        bands.dedup();
+        assert!(n > 1 && bands.len() == n && bands.iter().all(|b| b % 100 == 0), "{body}");
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn calculations_on_results_run_on_scramdb() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()));
+        let q = json!({"model": "sales", "dimensions": ["sold_at:month"], "measures": ["revenue", "running", "share", "before", "place"],
+            "sort": ["sold_at:month"],
+            "formulas": [{"name": "running", "expr": "running_sum(revenue)"},
+                         {"name": "share", "expr": "percent_of_total(revenue)"},
+                         {"name": "before", "expr": "revenue - previous(revenue)"},
+                         {"name": "place", "expr": "rank(revenue)"},
+                         {"name": "units3", "label": "Units, 3 months", "expr": "moving_avg(sum(qty), 3)"}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let names: Vec<&str> =
+            body["columns"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        // sum(qty) only feeds a calculation: not shown
+        assert_eq!(names, ["sold_at__month", "revenue", "running", "share", "before", "place", "units3"]);
+        assert_eq!(body["columns"][3]["format"], json!("percent"));
+        let rows = body["rows"].as_array().unwrap();
+        assert!(rows.len() > 3, "{body}");
+        let revenue: Vec<f64> = rows.iter().map(|r| num(&r[1]).unwrap()).collect();
+        let total: f64 = revenue.iter().sum();
+        let mut running = 0.0;
+        for (i, r) in rows.iter().enumerate() {
+            running += revenue[i];
+            let close = |a: f64, b: f64| (a - b).abs() <= 0.01 * b.abs().max(1.0);
+            assert!(close(num(&r[2]).unwrap(), running), "running total, row {i}: {r}");
+            assert!(close(num(&r[3]).unwrap(), revenue[i] / total), "share, row {i}: {r}");
+            match i {
+                0 => assert!(r[4].is_null(), "nothing before the first month: {r}"),
+                _ => assert!(close(num(&r[4]).unwrap(), revenue[i] - revenue[i - 1]), "change, row {i}: {r}"),
+            }
+            let place = 1 + revenue.iter().filter(|&&x| x > revenue[i]).count();
+            assert_eq!(num(&r[5]).unwrap() as usize, place, "rank, row {i}: {r}");
+            assert!(num(&r[6]).unwrap() > 0.0, "{r}");
+        }
+        // sorted by a calculation; along the months, separately for each region
+        let q = json!({"model": "sales", "dimensions": ["region", "sold_at:month"], "measures": ["transactions", "running"],
+            "sort": ["-running"], "formulas": [{"name": "running", "expr": "running_sum(transactions)"}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let rows = body["rows"].as_array().unwrap();
+        let tops: Vec<f64> = rows.iter().map(|r| num(&r[3]).unwrap()).collect();
+        assert!(tops.windows(2).all(|w| w[0] >= w[1]), "sorted by the running total: {body}");
+        let all: f64 = rows.iter().map(|r| num(&r[2]).unwrap()).sum();
+        let per_region: f64 = ["EMEA", "APAC", "AMER"]
+            .iter()
+            .map(|g| rows.iter().filter(|r| r[0] == json!(g)).map(|r| num(&r[3]).unwrap()).fold(0.0, f64::max))
+            .sum();
+        assert_eq!(per_region, all, "each region's running total ends at its own total");
+        // a mistake is the person's, with a reason
+        let q = json!({"model": "sales", "measures": ["revenue"], "formulas": [{"name": "x", "expr": "rank(region)"}]});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn the_editor_checks_formulas_as_they_are_typed() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let check = |expr: &str| json!({"model": "sales", "expr": expr});
+        let (s, b, _) =
+            send(&app, c, &org, "POST", "/api/formulas/check", Some(check("sum(qty) / units")), Some("power_user"))
+                .await;
+        assert_eq!((s, &b), (StatusCode::OK, &json!({"ok": true})));
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(check("1 + revnue")), None).await;
+        assert_eq!((&b["ok"], &b["at"]), (&json!(false), &json!(4)), "{b}");
+        assert!(b["error"].as_str().unwrap().contains("did you mean revenue"), "{b}");
+        // per row: columns, not totals
+        let row = |expr: &str| json!({"model": "sales", "expr": expr, "per_row": true});
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(row("amount * qty")), None).await;
+        assert_eq!(b, json!({"ok": true, "type": "number"}));
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(row("lower(region)")), None).await;
+        assert_eq!(b, json!({"ok": true, "type": "string"}));
+        // with the chart's other formulas
+        let others = json!([{"name": "line", "expr": "amount * qty", "per_row": true}]);
+        let with = json!({"model": "sales", "expr": "sum(line) / transactions", "formulas": others});
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(with), None).await;
+        assert_eq!(b, json!({"ok": true}));
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(row("revenue / 2")), None).await;
+        assert!(b["error"].as_str().unwrap().contains("one row at a time"), "{b}");
+        // calculations on a chart's results
+        let (_, b, _) =
+            send(&app, c, &org, "POST", "/api/formulas/check", Some(check("revenue / running_sum(sum(qty))")), None)
+                .await;
+        assert_eq!(b, json!({"ok": true}));
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(check("rank(revnue)")), None).await;
+        assert!(b["error"].as_str().unwrap().contains("did you mean revenue"), "{b}");
+        let (_, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(row("previous(amount)")), None).await;
+        assert!(b["error"].as_str().unwrap().contains("chart's results"), "{b}");
+        // viewers don't explore
+        let (s, _, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(check("1")), Some("viewer")).await;
+        assert_eq!(s, StatusCode::FORBIDDEN);
+        clean_up(&state, &org).await;
+    }
+}

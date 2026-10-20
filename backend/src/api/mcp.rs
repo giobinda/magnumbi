@@ -32,7 +32,7 @@ connection), blends (models joined across databases; their fields are written mo
 (YAML: tiles, each a query on a model, or `type: text` with markdown `text:`; optional `tabs:`). You act as the person whose API token you use, in their organisation \
 and role; data restrictions apply to you as to them.\n\
 Explore first: list_models, then describe_model for field names; run_query takes a semantic query \
-({model, dimensions, measures, filters, sort, limit, period}), never SQL. Time dimensions take a grain: \
+({model, dimensions, measures, filters, sort, limit, period, formulas}), never SQL. Time dimensions take a grain: \
 \"sold_at:month\" (hour, day, week, month, quarter, year).\n\
 To change a dashboard: get_dashboard (YAML and its version), edit the YAML, validate_dashboard (a dry_run that \
 saves nothing and lists warnings such as unknown fields), then save_dashboard with the version you read; if it \
@@ -66,7 +66,18 @@ fn query_schema() -> Value {
         "sort": {"type": "array", "items": {"type": "string"}, "description": "field names; \"-\" prefix for descending"},
         "limit": {"type": "integer", "minimum": 1, "maximum": 50000},
         "period": {"type": "object", "description": "{field, current: {last_n_days | preset | from, to}, compare: previous_period | previous_year}"},
-        "top": {"type": "object", "description": "{dimension, n, by, bottom?}"}},
+        "top": {"type": "object", "description": "{dimension, n, by, bottom?}"},
+        "formulas": {"type": "array", "description": "calculations on the model's measures, each a column: \
+[{name, expr, label?, format?}]; expr like \"(revenue - cost) / revenue\" or \"sum(amount) / count_distinct(store)\"; \
++ - * / (x / 0 is empty), comparisons, and/or/not, if(cond, a, b), coalesce, round(x, places), abs, least, greatest. \
+per_row: true makes a field of each row from the model's columns (e.g. \"amount * qty\", \"if(region = 'EMEA', 'home', 'away')\", \
+with 'text', lower, upper, concat): group by it, filter on it, or sum(it). \
+Calculations on the results (computed after the query, on its rows): running_sum(x), moving_avg(x, n), previous(x), \
+rank(x), percent_of_total(x): along the first date dimension (else the first dimension), for each value of the others",
+            "items": {"type": "object", "properties": {"name": {"type": "string"}, "expr": {"type": "string"},
+                "label": {"type": "string"}, "format": {"type": "string", "enum": ["number", "currency", "percent"]},
+                "per_row": {"type": "boolean"}},
+                "required": ["name", "expr"]}}},
         "required": ["model"]})
 }
 

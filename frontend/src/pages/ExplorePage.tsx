@@ -6,7 +6,7 @@ import Explorer from '../components/Explorer'
 import { useModels } from '../hooks'
 
 export default function ExplorePage() {
-  const { models, loaded, error } = useModels()
+  const { models, loaded, error, reload } = useModels()
   const [params] = useSearchParams()
   const navigate = useNavigate()
   const [pending, setPending] = useState<ChartTile | null>(null)
@@ -31,7 +31,7 @@ export default function ExplorePage() {
   return (
     <div className="page full">
       {error && <div className="error">{error}</div>}
-      {loaded && <Explorer models={ordered} submitLabel="Add to dashboard…" onSubmit={setPending} />}
+      {loaded && <Explorer models={ordered} submitLabel="Add to dashboard…" onSubmit={setPending} onModelsChanged={reload} />}
       {pending && (
         <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setPending(null) }}>
           <div className="modal">

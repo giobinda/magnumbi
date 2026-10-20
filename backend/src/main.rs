@@ -18,12 +18,14 @@ mod delivery;
 mod demo;
 mod error;
 mod export;
+mod formula;
 mod materialize;
 mod netguard;
 mod org_models;
 mod orgdb;
 mod period;
 mod project;
+mod results;
 mod sample;
 mod schedule;
 mod schema;
@@ -389,6 +391,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         blends: state::OrgBlends::default(),
         themes: Default::default(),
         models: Default::default(),
+        formulas: Default::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),

@@ -490,7 +490,8 @@ dimensions:
 measures:
   - {name: revenue, type: sum, sql: amount, format: currency}
   - {name: transactions, type: count}
-  - {name: revenue_per_unit, type: number, sql: SUM(amount) / NULLIF(SUM(qty), 0)}
+  - {name: units, type: sum, sql: qty}
+  - {name: revenue_per_unit, type: formula, formula: revenue / units}   # see Formulas
 hierarchies:
   location: [region, store]    # drill path
 ```
@@ -504,6 +505,39 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
+
+### Formulas
+
+Formulas are calculations written like a spreadsheet, of three kinds:
+
+- **On totals**, a measure: `(revenue - cost) / revenue`, `sum(amount) / count_distinct(store)`,
+  `if(units > 0, revenue / units, null)` (filter, sort, Top N, period comparison: each measure it
+  uses is taken from the right period).
+- **Per row**, a field of each row from its columns: `amount * qty`,
+  `if(amount * qty > 500, 'large', 'small')`, `concat(region, ' / ', category)`. Group by it,
+  filter on it, or add it up (`sum(line_total)`). In YAML a dimension with `formula:` (its `type`
+  is what it gives), or a query formula with `per_row: true`.
+- **On a chart's results** (`results.rs`): `running_sum(x)`, `moving_avg(x, rows)`, `previous(x)`,
+  `rank(x)`, `percent_of_total(x)`, mixed with the rest (`revenue - previous(revenue)`). The chart's
+  query runs (or comes from the cache) without them; its result is copied to the organisation's
+  ScramDB and they run there as window functions. Running, moving and previous go along the first
+  date dimension (else the first), per value of the others; rank and % of total go across the
+  others, within each value of the first. They stay with their chart; charts sort by them, but
+  can't filter or rank (Top N) by them yet. They work on blends too.
+
+- **Where:** a model's measure (`type: formula, formula: …`), a query's own `formulas:` list
+  (`[{name, expr, label?, format?}]`, each a column too), or a **shared formula** that Org admins
+  add to a model for the whole organisation (Explore's **ƒ New formula** with *Share*, or
+  Models › Shared formulas; API: `GET /api/formulas`, `PUT|DELETE /api/formulas/{model}/{name}`
+  with `?dry_run=1`). Explore's editor offers the fields and functions to click and checks as you
+  type (`POST /api/formulas/check` says what's wrong and where).
+- **The language:** on totals, measures and formulas by name, and columns through `sum`, `avg`,
+  `min`, `max`, `count`, `count_distinct`; per row, the row's columns by name (not dates yet).
+  `+ - * /` (dividing by zero gives an empty value), comparisons, `and`/`or`/`not`; `if`,
+  `coalesce`, `round(x, places)`, `abs`, `least`, `greatest`; text in single quotes with `lower`,
+  `upper`, `concat`; `true`, `false`, `null`.
+- **No SQL:** formulas are parsed (`backend/src/formula.rs`) and only model fields, numbers and
+  those functions reach the database, written per engine. Not available on blends yet.
 
 ### Chart types
 
@@ -797,7 +831,6 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next one).
 - Apply from git: `plan` / `apply` of organisations (members, connections, sign-in rules) and
   dashboards to a running server. Models, dashboards and blends are already YAML in git, and
   API tokens already cover automation.
