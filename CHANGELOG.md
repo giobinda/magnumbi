@@ -3,7 +3,7 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
-## Unreleased
+## 0.1.4 (2026-10-20)
 
 ### Added
 
