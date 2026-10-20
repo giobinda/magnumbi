@@ -64,6 +64,7 @@
           "Public links and QR codes, served from a cache that protects the data warehouse",
           "Password-protected guest links, up to 14 days, limited to the data you choose",
           "Scheduled reports by email, Slack and Teams: the data, a guest link or a public link",
+          "Alerts when a number crosses a line, told once until it comes back",
           "Docker image, Docker Compose stack and Helm chart",
           "MCP endpoint and scoped API tokens for AI agents",
           "Passkeys, authenticator codes and OpenID Connect single sign-on",
@@ -315,8 +316,8 @@
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 7l9 6 9-6"/></svg></div>
-          <h3>Scheduled reports</h3>
-          <p>Every Monday at 8:00, the dashboard reaches people by email, Slack or Teams: its data, or a link. Only to your team and the partners you allow.</p>
+          <h3>Scheduled reports and alerts</h3>
+          <p>Every Monday at 8:00, the dashboard reaches people by email, Slack or Teams: its data, or a link. Or a message the moment a number crosses a line. Only to your team and the partners you allow.</p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2l8 4v6c0 5-3.5 8.5-8 10-4.5-1.5-8-5-8-10V6z"/><path d="M9 12l2 2 4-4"/></svg></div>
@@ -492,7 +493,6 @@ hierarchies:
         <p>Magnum BI is an early alpha: it works and is tested, but expect changes before a stable release, and it isn't ready for production yet. Next, roughly in order; contributions and ideas are welcome.</p>
       </div>
       <ul class="roadmap">
-        <li><strong>Alerts</strong><span>A message when a number crosses a line, by email, Slack or Teams.</span></li>
         <li><strong>More connectors</strong><span>Snowflake, MySQL and more.</span></li>
         <li><strong>Formulas</strong><span>A calculated-field language, shared per organisation.</span></li>
         <li><strong>Apply from git</strong><span>Models, dashboards and blends already live in git; next, plan and apply organisations (members, connections, sign-in rules) and dashboards to a running server.</span></li>

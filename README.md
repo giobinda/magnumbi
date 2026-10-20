@@ -699,7 +699,7 @@ API: `GET /api/delivery`, `PUT`/`DELETE /api/delivery/mail` (`{"host", "port", "
 /api/delivery/mail/test`, `PUT`/`DELETE /api/delivery/webhooks/{name}` (`{"kind", "url"}`), `POST
 /api/delivery/webhooks/{name}/test`.
 
-## Scheduled reports
+## Scheduled reports and alerts
 
 **Schedule…** on a dashboard (Users and up) sends it every day, week (on a weekday) or month (on
 a day from 1 to 28), at a local time in a time zone, with the filters and period on screen. It
@@ -725,9 +725,17 @@ Who and how:
 - The server checks for due reports every minute. With several replicas, each run is claimed
   first, so it's sent once. Set `MAGNUM_PUBLIC_URL`: links in reports point there.
 
+**Alerts** are scheduled the same way (**Schedule…**, "An alert when a number crosses a line"):
+pick a number on the dashboard (a tile without dimensions, a KPI) and a line: above or below a
+value, or rising or falling by a percentage on the comparison period (the tile's or the
+dashboard's). They're checked hourly, daily, weekly or monthly. A message goes out (email and
+webhooks, with the number and a link) only when the condition starts to hold, and again only
+after it stopped holding; if nobody could be told, the next check tries again.
+
 API: `GET`/`POST /api/dashboards/{id}/schedules` (`{"name", "when": {"every": "weekly", "day": 1,
-"at": "08:00", "timezone": "Europe/Rome"}, "format": "csv" | "signed" | "public", "recipients",
-"webhooks", "request", "password", "guest_role", "share_link"}`), `GET /api/schedules` (Org
+"at": "08:00", "timezone": "Europe/Rome"}, "format": "csv" | "signed" | "public" | "alert", "recipients",
+"webhooks", "request", "password", "guest_role", "share_link", "alert": {"tile", "measure", "op":
+"above" | "below" | "rises_by" | "falls_by", "value"}}`; `every` may also be `hourly`), `GET /api/schedules` (Org
 admins), `DELETE /api/schedules/{id}`, `PUT /api/schedules/{id}/active`, `POST
 /api/schedules/{id}/run` (send now), `POST /api/unsubscribe`.
 
@@ -787,8 +795,6 @@ can become fully independent (own keys, credentials, servers) without rewrites.
 
 Next, in rough order:
 
-- **Alerts**: a message (email, Slack, Teams) when a number crosses a line, through the same
-  per-tenant delivery as scheduled reports.
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
 - Formulas (a calculated-field language), shared per organisation (from the earlier Python version, like the next one).

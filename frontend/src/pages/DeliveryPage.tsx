@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
 import type { DeliverySettings, MailSecurity, MailServerInfo, Schedule, WebhookKind } from '../api'
-import { describeWhen } from '../schedule'
+import { describeAlert, describeWhen } from '../schedule'
 import { useAuth } from '../auth'
 import { defaultPort, mailBody } from '../delivery'
 import type { MailForm } from '../delivery'
@@ -70,7 +70,7 @@ function AllReports() {
       <thead><tr><th>Report</th><th>Dashboard</th><th>When</th><th>To</th><th>Last run</th><th /></tr></thead>
       <tbody>{list.map(s => (
         <tr key={s.id} className={s.active ? '' : 'muted'}>
-          <td><b>{s.name}</b><div className="muted">by {s.created_by}</div></td>
+          <td><b>{s.name}</b><div className="muted">{s.alert ? `Alert: ${describeAlert(s.alert)} · ` : ''}by {s.created_by}</div></td>
           <td><a href={`/dashboards/${encodeURIComponent(s.dashboard)}`}>{s.dashboard}</a></td>
           <td>{describeWhen(s.when)}</td>
           <td>{[...s.recipients, ...s.webhooks.map(w => `#${w}`)].join(', ')}</td>

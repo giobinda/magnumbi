@@ -15,7 +15,7 @@ use crate::access::{AccessConfig, Role};
 use crate::auth::{Auth, Caller, LinkAccess, link_caller, password};
 use crate::delivery::{Mail, Message, WebhookKind, payload, post_webhook, send_mail};
 use crate::error::{ApiError, ApiResult};
-use crate::schedule::{ScheduleConfig, When, may_receive};
+use crate::schedule::{AlertRule, ScheduleConfig, When, may_receive};
 use crate::state::{AppState, Shared};
 use crate::store::{GuestLink, Schedule, Store, random_token, sha256_hex};
 use crate::tile_query::TileRequest;
@@ -57,7 +57,8 @@ fn describe(s: &Schedule) -> Value {
     json!({
         "id": s.id, "dashboard": s.dashboard_id, "name": s.config.name, "when": s.config.when,
         "format": s.config.format, "recipients": s.config.recipients, "webhooks": s.config.webhooks,
-        "guest_role": s.config.guest_role, "share_link": s.config.share_link, "active": s.active,
+        "guest_role": s.config.guest_role, "share_link": s.config.share_link, "alert": s.config.alert,
+        "firing": s.firing, "active": s.active,
         "next_run_at": s.next_run_at.to_rfc3339(), "last_run_at": s.last_run_at.map(|t| t.to_rfc3339()),
         "last_status": s.last_status, "failures": s.failures, "created_by": s.created_by,
         "created_at": s.created_at.to_rfc3339(),
@@ -110,6 +111,9 @@ pub struct NewSchedule {
     /// public: which of the dashboard's public links to send
     #[serde(default)]
     share_link: Option<String>,
+    /// alert: the number to watch, and the line
+    #[serde(default)]
+    alert: Option<AlertRule>,
 }
 
 pub async fn create(
@@ -124,7 +128,8 @@ pub async fn create(
         "csv" => caller.require("download")?,
         "signed" => super::guest::require_maker(&caller)?,
         "public" => caller.require("manage_members")?,
-        other => return Err(ApiError::bad_request(format!("{other:?}: the format is csv, signed or public"))),
+        "alert" => {}
+        other => return Err(ApiError::bad_request(format!("{other:?}: the format is csv, signed, public or alert"))),
     }
     let (d, _) = load(&state, &caller, &id).await?;
     let org = caller.org().to_string();
@@ -164,6 +169,11 @@ pub async fn create(
         serde_json::from_value::<TileRequest>(n.request.clone())
             .map_err(|e| ApiError::bad_request(format!("request: {e}")))?;
     }
+    let alert = match (n.format.as_str(), n.alert) {
+        ("alert", Some(rule)) => Some(alert_on(&d, &rule)?),
+        ("alert", None) => return Err(ApiError::bad_request("an alert needs its rule (tile, op, value)")),
+        _ => None,
+    };
     let (mut made_up, mut password_hash, mut guest_role, mut share_link) = (None, None, None, None);
     match n.format.as_str() {
         "signed" => {
@@ -203,6 +213,7 @@ pub async fn create(
             request: n.request,
             guest_role,
             share_link,
+            alert,
         },
         password_hash,
         active: true,
@@ -211,6 +222,7 @@ pub async fn create(
         last_status: None,
         failures: 0,
         created_at: now.trunc_subsecs(6),
+        firing: false,
     };
     store.put_schedule(&org, &s).await?;
     state.usage.record(crate::usage::Event {
@@ -224,6 +236,39 @@ pub async fn create(
         out["password"] = json!(p); // shown this once
     }
     Ok(Json(out))
+}
+
+/// An alert's rule, checked against the dashboard: a number to watch (a tile without dimensions),
+/// one of its measures, and a comparison period for rises and falls.
+fn alert_on(d: &crate::schema::Dashboard, rule: &AlertRule) -> ApiResult<AlertRule> {
+    rule.check().map_err(ApiError::bad_request)?;
+    let tile = d
+        .tiles
+        .iter()
+        .find(|t| t.id == rule.tile)
+        .ok_or_else(|| ApiError::bad_request(format!("no tile {:?} on this dashboard", rule.tile)))?;
+    let q = tile
+        .query
+        .as_ref()
+        .filter(|q| q.dimensions.is_empty() && !q.measures.is_empty())
+        .ok_or_else(|| ApiError::bad_request("an alert watches a number: a tile without dimensions (a KPI)"))?;
+    let measure = rule.measure.clone().unwrap_or_else(|| q.measures[0].clone());
+    if !q.measures.contains(&measure) {
+        return Err(ApiError::bad_request(format!("the tile has no measure {measure:?}")));
+    }
+    let compared = q.period.as_ref().is_some_and(|p| p.compare.is_some())
+        || (q.period.is_none()
+            && tile.options.get("period") != Some(&Value::Bool(false))
+            && d.period.as_ref().is_some_and(|p| p.compare.is_some()));
+    if rule.op.ends_with("_by") && !compared {
+        return Err(ApiError::bad_request("a rise or fall needs a comparison period on the tile or the dashboard"));
+    }
+    Ok(AlertRule { measure: Some(measure), ..rule.clone() })
+}
+
+/// A number as people read it in a message.
+fn shown(v: f64) -> String {
+    if v.fract() == 0.0 && v.abs() < 1e15 { format!("{v:.0}") } else { format!("{v:.2}") }
 }
 
 /// A schedule its maker or an Org admin may change.
@@ -277,8 +322,8 @@ pub async fn run_now(
     Auth(caller): Auth,
     Path(id): Path<String>,
 ) -> ApiResult<Json<Value>> {
-    let (store, s) = own(&state, &caller, &id).await?;
-    let result = run(&state, caller.org(), &s).await;
+    let (store, mut s) = own(&state, &caller, &id).await?;
+    let result = run(&state, caller.org(), &mut s).await;
     let s = record(&store, caller.org(), s, &result, Utc::now()).await?;
     Ok(Json(json!({"ok": result.is_ok(), "schedule": describe(&s)})))
 }
@@ -338,7 +383,7 @@ fn text(e: ApiError) -> String {
 }
 
 /// One run: the report, as its maker, to its recipients and webhooks.
-pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, String> {
+pub async fn run(state: &AppState, org: &str, s: &mut Schedule) -> Result<String, String> {
     let min = match s.config.format.as_str() {
         "signed" => Role::PowerUser,
         "public" => Role::OrgAdmin,
@@ -357,6 +402,8 @@ pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, St
     let mut link = format!("{base}/dashboards/{}", s.dashboard_id);
     let mut lines: Vec<String> = d.description.iter().cloned().collect();
     let mut attachment = None;
+    let mut subject = format!("{}: {}", s.config.name, d.title);
+    let mut done = String::new();
     match s.config.format.as_str() {
         "csv" => {
             let (file, bytes) =
@@ -398,6 +445,38 @@ pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, St
             let token = key.open(&l.token_sealed, &super::share::sealed_for(org)).map_err(|e| e.to_string())?;
             link = format!("{base}/s/{org}/{token}");
         }
+        "alert" => {
+            let rule = s.config.alert.clone().ok_or("this alert has no rule")?;
+            let result = super::dashboards::tile_for(state, &caller, &s.dashboard_id, &rule.tile, &request)
+                .await
+                .map_err(text)?;
+            let measure = rule.measure.clone().unwrap_or_default();
+            let columns = result["columns"].as_array().cloned().unwrap_or_default();
+            let i = columns.iter().position(|c| c["field"] == json!(measure)).ok_or("the tile no longer shows it")?;
+            let name = columns[i]["name"].as_str().unwrap_or_default().to_string();
+            let label = columns[i]["label"].as_str().unwrap_or(&measure).to_string();
+            let number = |v: &Value| v.as_f64().or_else(|| v.as_str().and_then(|t| t.parse().ok()));
+            let row = &result["rows"][0];
+            let value = number(&row[i]);
+            let change = columns
+                .iter()
+                .position(|c| c["name"] == json!(format!("{name}__change")))
+                .and_then(|j| number(&row[j]));
+            let said = rule.describe(&label);
+            let now = value.map_or("no data".to_string(), shown);
+            let met = rule.met(value, change);
+            let was = std::mem::replace(&mut s.firing, met);
+            if !met {
+                return Ok(format!("checked: {label} is {now}"));
+            }
+            if was {
+                return Ok(format!("still {said} (now {now}); already told"));
+            }
+            let change = change.map(|c| format!(", {:+.1}% on the previous period", c * 100.0)).unwrap_or_default();
+            subject = format!("{}: {said}", s.config.name);
+            lines = vec![format!("{said}: it is {now}{change}, on {}.", d.title)];
+            done = format!("alerted: {said} (now {now}): ");
+        }
         other => return Err(format!("unknown format {other:?}")),
     }
 
@@ -432,7 +511,7 @@ pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, St
                     );
                     let mail = Mail {
                         to: vec![r.clone()],
-                        subject: format!("{}: {}", s.config.name, d.title),
+                        subject: subject.clone(),
                         text: body,
                         attachments: attachment.iter().cloned().collect(),
                     };
@@ -452,11 +531,7 @@ pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, St
         };
         let url = key.open(&sealed, &format!("{org}/webhook/{w}")).map_err(|e| e.to_string())?;
         let kind: WebhookKind = serde_json::from_value(json!(kind)).map_err(|e| e.to_string())?;
-        let m = Message {
-            title: format!("{}: {}", s.config.name, d.title),
-            text: lines.join("\n"),
-            link: Some(link.clone()),
-        };
+        let m = Message { title: subject.clone(), text: lines.join("\n"), link: Some(link.clone()) };
         match post_webhook(state.connectors.net_guard(), &url, &payload(kind, &m)).await {
             Ok(()) => posted += 1,
             Err(e) => problems.push(format!("webhook {w}: {e}")),
@@ -468,7 +543,10 @@ pub async fn run(state: &AppState, org: &str, s: &Schedule) -> Result<String, St
         detail: Some(json!({"schedule": s.id, "sent": sent.len(), "webhooks": posted, "problems": problems})),
         ..caller.event("schedule_run")
     });
-    let done = format!("sent to {} people and {posted} webhooks", sent.len());
+    if !done.is_empty() && sent.is_empty() && posted == 0 {
+        s.firing = false; // nobody was told: try again at the next check
+    }
+    let done = format!("{done}sent to {} people and {posted} webhooks", sent.len());
     if problems.is_empty() { Ok(done) } else { Err(format!("{done}; {}", problems.join("; "))) }
 }
 
@@ -500,11 +578,11 @@ pub async fn tick_tenant(state: &AppState, org: &str, now: DateTime<Utc>) {
         if !store.claim_schedule(org, &s.id, s.next_run_at, next).await.unwrap_or(false) {
             continue; // another server took it
         }
-        let result = run(state, org, &s).await;
+        let mut s = Schedule { next_run_at: next, ..s };
+        let result = run(state, org, &mut s).await;
         if let Err(e) = &result {
             tracing::warn!(org, schedule = s.id, "scheduled report: {e}");
         }
-        let s = Schedule { next_run_at: next, ..s };
         if let Err(e) = record(&store, org, s, &result, now).await {
             tracing::warn!(org, "scheduled report not recorded: {}", text(e));
         }
@@ -746,6 +824,99 @@ mod tests {
         let c = state.store.pool.get().await.unwrap();
         c.execute("DELETE FROM sessions WHERE user_email = $1", &[&ana]).await.unwrap();
         c.execute("DELETE FROM users WHERE email = $1", &[&ana]).await.unwrap();
+        clean_up(&state, &org).await;
+    }
+
+    const ALERTS: &str = "title: Watch\ntiles:\n  - {id: n, type: kpi, query: {model: sales, measures: [transactions]}}\n  - {id: cmp, type: kpi, query: {model: sales, measures: [transactions], period: {field: sold_at, current: {last_n_days: 30}, compare: previous_period}}}\n  - {id: r, type: bar, query: {model: sales, dimensions: [region], measures: [transactions]}}\n";
+
+    #[tokio::test]
+    async fn alerts_tell_once_when_a_number_crosses_the_line() {
+        let Some((app, state, cookie, org)) = org_with(ALERTS).await else { return };
+        let c = Some(cookie.as_str());
+        let (smtp, mut mails) = fake_smtp().await;
+        let (hook, mut posts) = fake_webhook().await;
+        let server = json!({"host": "127.0.0.1", "port": smtp, "security": "none", "from": "bi@example.com"});
+        send(&app, c, &org, "PUT", "/api/delivery/mail", Some(server), None).await;
+        let w = json!({"kind": "webhook", "url": format!("http://127.0.0.1:{hook}/hook")});
+        send(&app, c, &org, "PUT", "/api/delivery/webhooks/ops", Some(w), None).await;
+        let path = "/api/dashboards/shared/schedules";
+        let hourly = json!({"every": "hourly", "at": "00:05", "timezone": "UTC"});
+        let alert = |rule: Value| {
+            json!({"name": "Sales watch", "when": hourly, "format": "alert", "recipients": [OWNER],
+                                         "webhooks": ["ops"], "alert": rule})
+        };
+
+        // a number to watch: a tile without dimensions; a change needs a comparison period
+        for (bad, why) in [
+            (json!({"tile": "r", "op": "above", "value": 1}), "a number"),
+            (json!({"tile": "nope", "op": "above", "value": 1}), "no tile"),
+            (json!({"tile": "n", "measure": "units", "op": "above", "value": 1}), "measure"),
+            (json!({"tile": "n", "op": "rises_by", "value": 10}), "comparison"),
+            (json!({"tile": "n", "op": "equals", "value": 1}), "above, below"),
+        ] {
+            let (s, b, _) = send(&app, c, &org, "POST", path, Some(alert(bad.clone())), Some("user")).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{bad}: {b}");
+            assert!(b["detail"].as_str().unwrap().contains(why), "{bad}: {b}");
+        }
+        let rule = json!({"tile": "n", "op": "above", "value": 1});
+        assert_eq!(
+            send(&app, c, &org, "POST", path, Some(alert(rule.clone())), Some("viewer")).await.0,
+            StatusCode::FORBIDDEN
+        );
+        let (s, r, _) = send(&app, c, &org, "POST", path, Some(alert(rule)), Some("user")).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let id = r["id"].as_str().unwrap().to_string();
+        let run = format!("/api/schedules/{id}/run");
+
+        // over the line: told, by email and webhook
+        let (_, b, _) = send(&app, c, &org, "POST", &run, None, None).await;
+        assert!(b["schedule"]["last_status"].as_str().unwrap().starts_with("alerted"), "{b}");
+        let m = arrived(&mut mails).await;
+        assert!(m.contains("Subject: Sales watch: Transactions above 1"), "{m}");
+        let p = arrived(&mut posts).await;
+        assert!(p["title"].as_str().unwrap().contains("Transactions above 1") && p["link"].is_string(), "{p}");
+        // still over: not told again
+        let (_, b, _) = send(&app, c, &org, "POST", &run, None, None).await;
+        assert!(b["schedule"]["last_status"].as_str().unwrap().starts_with("still"), "{b}");
+        assert!(tokio::time::timeout(std::time::Duration::from_millis(500), mails.recv()).await.is_err(), "told twice");
+        // back under the line, then over again: told again
+        let store = state.orgs.store(&org).await.unwrap();
+        let set = |value: f64| {
+            let store = store.clone();
+            let (org, id) = (org.clone(), id.clone());
+            async move {
+                let mut s = store.schedule(&org, &id).await.unwrap().unwrap();
+                s.config.alert.as_mut().unwrap().value = value;
+                store.put_schedule(&org, &s).await.unwrap();
+            }
+        };
+        set(1e12).await;
+        let (_, b, _) = send(&app, c, &org, "POST", &run, None, None).await;
+        assert!(b["schedule"]["last_status"].as_str().unwrap().starts_with("checked"), "{b}");
+        set(1.0).await;
+        send(&app, c, &org, "POST", &run, None, None).await;
+        assert!(arrived(&mut mails).await.contains("Transactions above 1"));
+
+        // a change on the comparison period
+        let rule = json!({"tile": "cmp", "op": "falls_by", "value": 1000});
+        let (s, r, _) = send(&app, c, &org, "POST", path, Some(alert(rule)), Some("user")).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let (_, b, _) =
+            send(&app, c, &org, "POST", &format!("/api/schedules/{}/run", r["id"].as_str().unwrap()), None, None).await;
+        assert!(
+            b["schedule"]["last_status"].as_str().unwrap().starts_with("checked"),
+            "a 1000% fall can't happen: {b}"
+        );
+
+        // over the line but nobody could be told: not settled, so it tries again next time
+        send(&app, c, &org, "DELETE", "/api/delivery/mail", None, None).await;
+        let mut sched = store.schedule(&org, &id).await.unwrap().unwrap();
+        sched.config.webhooks.clear();
+        sched.firing = false;
+        store.put_schedule(&org, &sched).await.unwrap();
+        let (_, b, _) = send(&app, c, &org, "POST", &run, None, None).await;
+        assert!(b["schedule"]["last_status"].as_str().unwrap().contains("no mail server"), "{b}");
+        assert_eq!(b["schedule"]["firing"], json!(false), "{b}");
         clean_up(&state, &org).await;
     }
 }

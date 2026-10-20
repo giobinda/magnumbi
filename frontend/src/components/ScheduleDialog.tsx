@@ -1,18 +1,25 @@
 import { useEffect, useState } from 'react'
 import { api } from '../api'
-import type { ReportFormat, Role, Schedule, ScheduleWhen, ShareLink, TileRequest } from '../api'
-import { WEEKDAYS, describeWhen, parseRecipients } from '../schedule'
+import type { AlertRule, ReportFormat, Role, Schedule, ScheduleWhen, ShareLink, Tile, TileRequest } from '../api'
+import { WEEKDAYS, describeAlert, describeWhen, numberTiles, parseRecipients } from '../schedule'
 
 const FORMATS: { format: ReportFormat; label: string; detail: string }[] = [
   { format: 'csv', label: 'The data (zip of CSV files)', detail: 'Each chart\'s data, attached to the email. Webhooks get a link to the dashboard.' },
   { format: 'signed', label: 'A guest link with a password', detail: 'A fresh link each time, valid until the next report (at most 14 days). Recipients need the password you set here: it is never in the email.' },
   { format: 'public', label: 'A public link', detail: 'One of this dashboard\'s public links: anyone with it can see the dashboard.' },
+  { format: 'alert', label: 'An alert when a number crosses a line', detail: 'Checked on the schedule; a message only when it crosses, and again only after it came back.' },
+]
+const OPS: { op: AlertRule['op']; label: string }[] = [
+  { op: 'above', label: 'goes above' }, { op: 'below', label: 'goes below' },
+  { op: 'rises_by', label: 'rises by (%) on the previous period' }, { op: 'falls_by', label: 'falls by (%) on the previous period' },
 ]
 
 /** Scheduled reports of a dashboard: when, as what, to whom (Users and up). */
-export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request, onClose }: {
-  id: string; me: string; myRole: Role; isAdmin: boolean; inOrg: boolean; request: TileRequest; onClose: () => void
+export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request, tiles, onClose }: {
+  id: string; me: string; myRole: Role; isAdmin: boolean; inOrg: boolean; request: TileRequest; tiles: Tile[]; onClose: () => void
 }) {
+  const numbers = numberTiles(tiles)
+  const [rule, setRule] = useState<AlertRule>({ tile: numbers[0]?.id ?? '', measure: numbers[0]?.query.measures?.[0] ?? null, op: 'below', value: 0 })
   const [list, setList] = useState<Schedule[]>([])
   const [webhooks, setWebhooks] = useState<string[]>([])
   const [mail, setMail] = useState(true)
@@ -35,7 +42,9 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
   }, [id])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const powerUser = ['power_user', 'org_admin', 'system_owner'].includes(myRole)
-  const formats = FORMATS.filter(f => f.format === 'csv' || (inOrg && (f.format === 'signed' ? powerUser : isAdmin)))
+  const formats = FORMATS.filter(f => f.format === 'csv' || (f.format === 'alert' ? numbers.length > 0
+    : inOrg && (f.format === 'signed' ? powerUser : isAdmin)))
+  const watched = numbers.find(t => t.id === rule.tile)
 
   const create = async () => {
     setBusy(true); setError(null); setMade(null)
@@ -43,7 +52,7 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
       const s = await api.createSchedule(id, {
         name, when: { ...when, day: when.every === 'daily' ? null : when.day ?? 1 }, format,
         recipients: parseRecipients(recipients), webhooks: hooks, request: { ...request, drill: [] },
-        ...(format === 'signed' ? { password } : {}), ...(format === 'public' ? { share_link: shareLink } : {}),
+        ...(format === 'signed' ? { password } : {}), ...(format === 'public' ? { share_link: shareLink } : {}), ...(format === 'alert' ? { alert: rule } : {}),
       })
       setMade(s.password ? `The guests' password is ${s.password}: send it to them separately. It isn't shown again.` : `Scheduled: ${describeWhen(s.when)}.`)
       setPassword(''); await load()
@@ -54,7 +63,7 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
   return (
     <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) onClose() }}>
       <div className="modal share-dialog">
-        <h2>Scheduled reports</h2>
+        <h2>Reports and alerts</h2>
         <p className="small">Send this dashboard on a schedule, with the filters and period on screen now, to your organisation's
           members (and email domains your Org admins allow) and to its Slack or Teams webhooks. It is sent as you: your own
           restrictions apply, and it stops if you can no longer share it.</p>
@@ -65,7 +74,7 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
             <thead><tr><th>Report</th><th>When</th><th>To</th><th>Last run</th></tr></thead>
             <tbody>{list.map(s => (
               <tr key={s.id} className={s.active ? '' : 'muted'}>
-                <td><b>{s.name}</b><div className="muted">{FORMATS.find(f => f.format === s.format)?.label}</div>
+                <td><b>{s.name}</b><div className="muted">{s.alert ? `Alert: ${describeAlert(s.alert)}${s.firing ? ' (it is now)' : ''}` : FORMATS.find(f => f.format === s.format)?.label}</div>
                   <div className="nowrap">
                     <button className="link" onClick={() => act(() => api.runSchedule(s.id))}>Send now</button>{' · '}
                     <button className="link" onClick={() => act(() => api.setScheduleActive(s.id, !s.active))}>{s.active ? 'Pause' : 'Resume'}</button>{' · '}
@@ -80,12 +89,12 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
           </table></div>
         )}
 
-        <h3>New report</h3>
+        <h3>New report or alert</h3>
         <label className="small">Name <input value={name} onChange={e => setName(e.target.value)} /></label>
         <div className="row wrap">
           <label className="small">Every
             <select value={when.every} onChange={e => setWhen({ ...when, every: e.target.value as ScheduleWhen['every'], day: 1 })}>
-              <option value="daily">day</option><option value="weekly">week</option><option value="monthly">month</option>
+              <option value="hourly">hour</option><option value="daily">day</option><option value="weekly">week</option><option value="monthly">month</option>
             </select>
           </label>
           {when.every === 'weekly' && <label className="small">on
@@ -98,7 +107,13 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
               {Array.from({ length: 28 }, (_, i) => <option key={i} value={i + 1}>{i + 1}</option>)}
             </select>
           </label>}
-          <label className="small">at <input type="time" value={when.at} onChange={e => setWhen({ ...when, at: e.target.value })} /></label>
+          {when.every === 'hourly'
+            ? <label className="small">at minute
+                <select value={when.at.slice(3)} onChange={e => setWhen({ ...when, at: `00:${e.target.value}` })}>
+                  {Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, '0')).map(m => <option key={m} value={m}>:{m}</option>)}
+                </select>
+              </label>
+            : <label className="small">at <input type="time" value={when.at} onChange={e => setWhen({ ...when, at: e.target.value })} /></label>}
           <label className="small">time zone <input value={when.timezone} onChange={e => setWhen({ ...when, timezone: e.target.value })} /></label>
         </div>
         <fieldset className="small">
@@ -108,6 +123,24 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
               <span><b>{f.label}</b><br /><span className="muted">{f.detail}</span></span></label>
           ))}
         </fieldset>
+        {format === 'alert' && <div className="row wrap alert-rule">
+          <label className="small">When
+            <select value={rule.tile} onChange={e => { const t = numbers.find(x => x.id === e.target.value); setRule({ ...rule, tile: e.target.value, measure: t?.query.measures?.[0] ?? null }) }}>
+              {numbers.map(t => <option key={t.id} value={t.id}>{t.title || t.id}</option>)}
+            </select>
+          </label>
+          {(watched?.query.measures?.length ?? 0) > 1 && <label className="small">measure
+            <select value={rule.measure ?? ''} onChange={e => setRule({ ...rule, measure: e.target.value })}>
+              {watched!.query.measures!.map(m => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </label>}
+          <label className="small">
+            <select value={rule.op} onChange={e => setRule({ ...rule, op: e.target.value as AlertRule['op'] })}>
+              {OPS.map(o => <option key={o.op} value={o.op}>{o.label}</option>)}
+            </select>
+          </label>
+          <label className="small"><input type="number" value={rule.value} onChange={e => setRule({ ...rule, value: Number(e.target.value) })} /></label>
+        </div>}
         {format === 'signed' && <label className="small">Guests' password <span className="muted">(at least 10 characters; empty: one is made up and shown once)</span>
           <input type="password" autoComplete="new-password" value={password} onChange={e => setPassword(e.target.value)} /></label>}
         {format === 'public' && <label className="small">Public link
