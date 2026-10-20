@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
-import type { ConnectionInfo } from '../api'
+import type { ConnectionInfo, Formula, SharedFormula } from '../api'
+import FormulaEditor from '../components/FormulaEditor'
 import { forgetModels, useModels } from '../hooks'
 import { DIMENSION_TYPES, MEASURE_TYPES, modelFrom, rowsFor } from '../modelEditor'
 import type { FieldRow, MeasureDef, ModelDef } from '../modelEditor'
@@ -76,6 +77,7 @@ export default function ModelsPage() {
           </div>
         ))}
       </>}
+      <SharedFormulas />
       <p className="muted small">Restrictions on what members see apply to models by name, and follow the same table into any new model
         on it. A model on a different table or view is different data: check <Link to="/members">Members</Link> after adding one.</p>
     </div>
@@ -188,4 +190,56 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
       </>}
     </div>
   )
+}
+
+/** Org admins: calculations shared with everyone, as measures of their models (made here or in Explore). */
+function SharedFormulas() {
+  const [list, setList] = useState<SharedFormula[]>([])
+  const [editing, setEditing] = useState<{ model: string; formula: Formula | null } | null>(null)
+  const [pick, setPick] = useState('')
+  const [error, setError] = useState<string | null>(null)
+  const { models, reload } = useModels()
+  const load = () => api.formulas().then(r => setList(r.formulas), e => setError(e.message))
+  useEffect(() => { load() }, [])
+  const usable = models.filter(m => !m.blend)
+  const model = models.find(m => m.name === editing?.model)
+
+  const save = async (f: Formula) => {
+    await api.saveFormula(editing!.model, f)
+    setEditing(null); forgetModels(); reload(); load()
+  }
+  const remove = async (s: SharedFormula) => {
+    if (!confirm(`Delete the formula "${s.formula.label ?? s.formula.name}"? Dashboards using it stop working.`)) return
+    try { await api.deleteFormula(s.model, s.formula.name); forgetModels(); reload(); load() } catch (e) { setError((e as Error).message) }
+  }
+  return <>
+    <h2 className="section">Shared formulas</h2>
+    <p className="muted small">Calculations on a model's measures, such as <span className="mono">revenue / transactions</span>, or
+      fields of each row, such as <span className="mono">amount * qty</span>. Everyone in your organisation finds them among the
+      model's fields. Anyone who explores can also add a formula to their own chart.</p>
+    {error && <div className="error">{error}</div>}
+    <div className="row">
+      <select value={pick} onChange={e => setPick(e.target.value)} aria-label="Model">
+        <option value="">Choose a model…</option>
+        {usable.map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
+      </select>
+      <button disabled={!pick} onClick={() => setEditing({ model: pick, formula: null })}>ƒ New formula</button>
+    </div>
+    {list.map(s => (
+      <div key={`${s.model}.${s.formula.name}`} className="card person row wrap">
+        <b>{s.formula.label ?? s.formula.name}</b>
+        <span className="muted small mono">{models.find(m => m.name === s.model)?.label ?? s.model} · {s.formula.per_row ? 'per row' : 'on totals'} · {s.formula.expr}</span>
+        {s.problem && <span className="error small">{s.problem}</span>}
+        <span className="grow" />
+        <span className="muted small">{s.updated_by ? `by ${s.updated_by}, ` : ''}{new Date(s.updated_at).toLocaleDateString()}</span>
+        <button onClick={() => setEditing({ model: s.model, formula: s.formula })}>Edit</button>
+        <button className="danger" onClick={() => remove(s)}>Delete</button>
+      </div>
+    ))}
+    {editing && model && (
+      <FormulaEditor model={model} initial={editing.formula} shared canShare
+        taken={[...model.dimensions.map(d => d.name), ...model.measures.map(m => m.name)]}
+        onSave={save} onCancel={() => setEditing(null)} />
+    )}
+  </>
 }

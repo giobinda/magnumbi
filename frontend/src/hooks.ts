@@ -16,7 +16,9 @@ export function useModels() {
     modelsPromise ??= api.models()
     modelsPromise.then(setState, e => { modelsPromise = null; setError(String(e.message ?? e)) })
   }, [])
-  return { models: state?.models ?? [], modelErrors: state?.errors ?? {}, error, loaded: state !== null }
+  // after a change to the models (e.g. a shared formula): read them again
+  const reload = () => { modelsPromise = api.models(); modelsPromise.then(setState, e => setError(String(e.message ?? e))) }
+  return { models: state?.models ?? [], modelErrors: state?.errors ?? {}, error, loaded: state !== null, reload }
 }
 
 /** True on a phone-sized screen (the same width as the CSS's phone rules), following resizes. */

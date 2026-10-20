@@ -91,6 +91,9 @@ pub struct Dimension {
     /// SQL expression over the model's base; defaults to the column `name`
     #[serde(default)]
     pub sql: Option<String>,
+    /// or a formula on the row's other fields (no SQL): e.g. `amount * qty`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
     #[serde(default)]
     pub hidden: bool,
     /// how the column is aggregated when used as a number (None: sum for numbers)
@@ -112,11 +115,15 @@ pub struct Measure {
     pub label: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
-    /// count | count_distinct | sum | avg | min | max | number (a full aggregate expression)
+    /// count | count_distinct | sum | avg | min | max | number (a full aggregate expression) |
+    /// formula (a calculation on other measures, in the formula language)
     #[serde(rename = "type")]
     pub kind: String,
     #[serde(default)]
     pub sql: Option<String>,
+    /// for type formula: e.g. `(revenue - cost) / revenue`
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub formula: Option<String>,
     #[serde(default = "default_format")]
     pub format: String,
     /// colours period-over-period changes (e.g. false for a return rate)
@@ -130,7 +137,9 @@ fn default_format() -> String {
     "number".into()
 }
 
-pub const MEASURE_TYPES: [&str; 7] = ["count", "count_distinct", "sum", "avg", "min", "max", "number"];
+pub const MEASURE_TYPES: [&str; 8] = ["count", "count_distinct", "sum", "avg", "min", "max", "number", "formula"];
+/// The most formulas one query may add.
+pub const MAX_FORMULAS: usize = 50;
 pub const FORMATS: [&str; 3] = ["number", "currency", "percent"];
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
@@ -178,6 +187,9 @@ impl Model {
         check_name(&self.name)?;
         for d in &self.dimensions {
             check_name(&d.name)?;
+            if d.formula.is_some() && d.sql.is_some() {
+                return Err(format!("dimension {:?}: set `formula` or `sql`, not both", d.name));
+            }
             if !DIM_TYPES.contains(&d.kind.as_str()) {
                 return Err(format!("dimension {:?}: unknown type {:?}", d.name, d.kind));
             }
@@ -190,7 +202,13 @@ impl Model {
             if !FORMATS.contains(&m.format.as_str()) {
                 return Err(format!("measure {:?}: unknown format {:?}", m.name, m.format));
             }
-            if m.kind != "count" && m.sql.as_deref().is_none_or(str::is_empty) {
+            if m.kind == "formula" {
+                if m.formula.as_deref().is_none_or(str::is_empty) || m.sql.is_some() {
+                    return Err(format!("measure {:?} of type formula needs `formula` (and no `sql`)", m.name));
+                }
+            } else if m.formula.is_some() {
+                return Err(format!("measure {:?}: `formula` is for measures of type formula", m.name));
+            } else if m.kind != "count" && m.sql.as_deref().is_none_or(str::is_empty) {
                 return Err(format!("measure {:?} of type {} needs `sql`", m.name, m.kind));
             }
         }
@@ -212,6 +230,7 @@ impl Model {
         if !dupes.is_empty() {
             return Err(format!("model {:?}: duplicate field names {dupes:?}", self.name));
         }
+        crate::compiler::check_formulas(self).map_err(|e| e.0)?;
         for (h, path) in &self.hierarchies {
             let missing: Vec<&String> = path.iter().filter(|p| self.dimension(p).is_none()).collect();
             if !missing.is_empty() {
@@ -387,8 +406,7 @@ pub struct TopN {
     pub bottom: bool,
 }
 
-/// A calculated field in the formula language. Accepted in files so existing dashboards load;
-/// not compiled yet (formulas are on the roadmap).
+/// A calculation a query adds, in the formula language: a measure of that query only.
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Formula {
@@ -400,6 +418,49 @@ pub struct Formula {
     pub format: Option<String>,
     #[serde(default)]
     pub description: Option<String>,
+    /// a field of each row (grouped by, filtered, summed), not a calculation on totals
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub per_row: bool,
+}
+
+impl Formula {
+    /// The formula as a measure of its model.
+    pub fn as_measure(&self) -> Measure {
+        Measure {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            description: self.description.clone(),
+            kind: "formula".into(),
+            sql: None,
+            formula: Some(self.expr.clone()),
+            format: self.format.clone().unwrap_or_else(default_format),
+            higher_is_better: true,
+            hidden: false,
+        }
+    }
+
+    /// A per-row formula as a dimension of its model (its type is what it gives: see
+    /// `compiler::with_row_formulas`).
+    pub fn as_dimension(&self) -> Dimension {
+        Dimension {
+            name: self.name.clone(),
+            label: self.label.clone(),
+            description: self.description.clone(),
+            kind: String::new(),
+            sql: None,
+            formula: Some(self.expr.clone()),
+            hidden: false,
+            aggregation: None,
+        }
+    }
+
+    pub fn check(&self) -> Result<(), String> {
+        check_name(&self.name).map_err(|e| format!("formula {e}"))?;
+        match self.format.as_deref() {
+            Some(x) if !FORMATS.contains(&x) => Err(format!("formula {:?}: unknown format {x:?}", self.name)),
+            _ => Ok(()),
+        }
+    }
 }
 
 fn default_limit() -> i64 {
@@ -440,14 +501,17 @@ impl Query {
 
     /// `max_rows`: MAX_ROWS for people's queries; more for internal ones (blend sources).
     pub fn validate_up_to(&self, max_rows: i64) -> Result<(), String> {
-        if self.dimensions.is_empty() && self.measures.is_empty() {
+        if self.dimensions.is_empty() && self.measures.is_empty() && self.formulas.is_empty() {
             return Err("a query needs at least one dimension or measure".into());
         }
         if !(1..=max_rows).contains(&self.limit) {
             return Err(format!("limit: between 1 and {max_rows}"));
         }
-        if !self.formulas.is_empty() {
-            return Err("formulas aren't supported in Magnum BI yet; use model measures or Σ aggregations".into());
+        if self.formulas.len() > MAX_FORMULAS {
+            return Err(format!("at most {MAX_FORMULAS} formulas in a query"));
+        }
+        for f in &self.formulas {
+            f.check()?;
         }
         for f in &self.filters {
             if !FILTER_OPS.contains(&f.op.as_str()) {

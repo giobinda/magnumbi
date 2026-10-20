@@ -221,6 +221,7 @@ impl Blend {
                     label: Some(field_label(m, d.label.as_ref(), &d.name)),
                     hidden: d.hidden || keys.contains(&d.name),
                     sql: None,
+                    formula: None,
                     ..d.clone()
                 });
             }
@@ -348,6 +349,9 @@ pub fn plan(
     q: &Query,
     now: DateTime<Utc>,
 ) -> Result<Plan, QueryError> {
+    if !q.formulas.is_empty() {
+        return Err(QueryError("formulas aren't available on blends yet: use them on a model".into()));
+    }
     blend.validate(models).map_err(QueryError)?;
     let ms = blend.models(models);
     let mut keys = vec![vec![]];
@@ -479,6 +483,7 @@ fn joined(cx: &Ctx, sides: &[usize], q: &Query, now: DateTime<Utc>) -> Result<Jo
         description: d.description.clone(),
         kind,
         sql: Some(ident(column)),
+        formula: None,
         hidden,
         aggregation: None,
     };
@@ -1067,6 +1072,8 @@ joins:
                 .contains("can't be combined")
         );
         assert!(e(json!({"model": "trips_weather", "dimensions": ["nope.x"]})).contains("nope"));
+        let f = json!([{"name": "x", "expr": "1"}]);
+        assert!(e(json!({"model": "trips_weather", "measures": ["trips.trips"], "formulas": f})).contains("blends"));
         assert!(e(json!({"model": "trips_weather", "dimensions": ["trips.nope"]})).contains("nope"));
         assert!(e(json!({"model": "trips_weather", "dimensions": ["condition"]})).contains("model.field"));
         assert!(

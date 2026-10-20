@@ -7,6 +7,7 @@ mod connections;
 mod dashboards;
 pub(crate) mod delivery;
 mod exports;
+mod formulas;
 mod guest;
 mod mcp;
 mod models;
@@ -37,7 +38,7 @@ use crate::cache;
 use crate::compiler::{Column, Compiled, Dialect, compile_query, expand};
 use crate::connectors::ConnectorError;
 use crate::error::{ApiError, ApiResult};
-use crate::materialize::ColType;
+use crate::materialize::{self, ColType};
 use crate::period::now_rounded;
 use crate::schema::{Model, Query};
 use crate::security::{MAX_BODY_BYTES, hardening};
@@ -134,6 +135,9 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections/{name}/test", post(connections::test))
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
+        .route("/api/formulas", get(formulas::list))
+        .route("/api/formulas/check", post(formulas::check))
+        .route("/api/formulas/{model}/{name}", axum::routing::put(formulas::save).delete(formulas::delete))
         .route("/api/org-models", get(org_models::list))
         .route("/api/setup", get(setup::checklist))
         .route("/api/org-models/{name}", axum::routing::put(org_models::save).delete(org_models::delete))
@@ -244,8 +248,15 @@ pub async fn dialects(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<S
 }
 
 /// The only way to SQL: with the caller's data restrictions for this model as mandatory
-/// conditions (compile_query never drops those, unlike ordinary filters).
+/// conditions (compile_query never drops those, unlike ordinary filters). Calculations on
+/// results are checked, and shown after the SQL (they run on ScramDB: `execute`).
 pub fn compile_for(caller: &Caller, q: &Query, dialect: Dialect) -> ApiResult<Compiled> {
+    if let Some(split) = crate::results::split(q).map_err(ApiError::bad_request)? {
+        let mut c = compile_for(caller, &split.inner, dialect)?;
+        let calc_sql = crate::results::sql("results", &c.columns, &split.calcs).map_err(ApiError::bad_request)?;
+        c.sql = format!("{}\n\n-- then, on the results:\n{calc_sql}", c.sql);
+        return Ok(c);
+    }
     let m = model_of(caller, &q.model)?;
     let mandatory = row_filters_for(&caller.scope, &caller.project, &q.model)?;
     let (m2, q2) = expand(m, q, dialect)?;
@@ -280,13 +291,54 @@ impl Outcome {
     }
 }
 
-/// Compile and run a query (on a model or a blend). Every query is a usage event.
+/// Compile and run a query (on a model or a blend), then its calculations on results, if any.
+/// Every query is a usage event.
 pub async fn execute(state: &AppState, caller: &Caller, q: &Query, source: Source<'_>) -> ApiResult<Value> {
+    let Some(split) = crate::results::split(q).map_err(ApiError::bad_request)? else {
+        return Ok(outcome(state, caller, q, source).await?.json(caller));
+    };
+    let out = outcome(state, caller, &split.inner, source).await?;
+    Ok(on_results(state, caller, out, &split, &q.sort).await?.json(caller))
+}
+
+async fn outcome(state: &AppState, caller: &Caller, q: &Query, source: Source<'_>) -> ApiResult<Outcome> {
     if let Some(b) = caller.project.blends.get(&q.model) {
         model_of(caller, &q.model)?; // available to this person?
-        return Ok(blends::execute(state, caller, b, q, source).await?.json(caller));
+        return blends::execute(state, caller, b, q, source).await;
     }
-    Ok(run_model(state, caller, q, source).await?.json(caller))
+    run_model(state, caller, q, source).await
+}
+
+/// The calculations on results (results.rs), on the organisation's ScramDB: the result as a work
+/// table, the calculations' values read by row, the table dropped.
+async fn on_results(
+    state: &AppState,
+    caller: &Caller,
+    out: Outcome,
+    split: &crate::results::Split,
+    sort: &[String],
+) -> ApiResult<Outcome> {
+    let started = std::time::Instant::now();
+    let db = state.orgs.store(caller.org()).await?;
+    let table = materialize::work_table_name();
+    let calc_sql = crate::results::sql(&table, &out.columns, &split.calcs).map_err(ApiError::bad_request)?;
+    let types = crate::results::column_types(&out.columns);
+    let values = async {
+        materialize::copy(&db.pool, &table, &types, &out.rows).await?;
+        let c = db.pool.get().await?;
+        let rows = c.query(&calc_sql, &[]).await?;
+        Ok::<_, anyhow::Error>(rows.iter().map(|r| crate::connectors::postgres::row_json(r)[1..].to_vec()).collect())
+    }
+    .await;
+    if let Err(e) = materialize::drop(&db.pool, "public", &table).await {
+        tracing::warn!(table, "results table not dropped (a cache sweep will): {e:#}");
+    }
+    let values: Vec<Vec<Value>> = values?;
+    let Outcome { columns, rows, sql, mut stats, period } = out;
+    let (columns, rows) = crate::results::finish(columns, rows, values, split, sort);
+    stats["calculations_ms"] = json!(started.elapsed().as_millis() as u64);
+    let sql = format!("{sql}\n\n-- then, on the results:\n{calc_sql}");
+    Ok(Outcome { columns, rows, sql, stats, period })
 }
 
 /// The organisation's ScramDB when results may be cached (`ttl` > 0; none for the platform
@@ -477,6 +529,7 @@ pub mod tests {
             blends: crate::state::OrgBlends::default(),
             themes: Default::default(),
             models: Default::default(),
+            formulas: Default::default(),
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
             demo: Default::default(),

@@ -146,12 +146,17 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
         // the handlers that honour ?dry_run (dashboards, blends, members, organisation themes)
         return matches!(
             parts.as_slice(),
-            ["dashboards", _] | ["dashboards", _, "yaml"] | ["blends", _] | ["members"] | ["org-themes"]
+            ["dashboards", _]
+                | ["dashboards", _, "yaml"]
+                | ["blends", _]
+                | ["members"]
+                | ["org-themes"]
+                | ["formulas", _, _]
         );
     }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)
     *method == Method::POST
-        && (matches!(parts.as_slice(), ["query"] | ["query", "sql"] | ["period"] | ["mcp"])
+        && (matches!(parts.as_slice(), ["query"] | ["query", "sql"] | ["period"] | ["mcp"] | ["formulas", "check"])
             || matches!(
                 parts.as_slice(),
                 ["dashboards", _, "tiles", _, "query" | "export"] | ["dashboards", _, "export"]
@@ -314,6 +319,11 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
         Ok(m) if !m.is_empty() => project = Arc::new(project.with_org_models(&m)),
         Ok(_) => {}
         Err(e) => tracing::warn!(org, "organisation's models unavailable: {e:#}"),
+    }
+    match state.org_formulas(&org).await {
+        Ok(f) if !f.is_empty() => project = Arc::new(project.with_formulas(&f)),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(org, "organisation's formulas unavailable: {e:#}"),
     }
     match state.org_blends(&org).await {
         Ok(b) if !b.is_empty() => project = Arc::new(project.with_org_blends(&b)),

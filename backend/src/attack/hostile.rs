@@ -42,6 +42,32 @@ const NAMES: &[&str] = &[
     "pg_catalog.pg_user",
 ];
 
+/// Formulas aimed at the SQL they're compiled into.
+const FORMULAS: &[&str] = &[
+    "revenue; DROP TABLE sample_sales",
+    "revenue) FROM users --",
+    "revenue /* */ + 1",
+    "(SELECT count(*) FROM users)",
+    "sum(amount) OVER ()",
+    "sum(password_hash)",
+    "sum((amount))",
+    "current_user",
+    "pg_sleep(10)",
+    "users.password_hash",
+    "'x' || revenue",
+    "1e400",
+    "if(1, 2, 3)",
+    "revenue\u{0}",
+    "😀",
+    "running_sum(revenue) OVER (PARTITION BY password_hash)",
+    "moving_avg(revenue, 99999999999)",
+    "moving_avg(revenue, 1e3)",
+    "rank(revenue); DROP TABLE x",
+    "running_sum(running_sum(revenue))",
+    "percent_of_total(region)",
+    "previous(users.password_hash)",
+];
+
 #[derive(Clone, Copy, PartialEq)]
 enum Expect {
     /// refused (4xx)
@@ -92,6 +118,40 @@ fn query_cases() -> Vec<Case> {
     for op in ["equals; DROP", "LIKE", "= '' OR 1=1 --", "between"] {
         let f = json!([{"field": "region", "op": op, "values": ["x"]}]);
         out.push(case(format!("filter op {op:?}"), "POST", "/api/query", q(json!({"filters": f})), Refused));
+    }
+    for f in FORMULAS.iter().map(|f| f.to_string()).chain([
+        format!("{}1{}", "(".repeat(5000), ")".repeat(5000)),
+        format!("{}revenue", "-".repeat(5000)),
+        "revenue + ".repeat(5000) + "1",
+    ]) {
+        let shown: String = f.chars().take(40).collect();
+        let formulas = json!([{"name": "f", "expr": f}]);
+        out.push(case(format!("formula {shown:?}"), "POST", "/api/query", q(json!({"formulas": formulas})), Refused));
+        let row = json!([{"name": "f", "expr": f, "per_row": true}]);
+        let q_row = q(json!({"dimensions": ["f"], "formulas": row}));
+        out.push(case(format!("per-row formula {shown:?}"), "POST", "/api/query", q_row, Refused));
+        let saved = json!({"name": "f", "expr": f});
+        out.push(case(format!("shared formula {shown:?}"), "PUT", "/api/formulas/sales/f", saved, Refused));
+        // the editor's check answers, whatever it's sent
+        let check = json!({"model": "sales", "expr": f});
+        out.push(case(format!("formula check {shown:?}"), "POST", "/api/formulas/check", check, NoCrash));
+    }
+    // text in a formula is a value, quoted for the engine: it runs, and runs as text
+    for text in ["x' OR '1'='1", "x'' OR ''1''=''1", "\\'; DROP TABLE x; --", "$$ OR 1=1 $$"] {
+        let expr = format!("if(region = '{}', 1, 0)", text.replace('\'', "''"));
+        let formulas = json!([{"name": "f", "expr": expr, "per_row": true}]);
+        let query = q(json!({"dimensions": ["f"], "formulas": formulas}));
+        out.push(case(format!("text {text:?} in a formula"), "POST", "/api/query", query, NoCrash));
+    }
+    for name in ["f; DROP", "revenue", "sold_at", "x\u{0}", ""] {
+        let formulas = json!([{"name": name, "expr": "1"}]);
+        out.push(case(
+            format!("formula named {name:?}"),
+            "POST",
+            "/api/query",
+            q(json!({"formulas": formulas})),
+            Refused,
+        ));
     }
     for limit in [json!(-1), json!(0), json!(1e12), json!("10; DROP TABLE x"), json!(1.5)] {
         out.push(case(format!("limit {limit}"), "POST", "/api/query", q(json!({"limit": limit})), Refused));

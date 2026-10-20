@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::blend::{Blend, MAX_SOURCE_ROWS, Plan, plan};
 use crate::compiler::{Dialect, compile_query, compile_query_up_to, expand};
 use crate::period::now_rounded;
-use crate::schema::{Dashboard, Drill, Model, Query, is_temporal};
+use crate::schema::{Dashboard, Drill, Formula, Model, Query, is_temporal};
 use crate::themes::{Theme, builtin};
 
 pub const MAX_YAML_BYTES: usize = 512 * 1024;
@@ -88,6 +88,8 @@ pub struct ProjectState {
     pub org_blends: BTreeSet<String>,
     /// the models that are the organisation's own (org_models.rs: made in the UI, no SQL)
     pub org_models: BTreeSet<String>,
+    /// the organisation's shared formulas: (model, name)
+    pub formulas: BTreeSet<(String, String)>,
     /// the default (light, dark) themes: the platform's, or the organisation's own choice
     pub theme_defaults: (String, String),
     pub themes: Vec<Theme>,
@@ -150,6 +152,56 @@ impl ProjectState {
         p
     }
 
+    /// This snapshot plus an organisation's shared formulas, as measures of their models (one
+    /// that no longer fits, e.g. after its model changed, is left out and reported).
+    pub fn with_formulas(&self, formulas: &[(String, Formula)]) -> ProjectState {
+        let mut p = self.clone();
+        for (model, f) in formulas {
+            match p.formula_fits(model, f) {
+                Ok(m) => {
+                    p.models.insert(model.clone(), m);
+                    p.formulas.insert((model.clone(), f.name.clone()));
+                }
+                Err(e) => {
+                    p.errors.insert(format!("formula {model}.{}", f.name), e);
+                }
+            }
+        }
+        p
+    }
+
+    /// The model with the formula added (or replacing the shared formula of that name), if it fits.
+    pub fn formula_fits(&self, model: &str, f: &Formula) -> Result<Model, String> {
+        f.check()?;
+        let mut m = match self.models.get(model) {
+            Some(_) if self.blends.contains_key(model) => {
+                return Err(format!("{model} is a blend: formulas go on models"));
+            }
+            Some(m) => m.clone(),
+            None => return Err(format!("no model named {model:?}")),
+        };
+        if self.formulas.contains(&(model.to_string(), f.name.clone())) {
+            m.measures.retain(|x| x.name != f.name);
+            m.dimensions.retain(|x| x.name != f.name);
+        } else if m.dimension(&f.name).is_some() || m.measure(&f.name).is_some() {
+            return Err(format!("{model} already has a field named {:?}", f.name));
+        }
+        if f.per_row {
+            m.dimensions.push(f.as_dimension());
+            // its type, for everyone who lists the model's fields
+            let kind = crate::compiler::with_row_formulas(&m, crate::compiler::Dialect::Postgres)
+                .map_err(|e| e.0)?
+                .dimension(&f.name)
+                .map(|d| d.kind.clone())
+                .unwrap_or_default();
+            m.dimensions.last_mut().expect("pushed").kind = kind;
+        } else {
+            m.measures.push(f.as_measure());
+        }
+        crate::compiler::check_formulas(&m).map_err(|e| e.0)?;
+        Ok(m)
+    }
+
     /// This snapshot plus an organisation's own blends (one that no longer fits, e.g. after a
     /// model changed, is left out and reported).
     pub fn with_org_blends(&self, blends: &[Blend]) -> ProjectState {
@@ -173,7 +225,7 @@ impl ProjectState {
     fn check_blend(&self, b: &Blend, q: &Query, dialect_of: &dyn Fn(&str) -> Option<Dialect>) -> Result<(), String> {
         let now = now_rounded();
         match plan(b, &self.models, q, now).map_err(|e| e.0)? {
-            Plan::Single { model, query } => check_query(&self.models[&model], &query, dialect_of),
+            Plan::Single { model, query } => check_query(&self.models[&model], &query, dialect_of).map(|_| ()),
             Plan::Joined(j) => {
                 for side in &j.sides {
                     let dialect = dialect_of(&side.source.connection).ok_or_else(|| no_connection(&side.source))?;
@@ -205,9 +257,17 @@ impl ProjectState {
                 }
                 let m = &self.models[&tq.model];
                 let q = with_dashboard_period(d, tq.clone(), &t.options, m);
+                // calculations on results apart: checked against the columns of the rest
+                let split = crate::results::split(&q)?;
+                let inner = split.as_ref().map_or(&q, |s| &s.inner);
                 match self.blends.get(&q.model) {
-                    Some(b) => self.check_blend(b, &q, dialect_of)?,
-                    None => check_query(m, &q, dialect_of)?,
+                    Some(b) => self.check_blend(b, inner, dialect_of)?,
+                    None => {
+                        let columns = check_query(m, inner, dialect_of)?;
+                        if let Some(s) = &split {
+                            crate::results::sql("results", &columns, &s.calcs)?;
+                        }
+                    }
                 }
                 if let Some(Drill::Hierarchy(h)) = &t.drill
                     && !m.hierarchies.contains_key(h)
@@ -249,11 +309,15 @@ fn no_connection(m: &Model) -> String {
     format!("this organisation has no connection named {:?}", m.connection)
 }
 
-fn check_query(m: &Model, q: &Query, dialect_of: &dyn Fn(&str) -> Option<Dialect>) -> Result<(), String> {
+/// The query's columns, if it compiles.
+fn check_query(
+    m: &Model,
+    q: &Query,
+    dialect_of: &dyn Fn(&str) -> Option<Dialect>,
+) -> Result<Vec<crate::compiler::Column>, String> {
     let dialect = dialect_of(&m.connection).ok_or_else(|| no_connection(m))?;
     let (m2, q2) = expand(m, q, dialect).map_err(|e| e.0)?;
-    compile_query(&m2, &q2, dialect, now_rounded(), &[]).map_err(|e| e.0)?;
-    Ok(())
+    Ok(compile_query(&m2, &q2, dialect, now_rounded(), &[]).map_err(|e| e.0)?.columns)
 }
 
 /// The tile's query with the dashboard's period, when the tile's model has the period's field
@@ -450,6 +514,7 @@ impl Project {
             blends,
             org_blends: BTreeSet::new(),
             org_models: BTreeSet::new(),
+            formulas: BTreeSet::new(),
             theme_defaults,
             themes,
             errors,

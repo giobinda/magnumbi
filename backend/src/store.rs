@@ -1186,6 +1186,50 @@ impl Store {
         Ok(c.execute("DELETE FROM org_models WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ shared formulas
+
+    /// The organisation's shared formulas: (model, formula, updated_at, updated_by).
+    pub async fn formulas(&self, org: &str) -> Result<Vec<(String, crate::schema::Formula, String, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT model, definition, updated_at, updated_by FROM formulas WHERE org = $1 ORDER BY model, name",
+                &[&org],
+            )
+            .await?;
+        rows.iter()
+            .map(|r| {
+                let at: DateTime<Utc> = r.get(2);
+                Ok((r.get(0), serde_json::from_str(&r.get::<_, String>(1))?, at.to_rfc3339(), r.get(3)))
+            })
+            .collect()
+    }
+
+    pub async fn put_formula(
+        &self,
+        org: &str,
+        model: &str,
+        f: &crate::schema::Formula,
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO formulas (org, model, name, definition, updated_by) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (org, model, name) DO UPDATE SET definition = EXCLUDED.definition,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &model, &f.name, &serde_json::to_string(f)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_formula(&self, org: &str, model: &str, name: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM formulas WHERE org = $1 AND model = $2 AND name = $3", &[&org, &model, &name])
+            .await?
+            > 0)
+    }
+
     // ------------------------------------------------------------------ delivery
 
     /// The tenant's mail server and its sealed password.

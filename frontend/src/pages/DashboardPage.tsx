@@ -37,7 +37,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const params = useParams()
   const id = params.id ?? ''
   const navigate = useNavigate()
-  const { models, error: modelsError } = useModels()
+  const { models, error: modelsError, reload: reloadModels } = useModels()
   const phone = usePhone()
   const [dash, setDash] = useState<Dashboard | null>(null)
   const [yamlText, setYamlText] = useState('')
@@ -261,7 +261,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
         <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setEditTile(null) }}>
           <div className="modal wide">
             <h2>{editTile === 'new' ? 'Add tile' : 'Edit tile'}</h2>
-            <Explorer models={models} initial={editTile === 'new' ? undefined : editTile}
+            <Explorer models={models} onModelsChanged={reloadModels} initial={editTile === 'new' ? undefined : editTile}
               submitLabel={editTile === 'new' ? 'Add to dashboard' : 'Apply'}
               onSubmit={t => upsertTile(editTile === 'new' ? t : { ...t, tab: editTile.tab }, editTile === 'new')} onCancel={() => setEditTile(null)} />
           </div>

@@ -1,8 +1,11 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
-import { AGG_LABELS, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
+import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
+import { useCan } from '../auth'
+import { usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
 import { suggestChart } from '../suggest'
-import type { Aggregation, ChartType, Dimension, Filter, FilterOp, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import FormulaEditor from './FormulaEditor'
 import { MultiSelect } from './FilterBar'
 import PeriodControl from './PeriodControl'
 import TileView from './TileView'
@@ -53,9 +56,11 @@ type Props = {
   submitLabel?: string
   onSubmit?: (tile: ChartTile) => void
   onCancel?: () => void
+  /** a formula was shared: the models changed */
+  onModelsChanged?: () => void
 }
 
-export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel }: Props) {
+export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel, onModelsChanged }: Props) {
   const [modelName, setModelName] = useState(initial?.query.model ?? models[0]?.name ?? '')
   const [dims, setDims] = useState<string[]>(initial?.query.dimensions ?? [])
   const [measures, setMeasures] = useState<string[]>(initial?.query.measures ?? [])
@@ -74,10 +79,27 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   const [top, setTop] = useState<TopN | null>(initial?.query.top ?? null)
   const [search, setSearch] = useState('')
   const [over, setOver] = useState<string | null>(null)
+  // this query's own formulas (shared ones are the model's measures)
+  const [formulas, setFormulas] = useState<Formula[]>(initial?.query.formulas ?? [])
+  const [editing, setEditing] = useState<Formula | 'new' | 'new-row' | null>(null)
+  // what each per-row formula gives (from the server's check)
+  const [types, setTypes] = useState<Record<string, DimType>>({})
+  const can = useCan()
 
-  const model = models.find(m => m.name === modelName)
+  const base = models.find(m => m.name === modelName)
+  // the model with the chart's per-row formulas among its dimensions
+  const model = useMemo(() => base && withRowFields(base, formulas, types), [base, formulas, types])
+  // a saved chart's per-row formulas: ask what they give
+  useEffect(() => {
+    const rows = (initial?.query.formulas ?? []).filter(f => f.per_row)
+    const others = initial?.query.formulas ?? []
+    for (const f of rows) {
+      api.checkFormula(initial!.query.model, f.expr, true, others.filter(o => o.name !== f.name))
+        .then(c => { if (c.type) setTypes(t => ({ ...t, [f.name]: c.type! })) }, () => {})
+    }
+  }, [initial])
   useEffect(() => { if (!modelName && models[0]) setModelName(models[0].name) }, [models, modelName])
-  const label = (ref: string) => fieldLabel(model, ref)
+  const label = (ref: string) => formulas.find(f => f.name === ref.replace(/^-/, ''))?.label || fieldLabel(model, ref)
   // until a chart is picked, one that suits the fields chosen
   const temporal = (ref: string) => isTemporal(model?.dimensions.find(d => d.name === fieldName(ref))?.type)
   const suggested = suggestChart(dims.map(d => ({ temporal: temporal(d) })), measures.length)
@@ -87,8 +109,33 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
     [top, dims, measures])
 
   const switchModel = (name: string) => {
-    setModelName(name); setDims([]); setMeasures([]); setFilters([]); setSort([]); setDrill(''); setPeriod(null)
+    setModelName(name); setDims([]); setMeasures([]); setFilters([]); setSort([]); setDrill(''); setPeriod(null); setFormulas([])
   }
+
+  const saveFormula = async (f: Formula, shared: boolean, given?: DimType) => {
+    const replacing = editing === 'new' || editing === 'new-row' ? undefined : editing?.name
+    const isNew = !replacing
+    if (given) setTypes(t => ({ ...t, [f.name]: given }))
+    if (shared) {
+      await api.saveFormula(modelName, f)
+      onModelsChanged?.()
+      // it's the model's now, not the chart's
+      setFormulas(fs => fs.filter(x => x.name !== replacing))
+    } else {
+      const q = withFormula({ model: modelName, measures, formulas }, f, replacing)
+      setFormulas(q.formulas ?? []); setMeasures(q.measures ?? [])
+    }
+    if (f.per_row && isNew) add({ kind: 'dimension', name: f.name })
+    else if (!f.per_row && shared) setMeasures(ms => [...ms.filter(m => m !== replacing), ...(ms.includes(f.name) ? [] : [f.name])])
+    setEditing(null)
+  }
+  /** Take a chart's own formula (or a field) out, with whatever used it. */
+  const remove = (name: string) => {
+    const q = withoutFormula({ model: modelName, dimensions: dims, measures, filters, formulas }, name)
+    setDims(q.dimensions ?? []); setMeasures(q.measures ?? []); setFilters(q.filters ?? []); setFormulas(q.formulas ?? [])
+  }
+  const asFormula = (f: { name: string; label?: string | null; formula?: string | null; description?: string | null }, perRow: boolean, format?: Formula['format']) =>
+    ({ name: f.name, label: f.label, expr: f.formula ?? '', description: f.description, ...(perRow ? { per_row: true } : { format }) })
 
   const add = (f: Field, shelf?: 'dimensions' | 'measures' | 'filters') => {
     const target = shelf ?? (f.kind === 'dimension' ? 'dimensions' : 'measures')
@@ -149,9 +196,10 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         filters: usable, sort: validSort.length ? validSort : undefined, limit,
         ...(period ? { period } : {}),
         ...(validTop ? { top: validTop } : {}),
+        ...(formulas.length ? { formulas } : {}),
       },
     }
-  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, target, period, initial, validTop])
+  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, target, period, initial, validTop, formulas])
 
   const q = search.toLowerCase()
   const match = (n: string, l?: string | null) => !q || n.toLowerCase().includes(q) || (l ?? '').toLowerCase().includes(q)
@@ -164,19 +212,37 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         </select>
         {model?.description && <p className="muted small">{model.description}</p>}
         <input placeholder="Search fields…" value={search} onChange={e => setSearch(e.target.value)} />
-        <div className="field-group">Dimensions</div>
+        <div className="field-group row">Dimensions
+          {model && !model.blend && <button className="link new-formula" title="A field of each row, from its columns"
+            onClick={() => setEditing('new-row')}>ƒ New field</button>}
+        </div>
         {model?.dimensions.filter(d => match(d.name, d.label)).map(d => (
           <FieldItem key={d.name} field={{ kind: 'dimension', name: d.name }} label={fieldLabel(model, d.name)}
-            icon={TYPE_ICON[d.type]} title={d.description ?? undefined} onAdd={add} used={dims.some(x => fieldName(x) === d.name)}
-            extra={isCountable(d) ? (
-              <button className="add" title={`Add as a number (${AGG_LABELS[defaultAgg(d)]}); the aggregation can be changed`}
-                onClick={() => setMeasures(ms => (ms.includes(adhocRef(d)) ? ms : [...ms, adhocRef(d)]))}>Σ</button>
-            ) : undefined} />
+            icon={d.formula ? 'ƒ' : TYPE_ICON[d.type]} onAdd={add} used={dims.some(x => fieldName(x) === d.name)}
+            title={d.formula ? `${d.formula}${d.description ? ` · ${d.description}` : ''}` : d.description ?? undefined}
+            extra={<>
+              {isCountable(d) && (
+                <button className="add" title={`Add as a number (${AGG_LABELS[defaultAgg(d)]}); the aggregation can be changed`}
+                  onClick={() => setMeasures(ms => (ms.includes(adhocRef(d)) ? ms : [...ms, adhocRef(d)]))}>Σ</button>
+              )}
+              {(d.own || (d.shared && can('manage_members'))) && (
+                <button className="add" title={d.own ? 'Edit this field' : 'Edit this shared field'}
+                  onClick={() => setEditing(formulas.find(f => f.name === d.name) ?? asFormula(d, true))}>✎</button>
+              )}
+              {d.own && <button className="add" title="Remove this field from the chart" onClick={() => remove(d.name)}>×</button>}
+            </>} />
         ))}
-        <div className="field-group">Measures</div>
+        <div className="field-group row">Measures
+          {model && !model.blend && <button className="link new-formula" title="A calculation on the measures and columns"
+            onClick={() => setEditing('new')}>ƒ New formula</button>}
+        </div>
         {model?.measures.filter(m => match(m.name, m.label)).map(m => (
           <FieldItem key={m.name} field={{ kind: 'measure', name: m.name }} label={fieldLabel(model, m.name)}
-            icon="Σ" title={m.description ?? undefined} onAdd={add} used={measures.includes(m.name)} />
+            icon={m.type === 'formula' ? 'ƒ' : 'Σ'} onAdd={add} used={measures.includes(m.name)}
+            title={m.formula ? `${m.formula}${m.description ? ` · ${m.description}` : ''}` : m.description ?? undefined}
+            extra={m.shared && can('manage_members') ? (
+              <button className="add" title="Edit this shared formula" onClick={() => setEditing(asFormula(m, false, m.format))}>✎</button>
+            ) : undefined} />
         ))}
         {model && Object.keys(model.hierarchies).length > 0 && <>
           <div className="field-group">Drill paths</div>
@@ -210,9 +276,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
             {measures.map((m, i) => {
               const adhoc = parseAdhoc(m)
               const d = adhoc ? model?.dimensions.find(x => x.name === adhoc.field) : undefined
+              const own = formulas.find(f => f.name === m)
               return (
-                <Chip key={m} kind="measure" label={adhoc ? fieldLabel(model, adhoc.field) : label(m)}
-                  onRemove={() => setMeasures(measures.filter(x => x !== m))}>
+                <Chip key={m} kind={own ? 'measure formula' : 'measure'} label={adhoc ? fieldLabel(model, adhoc.field) : label(m)}
+                  onRemove={() => (own ? remove(m) : setMeasures(measures.filter(x => x !== m)))}>
+                  {own && <button className="edit" title={`${own.expr} (edit)`} onClick={() => setEditing(own)}>ƒ</button>}
                   {adhoc && (
                     <select title="Aggregation" value={adhoc.agg} onChange={e => {
                       const next = `${e.target.value}(${adhoc.field})`
@@ -262,7 +330,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                 ])}
               </select>
             </label>
-            <TopControl top={top} dims={dims} measures={measures} label={label}
+            <TopControl top={top} dims={dims} label={label}
+              measures={measures.filter(m => !formulas.some(f => f.name === m && usesResults(f.expr)))}
               onChange={t => { setTop(t); if (t) setSort([]) }} />
             {!validTop && <label>Limit <input type="number" min={1} max={50000} value={limit} onChange={e => setLimit(Math.max(1, Number(e.target.value) || 1))} /></label>}
             {model && Object.keys(model.hierarchies).length > 0 && (
@@ -301,6 +370,14 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
           </div>
         )}
       </section>
+      {editing && model && (
+        <FormulaEditor model={model} initial={typeof editing === 'string' ? null : editing} startPerRow={editing === 'new-row'} inChart
+          others={formulas.filter(f => typeof editing === 'string' || f.name !== editing.name)}
+          taken={[...model.dimensions.map(d => d.name), ...model.measures.map(m => m.name), ...formulas.map(f => f.name)]}
+          canShare={can('manage_members')}
+          shared={typeof editing !== 'string' && [...model.measures, ...model.dimensions].some(x => x.name === editing.name && x.shared)}
+          onSave={saveFormula} onCancel={() => setEditing(null)} />
+      )}
     </div>
   )
 }
@@ -385,7 +462,7 @@ function FilterChip({ model, filter, onChange, onRemove }: { model: ModelInfo; f
         {OPS.filter(o => (o.op === 'last_n_days' ? isTemporal(dim?.type) : o.op !== 'contains' || dim?.type === 'string'))
           .map(o => <option key={o.op} value={o.op}>{o.label}</option>)}
       </select>
-      {arity === 'n' && dim?.type === 'string' ? (
+      {arity === 'n' && dim?.type === 'string' && !dim.own ? (
         <MultiSelect model={model.name} field={name} values={values} onChange={v => onChange({ ...filter, values: v })} />
       ) : arity === 'n' && dim?.type === 'boolean' ? (
         <select value={values.length ? String(values[0]) : ''} onChange={e => onChange({ ...filter, values: e.target.value ? [e.target.value === 'true'] : [] })}>

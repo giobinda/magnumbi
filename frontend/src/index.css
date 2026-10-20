@@ -453,3 +453,22 @@ table.reports td { overflow-wrap: anywhere; min-width: 90px; vertical-align: top
 .share-dialog fieldset label.check { display: flex; gap: 8px; align-items: flex-start; }
 .share-dialog fieldset label.check input { margin-top: 3px; }
 label.check.inline { align-items: center; gap: 4px; }
+
+/* formulas: the editor (FormulaEditor.tsx) and formula chips in Explore */
+.field-group.row { display: flex; align-items: center; justify-content: space-between; }
+.field-group .new-formula { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 600; }
+.chip.formula { font-style: italic; }
+.chip > button.edit { font-style: normal; font-weight: 700; }
+.formula-editor { display: flex; flex-direction: column; gap: 10px; width: min(760px, 100%); }
+.formula-editor label { display: flex; flex-direction: column; gap: 4px; }
+.formula-editor label.check { flex-direction: row; align-items: center; gap: 8px; }
+.formula-editor textarea { width: 100%; font-size: 15px; resize: vertical; }
+.formula-check { min-height: 22px; font-size: 13px; display: flex; flex-direction: column; gap: 4px; }
+.formula-check.fine { color: var(--good); }
+.formula-check.bad { color: var(--danger); }
+.formula-check .where { white-space: pre-wrap; word-break: break-all; color: var(--text); }
+.formula-check mark { background: var(--danger-soft); color: var(--danger); border-bottom: 2px solid var(--danger); }
+.formula-editor .palette { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+.formula-editor .palette .row { gap: 6px; margin-top: 4px; justify-content: flex-start; }
+.formula-editor .palette .chip { border: 0; cursor: pointer; padding: 3px 10px; min-height: 0; }
+.chip.fn { background: var(--surface-2); color: var(--text); }

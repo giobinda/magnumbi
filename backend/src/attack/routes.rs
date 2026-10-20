@@ -123,6 +123,10 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("POST", "/api/connections/{name}/test", ADMIN),
     ("GET", "/api/connections/{name}/tables", ADMIN),
     ("GET", "/api/connections/{name}/tables/{table}/model", ADMIN),
+    ("GET", "/api/formulas", ADMIN),
+    ("POST", "/api/formulas/check", POWER),
+    ("PUT", "/api/formulas/{model}/{name}", ADMIN),
+    ("DELETE", "/api/formulas/{model}/{name}", ADMIN),
     ("GET", "/api/org-models", ADMIN),
     ("PUT", "/api/org-models/{name}", ADMIN),
     ("DELETE", "/api/org-models/{name}", ADMIN),
@@ -169,6 +173,8 @@ pub fn fill(w: &World, path: &str) -> String {
         "team"
     } else if path.starts_with("/api/org-models/") {
         "attack_model"
+    } else if path.starts_with("/api/formulas/") {
+        "attack_formula"
     } else {
         "attack_blend"
     };
@@ -188,6 +194,7 @@ pub fn fill(w: &World, path: &str) -> String {
     let token = if path.starts_with("/api/guest/") { &w.guest_token } else { &w.share_token };
     let mut p = path
         .replace("{id}", &id)
+        .replace("{model}", "sales")
         .replace("{name}", name)
         .replace("{tile}", "t")
         .replace("{table}", "sample_sales")
@@ -237,6 +244,8 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/platform/demo" => json!({"org": w.a, "months": 1}),
         "/api/platform/organisations/{org}/database" => json!({"dsn": "postgresql://evil@127.0.0.1:1/x"}),
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
+        "/api/formulas/{model}/{name}" => json!({"name": "attack_formula", "expr": "revenue * 1000"}),
+        "/api/formulas/check" => json!({"model": "sales", "expr": "revenue / transactions"}),
         "/api/org-models/{name}" => json!({"name": "attack_model", "connection": "warehouse", "table": "sample_sales",
                                            "dimensions": [{"name": "region"}], "measures": [{"name": "n", "type": "count"}]}),
         _ => json!({}),
@@ -289,6 +298,8 @@ pub async fn assert_intact(w: &World) {
     assert!(report.as_ref().is_some_and(|r| r["active"] == json!(true)), "the scheduled report changed: {s}");
     let p = w.send(&owner, "GET", "/api/platform", None).await.json();
     assert!(!p.to_string().contains("evil"), "the platform settings changed: {p}");
+    let f = w.send(&owner, "GET", "/api/formulas", None).await.json();
+    assert_eq!(f["formulas"], json!([]), "A's shared formulas changed: {f}");
     let m = w.send(&owner, "GET", "/api/members", None).await.json();
     assert!(!m.to_string().contains("evil"), "A's members changed: {m}");
 }
@@ -435,7 +446,7 @@ async fn read_tokens_only_read() {
         }
         let reads = path.ends_with("/query")
             || path.ends_with("/export")
-            || matches!(path, "/api/period" | "/api/mcp" | "/api/query/sql");
+            || matches!(path, "/api/period" | "/api/mcp" | "/api/query/sql" | "/api/formulas/check");
         for dry in ["", "?dry_run=1"] {
             let p = fill(&w, path);
             let p = if dry.is_empty() {

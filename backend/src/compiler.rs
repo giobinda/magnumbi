@@ -20,6 +20,7 @@ use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, FunctionArguments, visi
 use sqlparser::dialect::{BigQueryDialect, DuckDbDialect, PostgreSqlDialect};
 use sqlparser::parser::Parser;
 
+use crate::formula;
 use crate::period::{ResolvedPeriod, resolve_period};
 use crate::schema::{ADHOC_MEASURE, Aggregation, Dimension, Filter, Measure, Model, Query, TIME_GRAINS, is_temporal};
 
@@ -54,7 +55,7 @@ impl Dialect {
         }
     }
 
-    fn double(self) -> &'static str {
+    pub fn double(self) -> &'static str {
         match self {
             Dialect::Postgres => "DOUBLE PRECISION",
             Dialect::DuckDb => "DOUBLE",
@@ -62,7 +63,7 @@ impl Dialect {
         }
     }
 
-    fn text(self) -> &'static str {
+    pub fn text(self) -> &'static str {
         match self {
             Dialect::BigQuery => "STRING",
             Dialect::DuckDb => "VARCHAR",
@@ -249,7 +250,10 @@ fn group_key(dl: Dialect, d: &Dimension, expr: String) -> String {
 
 /// A measure's aggregate, optionally restricted to rows matching `scope` (period comparison):
 /// SUM(x) -> SUM(CASE WHEN scope THEN x END), COUNT(*) -> COUNT(CASE WHEN scope THEN 1 END).
-fn measure_expr(dl: Dialect, m: &Measure, scope: Option<&str>) -> Result<String, QueryError> {
+fn measure_expr(dl: Dialect, model: &Model, m: &Measure, scope: Option<&str>) -> Result<String, QueryError> {
+    if m.kind == "formula" {
+        return formula_expr(dl, model, m, scope, &mut vec![]);
+    }
     let inner = m.sql.as_deref().map(|s| format!("({})", s.trim()));
     if m.kind == "number" {
         let sql = m.sql.as_deref().unwrap_or_default();
@@ -273,6 +277,185 @@ fn measure_expr(dl: Dialect, m: &Measure, scope: Option<&str>) -> Result<String,
         "max" => format!("MAX({arg})"),
         other => return err(format!("unknown measure type {other:?}")),
     })
+}
+
+/// A formula measure's SQL, from the SQL of the measures and aggregations it uses, each scoped the
+/// same way (so comparing periods works for formulas too). `using`: the formulas on the way here.
+fn formula_expr(
+    dl: Dialect,
+    model: &Model,
+    m: &Measure,
+    scope: Option<&str>,
+    using: &mut Vec<String>,
+) -> Result<String, QueryError> {
+    formula_sql(dl, model, m, scope, using).map_err(|e| QueryError(format!("{}: {e}", m.name)))
+}
+
+/// What's wrong with one of the model's formulas (measure or per-row field), and where (None:
+/// nothing).
+pub fn formula_error(model: &Model, name: &str) -> Option<formula::FormulaError> {
+    if let Some(d) = model.dimension(name).filter(|d| d.formula.is_some()) {
+        return row_formula_sql(Dialect::Postgres, model, d, &mut vec![]).err();
+    }
+    // a formula on totals may add up per-row fields
+    let model = match with_row_formulas(model, Dialect::Postgres) {
+        Ok(m) => m,
+        Err(e) => return Some(formula::FormulaError { at: 0, message: e.0 }),
+    };
+    let m = model.measure(name)?;
+    formula_sql(Dialect::Postgres, &model, m, None, &mut vec![]).err()
+}
+
+fn formula_sql(
+    dl: Dialect,
+    model: &Model,
+    m: &Measure,
+    scope: Option<&str>,
+    using: &mut Vec<String>,
+) -> Result<String, formula::FormulaError> {
+    if using.contains(&m.name) {
+        return Err(formula::FormulaError { at: 0, message: format!("{} uses itself", m.name) });
+    }
+    using.push(m.name.clone());
+    let sql = formula::compile(m.formula.as_deref().unwrap_or_default(), dl, &mut |name| {
+        let field = match model.measure(name) {
+            Some(x) => Cow::Borrowed(x),
+            None => match adhoc_measure(dl, name, model) {
+                Ok(Some(x)) => Cow::Owned(x),
+                Ok(None) if model.dimension(name).is_some() => {
+                    return Err(format!(
+                        "{name} is a dimension; use an aggregation of it, such as count_distinct({name})"
+                    ));
+                }
+                Ok(None) => {
+                    let close = formula::closest(name, model.measures.iter().map(|x| x.name.as_str()));
+                    return Err(format!(
+                        "unknown field {name:?}{}",
+                        close.map_or(String::new(), |c| format!("; did you mean {c}?"))
+                    ));
+                }
+                Err(e) => return Err(e.0),
+            },
+        };
+        let sql = match field.kind.as_str() {
+            "formula" => formula_expr(dl, model, &field, scope, using),
+            _ => measure_expr(dl, model, &field, scope),
+        };
+        sql.map(|s| (format!("({s})"), formula::Type::Number)).map_err(|e| e.0)
+    })?;
+    using.pop();
+    match sql {
+        (sql, formula::Type::Number) => Ok(sql),
+        _ => Err(formula::FormulaError {
+            at: 0,
+            message: "a formula on totals gives a number; use if(condition, then, else) for a condition".into(),
+        }),
+    }
+}
+
+/// The model with its per-row formulas as SQL (`sql:` from `formula:`), so every other part of
+/// the compiler sees ordinary dimensions. A formula's type is what it gives (inferred when the
+/// dimension has none: a query's or a shared formula).
+pub fn with_row_formulas(model: &Model, dl: Dialect) -> Result<Cow<'_, Model>, QueryError> {
+    if model.dimensions.iter().all(|d| d.formula.is_none()) {
+        return Ok(Cow::Borrowed(model));
+    }
+    let mut out = model.clone();
+    for d in out.dimensions.iter_mut().filter(|d| d.formula.is_some()) {
+        let (sql, t) =
+            row_formula_sql(dl, model, d, &mut vec![]).map_err(|e| QueryError(format!("{}: {e}", d.name)))?;
+        let kind = match t {
+            formula::Type::Number => "number",
+            formula::Type::Text => "string",
+            formula::Type::Condition => "boolean",
+        };
+        if d.kind.is_empty() {
+            d.kind = kind.into();
+        } else if d.kind != kind {
+            return err(format!("{}: the formula gives a {kind}: set type: {kind}", d.name));
+        }
+        d.sql = Some(sql);
+        d.formula = None;
+    }
+    Ok(Cow::Owned(out))
+}
+
+fn row_formula_sql(
+    dl: Dialect,
+    model: &Model,
+    d: &Dimension,
+    using: &mut Vec<String>,
+) -> Result<(String, formula::Type), formula::FormulaError> {
+    if using.contains(&d.name) {
+        return Err(formula::FormulaError { at: 0, message: format!("{} uses itself", d.name) });
+    }
+    using.push(d.name.clone());
+    let out = formula::compile(d.formula.as_deref().unwrap_or_default(), dl, &mut |name| {
+        let Some(field) = model.dimension(name).filter(|x| !x.hidden) else {
+            if model.measure(name).is_some() || name.contains('(') {
+                return Err(format!(
+                    "{name}: a per-row formula works on one row at a time; add rows up in a formula on totals"
+                ));
+            }
+            let close = formula::closest(name, model.dimensions.iter().filter(|x| !x.hidden).map(|x| x.name.as_str()));
+            return Err(format!(
+                "unknown field {name:?}{}",
+                close.map_or(String::new(), |c| format!("; did you mean {c}?"))
+            ));
+        };
+        if field.formula.is_some() {
+            return row_formula_sql(dl, model, field, using).map(|(s, t)| (format!("({s})"), t)).map_err(|e| e.message);
+        }
+        let t = match field.kind.as_str() {
+            "number" => formula::Type::Number,
+            "boolean" => formula::Type::Condition,
+            "string" => formula::Type::Text,
+            _ => {
+                return Err(format!(
+                    "{name}: dates aren't available in formulas yet; group by {name}:month and the like"
+                ));
+            }
+        };
+        Ok((col_expr(dl, field), t))
+    })?;
+    using.pop();
+    Ok(out)
+}
+
+/// What's wrong with a calculation on a chart's results, and where (None: nothing). It may use
+/// the model's measures and aggregations of its columns (which the chart then shows, or not).
+pub fn result_formula_error(model: &Model, expr: &str) -> Option<formula::FormulaError> {
+    let window = formula::Window { along: "\"along\"".into(), across: vec![] };
+    formula::compile_on_results(expr, &window, &mut |name| {
+        let base = name.strip_suffix("__previous").or_else(|| name.strip_suffix("__change")).unwrap_or(name);
+        if model.measure(base).is_some() {
+            return Ok(("\"x\"".into(), formula::Type::Number));
+        }
+        match adhoc_measure(Dialect::Postgres, name, model) {
+            Ok(Some(_)) => Ok(("\"x\"".into(), formula::Type::Number)),
+            Err(e) => Err(e.0),
+            Ok(None) if model.dimension(name).is_some() => Err(format!(
+                "{name} is a dimension; calculations on results use measures, such as count_distinct({name})"
+            )),
+            Ok(None) => {
+                let close = formula::closest(name, model.measures.iter().map(|x| x.name.as_str()));
+                Err(format!(
+                    "unknown field {name:?}{}",
+                    close.map_or(String::new(), |c| format!("; did you mean {c}?"))
+                ))
+            }
+        }
+    })
+    .err()
+}
+
+/// Checks a model's formula measures, as written (with the PostgreSQL dialect).
+pub fn check_formulas(model: &Model) -> Result<(), QueryError> {
+    let model = &*with_row_formulas(model, Dialect::Postgres)?;
+    for m in model.measures.iter().filter(|m| m.kind == "formula") {
+        measure_expr(Dialect::Postgres, model, m, None)?;
+    }
+    Ok(())
 }
 
 const AGGREGATES: [&str; 18] = [
@@ -502,6 +685,7 @@ fn adhoc_measure(dl: Dialect, r: &str, model: &Model) -> Result<Option<Measure>,
         description: None,
         kind: agg.as_str().into(),
         sql: Some(d.sql.clone().unwrap_or_else(|| col_expr(dl, d))),
+        formula: None,
         format: if money { "currency" } else { "number" }.into(),
         higher_is_better: true,
         hidden: false,
@@ -511,6 +695,29 @@ fn adhoc_measure(dl: Dialect, r: &str, model: &Model) -> Result<Option<Measure>,
 /// The model as this query sees it: plus ad-hoc aggregations ("sum(col)") as ordinary measures,
 /// which the query then refers to by name (so period comparison, filters and sorting just work).
 pub fn expand<'m>(model: &'m Model, q: &Query, dl: Dialect) -> Result<(Cow<'m, Model>, Query), QueryError> {
+    let mut model = Cow::Borrowed(model);
+    let mut q = Cow::Borrowed(q);
+    if !q.formulas.is_empty() {
+        // the query's formulas: per-row ones are fields of the rows; the others measures of this
+        // query, each one a column
+        let (m, q) = (model.to_mut(), q.to_mut());
+        for f in &q.formulas {
+            if m.dimension(&f.name).is_some() || m.measure(&f.name).is_some() {
+                return err(format!("formula {:?}: the model already has a field with this name", f.name));
+            }
+            if f.per_row {
+                m.dimensions.push(f.as_dimension());
+                continue;
+            }
+            m.measures.push(f.as_measure());
+            if !q.measures.contains(&f.name) {
+                q.measures.push(f.name.clone());
+            }
+        }
+    }
+    if let Cow::Owned(m) = with_row_formulas(&model, dl)? {
+        model = Cow::Owned(m);
+    }
     let strip = |s: &str| s.trim_start_matches(['-', '+']).to_string();
     let mut refs: Vec<String> = q.measures.clone();
     refs.extend(q.sort.iter().map(|s| strip(s)));
@@ -522,7 +729,7 @@ pub fn expand<'m>(model: &'m Model, q: &Query, dl: Dialect) -> Result<(Cow<'m, M
         if model.measure(&r).is_some() || rename.iter().any(|(from, _)| *from == r) {
             continue;
         }
-        if let Some(m) = adhoc_measure(dl, &r, model)? {
+        if let Some(m) = adhoc_measure(dl, &r, &model)? {
             rename.push((r, m.name.clone()));
             if !extra.iter().any(|x| x.name == m.name) {
                 extra.push(m);
@@ -530,12 +737,11 @@ pub fn expand<'m>(model: &'m Model, q: &Query, dl: Dialect) -> Result<(Cow<'m, M
         }
     }
     if extra.is_empty() {
-        return Ok((Cow::Borrowed(model), q.clone()));
+        return Ok((model, q.into_owned()));
     }
     let ren = |s: &str| rename.iter().find(|(from, _)| from == s).map_or(s.to_string(), |(_, to)| to.clone());
-    let mut m2 = model.clone();
-    m2.measures.extend(extra);
-    let mut q2 = q.clone();
+    model.to_mut().measures.extend(extra);
+    let mut q2 = q.clone().into_owned();
     q2.measures = q.measures.iter().map(|m| ren(m)).collect();
     q2.sort = q
         .sort
@@ -551,7 +757,7 @@ pub fn expand<'m>(model: &'m Model, q: &Query, dl: Dialect) -> Result<(Cow<'m, M
     if let Some(t) = &mut q2.top {
         t.by = ren(&t.by);
     }
-    Ok((Cow::Owned(m2), q2))
+    Ok((model, q2))
 }
 
 // --------------------------------------------------------------------------- compile
@@ -585,6 +791,7 @@ pub fn compile_query_up_to(
     max_rows: i64,
 ) -> Result<Compiled, QueryError> {
     q.validate_up_to(max_rows).map_err(QueryError)?;
+    let model = &*with_row_formulas(model, dl)?;
     let mut selects: Vec<String> = vec![];
     let mut columns: Vec<Column> = vec![];
     let mut aliases: Vec<(String, String)> = vec![]; // field ref (and bare name) -> output alias
@@ -672,7 +879,7 @@ pub fn compile_query_up_to(
         };
         match &period {
             Some(PeriodParts { cur: cc, prev: Some(pc), .. }) => {
-                let (cur, prev) = (measure_expr(dl, m, Some(cc))?, measure_expr(dl, m, Some(pc))?);
+                let (cur, prev) = (measure_expr(dl, model, m, Some(cc))?, measure_expr(dl, model, m, Some(pc))?);
                 selects.push(format!("{cur} AS {}", dl.ident(name)));
                 selects.push(format!("{prev} AS {}", dl.ident(&format!("{name}__previous"))));
                 selects.push(format!("{} AS {}", change(dl, &cur, &prev), dl.ident(&format!("{name}__change"))));
@@ -690,7 +897,7 @@ pub fn compile_query_up_to(
                 measure_exprs.push((name.clone(), cur));
             }
             _ => {
-                let e = measure_expr(dl, m, None)?;
+                let e = measure_expr(dl, model, m, None)?;
                 selects.push(format!("{e} AS {}", dl.ident(name)));
                 columns.push(col(name.clone(), label, &m.format, None));
                 aliases.push((name.clone(), name.clone()));
@@ -726,7 +933,7 @@ pub fn compile_query_up_to(
         } else if let Some(m) = model.measure(name) {
             let target = match measure_exprs.iter().find(|(n, _)| n == name) {
                 Some((_, e)) => e.clone(),
-                None => measure_expr(dl, m, period.as_ref().filter(|_| comparing).map(|p| p.cur.as_str()))?,
+                None => measure_expr(dl, model, m, period.as_ref().filter(|_| comparing).map(|p| p.cur.as_str()))?,
             };
             having.push(condition(dl, &target, f, "number", now)?);
         } else {
@@ -772,7 +979,7 @@ pub fn compile_query_up_to(
             let order = if t.bottom { "" } else { " DESC" };
             wheres.push(format!(
                 "{dim} IN (SELECT {dim} FROM {from}{wh} GROUP BY 1 ORDER BY {}{order} LIMIT {})",
-                measure_expr(dl, m, None)?,
+                measure_expr(dl, model, m, None)?,
                 t.n
             ));
             if q.sort.is_empty() && selected {
@@ -1144,9 +1351,147 @@ hierarchies:
     }
 
     #[test]
-    fn formulas_are_not_supported_yet() {
-        let e = compile(json!({"model": "sales", "measures": ["revenue"], "formulas": [{"name": "x", "expr": "1"}]}))
-            .unwrap_err();
-        assert!(e.0.contains("formulas"));
+    fn formulas_calculate_on_measures_and_aggregations() {
+        let c = compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["per_sale"],
+            "formulas": [{"name": "per_sale", "label": "Per sale", "expr": "revenue / transactions", "format": "currency"},
+                         {"name": "big", "expr": "if(per_sale > 100, sum(qty), 0)"}]}))
+        .unwrap();
+        assert!(
+            c.sql.contains("(CAST((SUM((amount))) AS DOUBLE PRECISION) / NULLIF((COUNT(*)), 0)) AS \"per_sale\""),
+            "{}",
+            c.sql
+        );
+        // every formula of the query is a column, in order, labelled and formatted as asked
+        assert!(
+            c.sql.contains("CASE WHEN (((CAST(") && c.sql.contains("THEN (SUM((\"qty\"))) ELSE 0 END AS \"big\""),
+            "{}",
+            c.sql
+        );
+        let cols: Vec<_> = c.columns.iter().map(|c| (c.name.as_str(), c.label.as_str(), c.format.as_deref())).collect();
+        assert_eq!(
+            cols,
+            [("region", "Region", None), ("per_sale", "Per sale", Some("currency")), ("big", "Big", Some("number"))]
+        );
+        // sorted, filtered and ranked by, like any measure
+        let c = compile(json!({"model": "sales", "dimensions": ["region"], "sort": ["-per_sale"],
+            "filters": [{"field": "per_sale", "op": "gt", "values": [10]}],
+            "formulas": [{"name": "per_sale", "expr": "revenue / transactions"}]}))
+        .unwrap();
+        assert!(
+            c.sql.contains("HAVING\n  (CAST(") && c.sql.ends_with("ORDER BY\n  \"per_sale\" DESC\nLIMIT 1000"),
+            "{}",
+            c.sql
+        );
+    }
+
+    #[test]
+    fn formulas_compare_periods_by_scoping_what_they_use() {
+        let c = compile(json!({"model": "sales", "measures": ["per_sale"],
+            "period": {"field": "sold_at", "current": {"last_n_days": 7}, "compare": "previous_period"},
+            "formulas": [{"name": "per_sale", "expr": "revenue / transactions"}]}))
+        .unwrap();
+        assert!(c.sql.contains("SUM(CASE WHEN") && c.sql.contains("COUNT(CASE WHEN"), "{}", c.sql);
+        assert!(c.sql.contains("AS \"per_sale__previous\"") && c.sql.contains("AS \"per_sale__change\""), "{}", c.sql);
+    }
+
+    #[test]
+    fn formula_mistakes_are_refused_with_a_reason() {
+        let f = |formulas: Value| compile(json!({"model": "sales", "measures": ["revenue"], "formulas": formulas}));
+        let e = f(json!([{"name": "x", "expr": "revnue * 2"}])).unwrap_err().0;
+        assert!(
+            e.contains("x:") && e.contains("unknown field \"revnue\"") && e.contains("did you mean revenue"),
+            "{e}"
+        );
+        let e = f(json!([{"name": "x", "expr": "region * 2"}])).unwrap_err().0;
+        assert!(e.contains("region is a dimension"), "{e}");
+        let e = f(json!([{"name": "a", "expr": "b + 1"}, {"name": "b", "expr": "a * 2"}])).unwrap_err().0;
+        assert!(e.contains("uses itself"), "{e}");
+        let e = f(json!([{"name": "revenue", "expr": "1"}])).unwrap_err().0;
+        assert!(e.contains("already"), "{e}");
+        let e = f(json!([{"name": "x y", "expr": "1"}])).unwrap_err().0;
+        assert!(e.contains("name"), "{e}");
+        let e = f(json!([{"name": "x", "expr": "sum(password_hash)"}])).unwrap_err().0;
+        assert!(e.contains("unknown column"), "{e}");
+        let many: Vec<Value> = (0..51).map(|i| json!({"name": format!("f{i}"), "expr": "1"})).collect();
+        assert!(f(json!(many)).unwrap_err().0.contains("50"));
+    }
+
+    #[test]
+    fn model_formulas_are_checked_with_the_model() {
+        let mut m = model();
+        m.measures
+            .push(serde_yaml::from_str("{name: per_sale, type: formula, formula: revenue / transactions}").unwrap());
+        m.validate().unwrap();
+        let q = q(json!({"model": "sales", "measures": ["per_sale"]}));
+        let c = compile_query(&m, &q, Dialect::DuckDb, now(), &[]).unwrap();
+        assert!(c.sql.contains("CAST((SUM((amount))) AS DOUBLE)"), "{}", c.sql);
+        m.measures.push(serde_yaml::from_str("{name: bad, type: formula, formula: revenue +}").unwrap());
+        assert!(m.validate().unwrap_err().contains("bad"));
+        m.measures.pop();
+        m.measures.push(serde_yaml::from_str("{name: bad, type: formula, formula: '1', sql: 'x'}").unwrap());
+        assert!(m.validate().is_err());
+    }
+
+    #[test]
+    fn per_row_formulas_are_fields_of_each_row() {
+        let c = compile(json!({"model": "sales", "dimensions": ["size"], "measures": ["sum(line)"],
+            "filters": [{"field": "size", "op": "equals", "values": ["big"]}],
+            "formulas": [{"name": "line", "label": "Line total", "expr": "amount * qty", "per_row": true},
+                         {"name": "size", "expr": "if(amount > 100, 'big', 'small')", "per_row": true}]}))
+        .unwrap();
+        let size = "(CASE WHEN (\"amount\" > 100) THEN 'big' ELSE 'small' END)";
+        assert!(c.sql.contains(&format!("{size} AS \"size\"")), "{}", c.sql);
+        assert!(c.sql.contains(&format!("{size} IN ('big')")), "{}", c.sql);
+        assert!(c.sql.contains("SUM(((\"amount\" * \"qty\")))"), "{}", c.sql);
+        // grouped by as text; the sum is labelled from the formula
+        assert_eq!((c.columns[0].kind_type.as_str(), c.columns[1].label.as_str()), ("string", "Line total (Sum)"));
+        // a per-row field can use another, and be a number to group or rank by
+        let c = compile(json!({"model": "sales", "dimensions": ["band"], "measures": ["revenue"],
+            "formulas": [{"name": "line", "expr": "amount * qty", "per_row": true},
+                         {"name": "band", "expr": "round(line / 100) * 100", "per_row": true}]}))
+        .unwrap();
+        assert!(c.sql.contains("\"amount\" * \"qty\""), "{}", c.sql);
+        assert_eq!(c.columns[0].kind_type, "number");
+    }
+
+    #[test]
+    fn per_row_formulas_work_on_one_row() {
+        let f = |expr: &str| {
+            compile(json!({"model": "sales", "dimensions": ["x"], "formulas": [{"name": "x", "expr": expr, "per_row": true}]}))
+                .map(|_| ())
+                .unwrap_err()
+                .0
+        };
+        assert!(f("sum(amount)").contains("one row at a time"), "{}", f("sum(amount)"));
+        assert!(f("revenue * 2").contains("one row at a time"));
+        assert!(f("sold_at").contains("dates"));
+        assert!(f("amont * 2").contains("did you mean amount"));
+        let e = compile(json!({"model": "sales", "dimensions": ["a"], "formulas": [
+            {"name": "a", "expr": "b + 1", "per_row": true}, {"name": "b", "expr": "a * 2", "per_row": true}]}))
+        .unwrap_err()
+        .0;
+        assert!(e.contains("uses itself"), "{e}");
+        let e = compile(json!({"model": "sales", "dimensions": ["region"],
+            "formulas": [{"name": "region", "expr": "'x'", "per_row": true}]}))
+        .unwrap_err()
+        .0;
+        assert!(e.contains("already"), "{e}");
+    }
+
+    #[test]
+    fn model_dimensions_can_be_formulas() {
+        let mut m = model();
+        m.dimensions.push(serde_yaml::from_str("{name: line, type: number, formula: amount * qty}").unwrap());
+        m.validate().unwrap();
+        let q = q(json!({"model": "sales", "dimensions": ["line"], "measures": ["sum(line)"]}));
+        let (m2, q2) = expand(&m, &q, Dialect::DuckDb).unwrap();
+        let c = compile_query(&m2, &q2, Dialect::DuckDb, now(), &[]).unwrap();
+        assert!(c.sql.contains("((\"amount\" * \"qty\")) AS \"line\""), "{}", c.sql);
+        // its type is what it gives
+        m.dimensions.push(serde_yaml::from_str("{name: bad, formula: amount * qty}").unwrap());
+        assert!(m.validate().unwrap_err().contains("type: number"));
+        m.dimensions.pop();
+        m.dimensions.push(serde_yaml::from_str("{name: bad, type: number, formula: amount, sql: amount}").unwrap());
+        assert!(m.validate().is_err());
     }
 }

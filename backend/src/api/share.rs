@@ -349,6 +349,7 @@ pub(crate) mod tests {
             "share_links",
             "guest_links",
             "org_models",
+            "formulas",
             "dashboards",
             "dashboard_versions",
             "connections",
