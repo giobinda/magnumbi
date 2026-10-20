@@ -1,6 +1,7 @@
 // Magnum BI website: theme toggle, mobile menu, copy buttons, docs table-of-contents highlight.
 (function () {
   const root = document.documentElement;
+  root.classList.add('js'); // tabs and other enhancements; without it, everything shows
 
   // Theme: remembered per browser; falls back to the system setting.
   function getStored() { try { return localStorage.getItem('theme'); } catch (e) { return null; } }
@@ -118,4 +119,47 @@
 
   // Footer year
   document.querySelectorAll('[data-year]').forEach(function (el) { el.textContent = new Date().getFullYear(); });
+
+  // Docs: "In the app" / "In code" tabs. Choosing one switches every section, and is remembered.
+  const groups = document.querySelectorAll('[data-tabs]');
+  if (groups.length) {
+    let stored = null;
+    try { stored = localStorage.getItem('docs-tab'); } catch (e) { /* private mode */ }
+    const choose = function (name, remember) {
+      groups.forEach(function (g) {
+        const tabs = g.querySelectorAll('[role="tab"]');
+        const has = Array.prototype.some.call(tabs, function (t) { return t.dataset.tab === name; });
+        const pick = has ? name : tabs[0].dataset.tab;
+        tabs.forEach(function (t) {
+          const on = t.dataset.tab === pick;
+          t.setAttribute('aria-selected', String(on));
+          t.tabIndex = on ? 0 : -1;
+        });
+        g.querySelectorAll('[role="tabpanel"]').forEach(function (p) { p.hidden = p.dataset.tab !== pick; });
+      });
+      if (remember) { try { localStorage.setItem('docs-tab', name); } catch (e) { /* private mode */ } }
+    };
+    groups.forEach(function (g, i) {
+      const tabs = Array.prototype.slice.call(g.querySelectorAll('[role="tab"]'));
+      tabs.forEach(function (t) {
+        const panel = g.querySelector('[role="tabpanel"][data-tab="' + t.dataset.tab + '"]');
+        t.id = 'tab-' + i + '-' + t.dataset.tab;
+        panel.id = 'panel-' + i + '-' + t.dataset.tab;
+        t.setAttribute('aria-controls', panel.id);
+        panel.setAttribute('aria-labelledby', t.id);
+        t.addEventListener('click', function () {
+          const top = t.getBoundingClientRect().top;
+          choose(t.dataset.tab, true);
+          window.scrollBy(0, t.getBoundingClientRect().top - top); // stay on the section clicked
+        });
+        t.addEventListener('keydown', function (e) {
+          const k = tabs.indexOf(t) + (e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0);
+          if (k === tabs.indexOf(t)) return;
+          const next = tabs[(k + tabs.length) % tabs.length];
+          next.click(); next.focus(); e.preventDefault();
+        });
+      });
+    });
+    choose(stored || 'ui', false);
+  }
 })();

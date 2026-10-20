@@ -6,8 +6,11 @@ no build step, no backend, no external dependencies.
 - `index.html` — landing page (features, how it works, teams, roadmap)
 - `compare.html` — Magnum BI vs Tableau, Power BI, Looker, Superset, Metabase, ThoughtSpot (search landing page)
 - `guides/` — how-to guides: `infrastructure.html`, `platform-owner.html`, `org-admin.html` (the app's Get started links here; keep their section ids)
-- `docs.html` — documentation (quick start, models, dashboards, connections, config, security)
-- `assets/` — `style.css`, `site.js` (theme toggle, mobile menu, copy buttons), `favicon.svg`
+- `docs.html` — documentation (quick start, models, dashboards, connections, config, security). Sections
+  with a UI have "In the app" / "In code" tabs (`data-tabs`; `site.js` switches them all and remembers the choice)
+- `assets/` — `style.css`, `site.js` (theme toggle, mobile menu, copy buttons, docs tabs), `favicon.svg`
+- `assets/screens/` — the app's screenshots in the docs, made by `make screenshots` (`e2e/screens.sh`: a demo
+  company, ACME, photographed in Chromium). Retake them when a screen changes
 
 Preview locally with `python3 -m http.server 8080 -d website` and open http://localhost:8080, or just open
 `website/index.html` in a browser. It's published on GitHub Pages at

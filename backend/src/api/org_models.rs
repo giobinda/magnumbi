@@ -223,6 +223,10 @@ mod tests {
         let (s, r, _) = send(&app, c, &org, "POST", "/api/query", Some(q.clone()), None).await;
         assert_eq!(s, StatusCode::OK, "{r}");
         assert_eq!(r["rows"].as_array().unwrap().len(), 3, "{r}");
+        // the organisation's blends can join its own models
+        let blend = json!({"name": format!("{name}_blend"), "base": "sales", "joins": [{"model": name, "on": ["region = region"]}]});
+        let (s, b, _) = send(&app, c, &org, "PUT", &format!("/api/blends/{name}_blend"), Some(blend), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
 
         let (s, _, _) = send(&app, c, &org, "DELETE", &path, None, None).await;
         assert_eq!(s, StatusCode::OK);

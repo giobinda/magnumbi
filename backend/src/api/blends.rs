@@ -63,8 +63,10 @@ pub async fn save(
             return Err(ApiError::bad_request(format!("unknown model {m:?}")));
         }
     }
-    // the project as defined in code: an organisation's blend never replaces its models or blends
-    state.project.current().check_new_blend(&b).map_err(ApiError::bad_request)?;
+    // the project as defined in code, plus the organisation's own models (its blends may join
+    // them): an organisation's blend never replaces a model or another blend
+    let own = state.org_models(caller.org()).await?;
+    state.project.current().with_org_models(&own).check_new_blend(&b).map_err(ApiError::bad_request)?;
     if p.dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));
     }
