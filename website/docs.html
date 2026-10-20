@@ -199,7 +199,7 @@ AGENTS.md             <span class="c"># the guide for coding agents (CLAUDE.md i
         <table>
           <thead><tr><th>Object</th><th>Web UI</th><th>YAML in git</th><th>API / CLI</th></tr></thead>
           <tbody>
-            <tr><td>Models</td><td>Browse</td><td>✓ <code>models/</code> (source of truth)</td><td>Read: <code>GET /api/models</code></td></tr>
+            <tr><td>Models</td><td>✓ Org admins: Models page (no SQL)</td><td>✓ <code>models/</code> (the platform's)</td><td>✓ <code>/api/org-models/{name}</code>; read: <code>GET /api/models</code></td></tr>
             <tr><td>Dashboards</td><td>✓ Designer + YAML view</td><td>✓ <code>dashboards/</code> (seeded on first start)</td><td>✓ <code>/api/dashboards/{id}</code>, <code>…/yaml</code>, <code>…/history</code></td></tr>
             <tr><td>Blends</td><td>✓ Blends page</td><td>✓ <code>blends/</code></td><td>✓ <code>/api/blends/{name}</code></td></tr>
             <tr><td>Themes</td><td>✓ Pick; Org admins: <em>Themes</em> editor, CSS export/import</td><td>✓ <code>themes/</code></td><td>✓ <code>/api/org-themes</code>; read: <code>GET /api/themes</code></td></tr>
@@ -237,8 +237,21 @@ curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview
 
     <section id="models">
       <h2>Models</h2>
-      <p>A model describes one table: which columns you group by (<strong>dimensions</strong>), which numbers you add up (<strong>measures</strong>), and how to drill (<strong>hierarchies</strong>).</p>
-      <div class="code">
+      <p>A model describes one table: which columns you group by (<strong>dimensions</strong>), which numbers you add up (<strong>measures</strong>), and how to drill (<strong>hierarchies</strong>). The platform's models are YAML in git; each organisation's Org admins can also make their own in the app.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Models</strong>, Org admins make a model with no YAML and no SQL:</p>
+          <ol>
+            <li><strong>+ New model</strong>, then pick a connection and one of its tables.</li>
+            <li>Magnum BI proposes the model from the table's columns: text and dates become dimensions, numbers summed measures, ids and calendar numbers (hour, month, year) stay dimensions, and a count of rows is always there.</li>
+            <li>Adjust the names, what each column is used as and how it adds up, then <strong>Save model</strong>. Saving checks every field against the table's real columns.</li>
+          </ol>
+          <figure class="shot"><a href="assets/screens/models.jpg"><img src="assets/screens/models.jpg" alt="The new model page: the columns of a table, each as a dimension or a measure" width="760" height="665" loading="lazy"></a><figcaption>A model proposed from the warehouse's <code>sample_sales</code> table, ready to adjust and save.</figcaption></figure>
+          <p><strong>Starter dashboard</strong>, next to any model, makes a first dashboard from it in one click.</p>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
         <span class="label">project/models/sales.yaml</span>
 <pre><code>name: sales
 connection: warehouse          <span class="c"># each organisation's own "warehouse"</span>
@@ -255,27 +268,41 @@ hierarchies:
   location: [region, store]    <span class="c"># drill path</span>
 cache: 15m                     <span class="c"># optional</span></code></pre>
       </div>
-      <ul>
-        <li>A model can <code>extends:</code> another and add fields.</li>
-        <li>Queries support time grains (<code>sold_at:month</code>), ad-hoc aggregations (<code>sum(amount)</code>, <code>count_distinct(store)</code>), filters, Top/Bottom N, and sorting by change (<code>-revenue__change</code>).</li>
-        <li>Only declared fields can be queried, and every value is safely escaped. SQL written inside a model (<code>sql:</code>) is trusted configuration.</li>
-      </ul>
-      <h3>Get started, and starter dashboards</h3>
-      <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours and single sign-on). Each step links to where it's done and to its guide. On <strong>Models</strong>, <strong>Starter dashboard</strong> makes a first dashboard from any model in one click.</p>
+          <ul>
+            <li>A model can <code>extends:</code> another and add fields. SQL written inside a model (<code>sql:</code>) is trusted configuration.</li>
+            <li>Queries support time grains (<code>sold_at:month</code>), ad-hoc aggregations (<code>sum(amount)</code>, <code>count_distinct(store)</code>), filters, Top/Bottom N, and sorting by change (<code>-revenue__change</code>). Only declared fields can be queried, and every value is safely escaped.</li>
+            <li>An organisation's own models go through the API too: <code>PUT /api/org-models/{name}</code> (with <code>?dry_run=1</code>), the same shape without SQL.</li>
+          </ul>
+        </div>
+      </div>
       <h3>Your organisation's own models</h3>
-      <p>Org admins can also make models in the app, on <strong>Models</strong>, with no YAML and no SQL: pick a connection, then a table, and Magnum BI proposes the model from its columns (text and dates as dimensions, numbers as summed measures, ids and calendar numbers as dimensions, plus a count of rows). Adjust the names, what each column is and how it adds up, then save: everyone in the organisation can explore it and build dashboards on it.</p>
       <ul>
-        <li><strong>No SQL, by design:</strong> a dimension is a column, a measure is a count, distinct count, sum, average, min or max of a column, and saving checks every field against the table's real columns.</li>
+        <li><strong>No SQL, by design:</strong> a dimension is a column, a measure is a count, distinct count, sum, average, min or max of a column.</li>
         <li><strong>Org admins only</strong>, because a model makes a table visible to the whole organisation. Restrictions follow the data: a rule on a model also covers your model on the same table. A model on a different table or view is different data, so check restrictions after adding one.</li>
-        <li>Works with ScramDB, PostgreSQL, DuckDB and BigQuery connections.</li>
+        <li>Works with ScramDB, PostgreSQL, DuckDB and BigQuery connections, and its blends can join it.</li>
       </ul>
       <div class="note"><strong>One model, many organisations.</strong> Models only <em>name</em> a connection. Each organisation's <code>warehouse</code> decides where the data really is, so the same model serves everyone from their own data.</div>
+      <h3>Get started</h3>
+      <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours, single sign-on, email and webhooks). Each step links to where it's done and to its guide.</p>
     </section>
 
     <section id="dashboards">
       <h2>Dashboards</h2>
-      <p>A dashboard is a list of tiles, each with its own query and position, plus optional filters and a dashboard-wide period.</p>
-      <div class="code">
+      <p>A dashboard is a list of tiles, each with its own query and position, plus optional filters, tabs and a dashboard-wide period with a comparison.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <ol>
+            <li><strong>Explore</strong> (Power users and up): pick a model, then double-click or drag dimensions and measures onto the shelves. Magnum BI suggests a chart; pick another from the list. <strong>Add to dashboard</strong> when it's right.</li>
+            <li>On a dashboard, <strong>Edit</strong>: drag tiles by their title and resize them from the corner, add charts (<em>+ Add tile</em>), notes (<em>+ Add text</em>) and pages (<em>+ Tab</em>; ⇄ moves a tile to another tab), then <strong>Save</strong>. Every saved version is kept.</li>
+            <li>Everyone uses the period and filters at the top, clicks a bar or a row to drill down, and downloads a tile's data or picture from its ⤓ menu, or the whole dashboard with <strong>Download</strong>.</li>
+          </ol>
+          <figure class="shot"><a href="assets/screens/explore.jpg"><img src="assets/screens/explore.jpg" alt="Explore: fields on the left, Region and Revenue on the shelves, a bar chart of revenue by region" width="1280" height="820" loading="lazy"></a><figcaption>Explore: Region and Revenue on the shelves, drawn as a bar chart.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/dashboard-edit.jpg"><img src="assets/screens/dashboard-edit.jpg" alt="A dashboard in edit mode, with buttons to add tiles, text and tabs" width="1280" height="640" loading="lazy"></a><figcaption>Editing a dashboard: move, resize, add tiles, text and tabs.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/dashboard.jpg"><img src="assets/screens/dashboard.jpg" alt="The Sales overview dashboard: period, filters, four KPIs with their change, a daily revenue line and a donut" width="1280" height="820" loading="lazy"></a><figcaption>The result: KPIs with their change on the previous period, a line and a donut.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
         <span class="label">project/dashboards/sales_overview.yaml</span>
 <pre><code>title: Sales overview
 period:
@@ -285,6 +312,7 @@ period:
   compare: previous_period     <span class="c"># or previous_year, or {from: 2025-09-01}</span>
 filters:
   - {model: sales, field: category, label: Category}
+tabs: [Overview, Detail]       <span class="c"># optional; a tile without tab: is on the first</span>
 tiles:
   - id: revenue
     title: Revenue
@@ -295,16 +323,19 @@ tiles:
     title: Daily revenue
     type: line
     query: {model: sales, dimensions: ["sold_at:day"], measures: [revenue]}
-    layout: {x: 0, y: 2, w: 8, h: 5}</code></pre>
+    layout: {x: 0, y: 2, w: 8, h: 5}
+  - {id: how_to_read, type: text, tab: Detail, text: "## How to read this\n\nRevenue is **net of returns**."}</code></pre>
       </div>
-      <p>You can also build and edit dashboards in the UI. Every saved version is kept. Dashboards in the platform workspace act as <strong>templates</strong>: <em>Publish…</em> copies one into organisations.</p>
+          <p>A dashboard's <strong>YAML</strong> view (Power users and up) shows this same file: edit and apply it there, or download it to keep in git. Through the API: <code>GET</code>/<code>PUT /api/dashboards/{id}/yaml</code> (with <code>?dry_run=1</code> and <code>If-Match</code>), <code>GET …/history</code>; downloads are <code>POST …/tiles/{tile}/export</code> (CSV) and <code>POST …/export</code> (zip).</p>
+        </div>
+      </div>
+      <p>Dashboards in the platform workspace act as <strong>templates</strong>: <em>Publish…</em> copies one into organisations.</p>
       <h3>Charts</h3>
       <ul>
         <li>17 chart types, drawn with ECharts in the theme's palette: KPIs (with a trend sparkline, or a gauge towards a target), tables and pivot tables with totals, bars (vertical, horizontal, stacked or 100%), lines, areas, bar + line combos on two scales, donuts, treemaps, funnels, heatmaps, waterfalls, histograms and scatter plots. Weekdays and months sort as on a calendar.</li>
         <li><strong>Text tiles</strong> (<code>type: text</code>, with <code>text:</code> in markdown) hold headings and notes: how to read the dashboard, what a number means. Links go to web, mail or in-app addresses only, and HTML stays plain text.</li>
-        <li><strong>Tabs</strong> split a long dashboard into pages: <code>tabs: [Overview, Detail]</code>, and <code>tab: Detail</code> on a tile (none: the first tab). In the editor, <em>+ Tab</em> adds one and ⇄ moves a tile. The address keeps the open tab (<code>?tab=Detail</code>).</li>
-        <li><strong>Downloads</strong> (Users and up): a tile's data as CSV or a chart as a PNG from the tile's ⤓ menu, with the filters, period and drill-down on screen; the whole dashboard as a zip of CSVs (a folder per tab) with <em>Download</em>. Restrictions apply as on screen, and text a spreadsheet would run as a formula stays text. Guests with the User role can download too; public links can't.</li>
-        <li>Explore suggests a chart from the fields you pick (a date and a measure: a line; two categories: a heatmap), until you choose one.</li>
+        <li><strong>Tabs</strong> split a long dashboard into pages. The address keeps the open tab (<code>?tab=Detail</code>).</li>
+        <li><strong>Downloads</strong> (Users and up): a tile's data as CSV or a chart as a PNG, with the filters, period and drill-down on screen; the whole dashboard as a zip of CSVs (a folder per tab). Restrictions apply as on screen, and text a spreadsheet would run as a formula stays text. Guests with the User role can download too; public links can't.</li>
         <li><strong>Two measures, two scales.</strong> A line or bar chart of two measures (say, daily trips and temperature) puts the second on its own right-hand axis, named and coloured after it.</li>
         <li><strong>Period comparison you can read.</strong> The previous period is drawn dashed, in a lighter (or, on dark themes, darker) shade of its measure's colour, on the same scale.</li>
         <li>A dashboard can pin a theme with <code>theme: &lt;id&gt;</code>.</li>
@@ -314,7 +345,31 @@ tiles:
 
     <section id="connections">
       <h2>Data connections</h2>
-      <p>Each organisation manages its own connections on the <strong>Connections</strong> page. Use <strong>Test</strong> to check settings before saving. Secrets (passwords, keys) are encrypted and never shown again.</p>
+      <p>Each organisation sets up its own connections: models name one (<code>warehouse</code>), and the organisation decides where that is and with which credentials. Secrets (passwords, keys) are encrypted and never shown again.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Connections</strong> (Org admins): <strong>+ Add connection</strong>, choose the type, fill in where it is and its password or key, <strong>Test</strong> it, then <strong>Save</strong>. A warning lists the connections your models need that aren't set up yet.</p>
+          <figure class="shot"><a href="assets/screens/connections.jpg"><img src="assets/screens/connections.jpg" alt="The Connections page with the warehouse connection open: type ScramDB, host, port, database, user, schema, TLS, password" width="760" height="897" loading="lazy"></a><figcaption>Editing the <code>warehouse</code> connection; <em>Test</em> checks it before saving.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">PUT /api/connections/warehouse</span>
+<pre><code>{"config": {"type": "postgres", "host": "db.acme.example", "port": 5432,
+            "database": "analytics", "user": "bi_reader", "schema": "sales", "tls": true},
+ "secret": "the password"}            <span class="c"># write-only: never sent back</span></code></pre>
+      </div>
+<div class="code">
+        <span class="label">A DuckDB connection: files as tables</span>
+<pre><code>{"config": {"type": "duckdb",
+            "tables": {"sales": "sales/*.parquet",
+                       "orders": "iceberg:s3://acme-lake/warehouse/retail/orders"},
+            "s3_region": "eu-west-1"},
+ "secret": "{\"key_id\": \"…\", \"secret\": \"…\"}"}</code></pre>
+      </div>
+          <p><code>POST /api/connections/{name}/test</code> checks settings without saving; <code>GET /api/connections</code> lists them (no secrets). Agents use the MCP tools <code>save_connection</code> and <code>list_connections</code>.</p>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Type</th><th>Where a table is found</th><th>Notes</th></tr></thead>
@@ -325,13 +380,20 @@ tiles:
           </tbody>
         </table>
       </div>
-      <p>DuckDB runs each query in a fresh, locked-down sandbox: only the organisation's own folders and storage prefixes are reachable, with no writes or settings changes. Example table: <code>orders = iceberg:s3://acme-lake/warehouse/retail/orders</code>.</p>
+      <p>DuckDB runs each query in a fresh, locked-down sandbox: only the organisation's own folders and storage prefixes are reachable, with no writes or settings changes. Addresses an organisation sets up go through the network guard: no private networks unless the server allows them.</p>
     </section>
 
     <section id="blends">
       <h2>Blends: join models across engines</h2>
-      <p>A blend joins models on the fields they share — even when the data lives in different databases. Define one in <code>project/blends/</code>, or in the UI on <strong>Blends</strong>.</p>
-      <div class="code">
+      <p>A blend joins models on the fields they share, even when the data lives in different databases. Use it like any model; its fields are named <code>model.field</code> (e.g. <code>taxi.trips</code>).</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Blends</strong> (Power users and up): <strong>+ New blend</strong>, pick the base model (every row starts from it), then each model to join and the fields that match (a date can match at a grain, such as the hour). Choose how long results are reused, then <strong>Save</strong> and open it in Explore.</p>
+          <figure class="shot"><a href="assets/screens/blends.jpg"><img src="assets/screens/blends.jpg" alt="The blend editor: base model Store sales, joined with Stores on Store" width="760" height="947" loading="lazy"></a><figcaption>A blend of the platform's sales model and the organisation's own Stores model, on the store.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
         <span class="label">project/blends/taxi_weather.yaml</span>
 <pre><code>name: taxi_weather
 label: Taxi trips × weather
@@ -343,7 +405,10 @@ joins:
       - pickup_at:hour = observed_at:hour  <span class="c"># dates match at a grain</span>
 cache: 1h</code></pre>
       </div>
-      <p>Use a blend like any model; its fields are named <code>model.field</code> (e.g. <code>taxi.trips</code>). Behind the scenes it works in two steps:</p>
+          <p>Or per organisation through the API: <code>PUT /api/blends/{name}</code> with the same fields as JSON (and <code>?dry_run=1</code>).</p>
+        </div>
+      </div>
+      <p>Behind the scenes it works in two steps:</p>
       <ol>
         <li><strong>Aggregate per engine.</strong> Each model gets its own query on its own connection, grouped by the join keys.</li>
         <li><strong>Join on ScramDB.</strong> The partial results are joined in the organisation's ScramDB, then grouping, sorting, Top N and period comparison work as usual.</li>
@@ -354,7 +419,21 @@ cache: 1h</code></pre>
     <section id="cache">
       <h2>Query cache</h2>
       <p>The cache is what makes Magnum BI feel instant: a repeated question is answered from <a href="https://scramdb.com" target="_blank" rel="noopener">ScramDB</a> instead of going back to your warehouse. It's built to be fast <em>and</em> isolated per tenant.</p>
-      <p>Turn it on per model with <code>cache: 15m</code> (any duration up to 30 days). It's off by default, so live data stays live.</p>
+      <p>It's off by default, so live data stays live.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Usage</strong>, Org admins see what's cached for each model (results, rows, hits) next to who looks at what, and clear the cache after loading new data.</p>
+          <figure class="shot"><a href="assets/screens/usage.jpg"><img src="assets/screens/usage.jpg" alt="The Usage page: activity, dashboards, people and the cache" width="1280" height="820" loading="lazy"></a><figcaption>Usage for ACME, with its cache.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">project/models/sales.yaml</span>
+<pre><code>cache: 15m                     <span class="c"># any duration up to 30 days</span></code></pre>
+      </div>
+          <p><code>GET /api/cache</code> shows it, <code>DELETE /api/cache?model=sales</code> clears it; builders bypass it for one request with the <code>x-magnum-refresh: 1</code> header.</p>
+        </div>
+      </div>
       <h3>Isolated per organisation</h3>
       <ul>
         <li><strong>Its own instance.</strong> Each organisation's cache lives in that organisation's own ScramDB instance, next to its dashboards. Nothing is shared between tenants.</li>
@@ -372,20 +451,45 @@ cache: 1h</code></pre>
 
     <section id="embedding">
       <h2>Embedding</h2>
-      <p>Add a dashboard to any web page with one script and one tag:</p>
-      <div class="code">
-<pre><code>&lt;script src="https://bi.example.com/embed.js"&gt;&lt;/script&gt;
+      <p>Put a live dashboard in your intranet or product, filters included.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Embed</strong> on a dashboard (Users and up) gives both snippets, ready to copy, and a preview of the embedded view.</p>
+          <figure class="shot"><a href="assets/screens/embed.jpg"><img src="assets/screens/embed.jpg" alt="The Embed dialog with the web component and iframe snippets" width="640" height="390" loading="lazy"></a><figcaption>The Embed dialog.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <pre><code>&lt;script src="https://bi.example.com/embed.js"&gt;&lt;/script&gt;
 &lt;magnum-dashboard dashboard="sales_overview" filters="category=Footwear"&gt;&lt;/magnum-dashboard&gt;</code></pre>
       </div>
-      <p>Or use an iframe on <code>/embed/&lt;id&gt;</code>. Allow host pages with <code>MAGNUM_FRAME_ANCESTORS</code>; for embeds on other sites, set <code>MAGNUM_COOKIE_SAMESITE=none</code> and serve over https.</p>
+          <p>Or an iframe on <code>/embed/&lt;id&gt;</code>, with filters as URL parameters (<code>?category=Footwear&amp;period=30&amp;filters=0</code>).</p>
+        </div>
+      </div>
+      <p>Allow host pages with <code>MAGNUM_FRAME_ANCESTORS</code>; for embeds on other sites, set <code>MAGNUM_COOKIE_SAMESITE=none</code> and serve over https.</p>
     </section>
 
     <section id="public-links">
       <h2>Public links</h2>
-      <p>Org admins can share a dashboard with <strong>anyone who has the link</strong>, without an account: <strong>Share publicly</strong> on the dashboard gives a link and its QR code.</p>
+      <p>Org admins can share a dashboard with <strong>anyone who has the link</strong>, without an account, served from a cache so your data warehouse can't be overloaded.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Share publicly</strong> on a dashboard: choose how long results are kept (5 minutes to a day), make the link, then copy it or show its QR code. The same dialog lists the dashboard's links and removes them.</p>
+          <figure class="shot"><a href="assets/screens/public-link.jpg"><img src="assets/screens/public-link.jpg" alt="The Share publicly dialog: an existing link with its cache period, and a new link's options" width="760" height="440" loading="lazy"></a><figcaption>Public links of a dashboard.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">POST /api/dashboards/{id}/share-links</span>
+<pre><code>{"cache_seconds": 3600}                 <span class="c"># 300, 900, 3600, 21600 or 86400</span>
+<span class="c"># no cache: {"cache_seconds": 0, "accept_uncached_risk": true}</span></code></pre>
+      </div>
+          <p><code>GET …/share-links</code> lists them (with their address, for Org admins), <code>DELETE /api/share-links/{id}</code> removes one.</p>
+        </div>
+      </div>
       <ul>
         <li><strong>Visitors see the dashboard as saved</strong>: its default filters and period, without filtering or drilling down. They see it as the link's maker would, as a Viewer: the maker's row filters apply, so a link never shows more than they may see. If the maker leaves the organisation, the link stops working.</li>
-        <li><strong>Served from the cache, so your data warehouse can't be overloaded.</strong> Each link keeps its tiles' results for its cache period (5 minutes to a day; 1 hour by default). The warehouse answers each tile at most once per period, however many people open the link, and visitors arriving at the same moment wait for that one query. If the kept results can't be read, the link fails rather than ask the warehouse.</li>
+        <li><strong>The warehouse answers each tile at most once per cache period</strong>, however many people open the link, and visitors arriving at the same moment wait for that one query. If the kept results can't be read, the link fails rather than ask the warehouse.</li>
         <li><strong>No cache is possible, never by accident.</strong> It sends every visit to the warehouse, so anyone with the link could overload it or run up its bill. Magnum BI spells out the risks and only makes the link once they're accepted and the dashboard's id is typed.</li>
         <li><strong>Removing a link</strong> stops it at once. Links aren't indexed by search engines (<code>noindex</code>), and <code>MAGNUM_PUBLIC_LINKS=0</code> turns them off for the whole server.</li>
       </ul>
@@ -393,55 +497,145 @@ cache: 1h</code></pre>
 
     <section id="guest-links">
       <h2>Guest links</h2>
-      <p>Power users and up can share a dashboard with colleagues or people outside the organisation through a link <strong>and a password</strong>: <strong>Share with guests</strong> on the dashboard. Guests need no account.</p>
+      <p>Power users and up can share a dashboard with colleagues or people outside the organisation through a link <strong>and a password</strong>. Guests need no account.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Share with guests</strong> on a dashboard: choose the guests' role, how long the link works, a password (or let Magnum BI make one up) and, if you like, limits on what they see. The dialog lists the dashboard's guest links, to copy or remove.</p>
+          <figure class="shot"><a href="assets/screens/guest-link.jpg"><img src="assets/screens/guest-link.jpg" alt="The Share with guests dialog: an existing link limited to Region EMEA, and the options for a new one" width="760" height="600" loading="lazy"></a><figcaption>A guest link that only shows EMEA, and a new one being made.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">POST /api/dashboards/{id}/guest-links</span>
+<pre><code>{"expires_in_hours": 168,               <span class="c"># 1 to 336 (14 days)</span>
+ "password": "",                        <span class="c"># empty: made up and returned once</span>
+ "role": "viewer",                      <span class="c"># viewer, user or power_user, at most yours</span>
+ "filters": [{"model": "sales", "dimension": "region", "values": ["EMEA"]}]}</code></pre>
+      </div>
+          <p><code>GET …/guest-links</code> lists them, <code>DELETE /api/guest-links/{id}</code> removes one.</p>
+        </div>
+      </div>
       <ul>
         <li><strong>Their role is yours or lower</strong>, Viewer by default: Viewers use the dashboard's filters and period, Users also drill down and download the data, Power users also see each tile's SQL. No editing, Explore or sharing. If you drop below Power user or leave, your links stop working.</li>
-        <li><strong>They see only what you allow:</strong> your own restrictions, plus the link's limits on any field of the dashboard's models (for example, <em>Pickup borough is Manhattan or Brooklyn</em>). Limits only narrow, on every tile, pick list and drill-down.</li>
+        <li><strong>They see only what you allow:</strong> your own restrictions, plus the link's limits on any field of the dashboard's models. Limits only narrow, on every tile, pick list and drill-down.</li>
         <li><strong>Every link expires</strong>, after 1 hour to 14 days, never longer. Removing it ends it at once, even for guests who already opened it.</li>
-        <li><strong>The password</strong> is yours (at least 10 characters) or one Magnum BI makes up, shown only once: send it separately from the link. It opens the link in that browser for up to 12 hours; wrong passwords lock the link for 15 minutes after 5 tries.</li>
+        <li><strong>The password</strong> is shown only once: send it separately from the link. It opens the link in that browser for up to 12 hours; wrong passwords lock the link for 15 minutes after 5 tries.</li>
       </ul>
     </section>
 
     <section id="delivery">
       <h2>Email &amp; webhooks</h2>
-      <p>Each organisation, and the platform workspace, has its own <strong>Delivery</strong> page for the reports and alerts it sends: its mail server, and Slack, Microsoft Teams or other webhooks. They're kept in its own database, with secrets encrypted for it, and nothing is shared: an organisation without a mail server can't send email, even if the platform has one.</p>
+      <p>Each organisation, and the platform workspace, has its own mail server and webhooks for the reports and alerts it sends. They're kept in its own database, with secrets encrypted for it, and nothing is shared: an organisation without a mail server can't send email, even if the platform has one.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Delivery</strong> (Org admins; system owners in the platform workspace): set up the mail server and <strong>Send me a test</strong>; add Slack, Teams or other webhooks and <strong>Test</strong> them. The same page lists every scheduled report and alert, to pause or remove.</p>
+          <figure class="shot"><a href="assets/screens/delivery.jpg"><img src="assets/screens/delivery.jpg" alt="The Delivery page: the mail server, two webhooks, and the scheduled reports" width="760" height="795" loading="lazy"></a><figcaption>ACME's mail server, its Slack and Teams webhooks, and its scheduled reports.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">PUT /api/delivery/mail</span>
+<pre><code>{"host": "smtp.acme.example", "port": 587, "security": "starttls",   <span class="c"># or tls, none</span>
+ "username": "reports", "password": "…",   <span class="c"># write-only; omit to keep the stored one</span>
+ "from": "ACME reports &lt;reports@acme.example&gt;",
+ "allowed_domains": ["partner.example"]}   <span class="c"># reports may also go to these</span></code></pre>
+      </div>
+<div class="code">
+        <span class="label">PUT /api/delivery/webhooks/sales_team</span>
+<pre><code>{"kind": "slack", "url": "https://hooks.slack.com/services/…"}   <span class="c"># slack, teams or webhook</span></code></pre>
+      </div>
+          <p><code>POST /api/delivery/mail/test</code> and <code>POST /api/delivery/webhooks/{name}/test</code> send a test; <code>GET /api/delivery</code> shows the settings (no secrets, only a webhook's host).</p>
+        </div>
+      </div>
       <ul>
-        <li><strong>Mail server:</strong> host, port, STARTTLS or TLS (or none, for an internal relay without a password), an optional user name and password, and the sender. <em>Send me a test</em> emails you, and only you.</li>
-        <li><strong>Webhooks:</strong> a name, a kind (Slack, Teams, or any address taking JSON <code>{title, text, link}</code>) and the address, which is a secret: only its host is shown again. <em>Test</em> posts a message.</li>
+        <li><strong>Mail server:</strong> STARTTLS or TLS (or none, for an internal relay without a password). A test email goes to the person asking, and only to them.</li>
+        <li><strong>Webhooks:</strong> Slack, Microsoft Teams, or any address taking JSON <code>{title, text, link}</code>. The address is a secret: only its host is shown again.</li>
         <li>Like connections, they go through the network guard: private addresses only where the server allows them, https for webhooks, no redirects.</li>
       </ul>
     </section>
 
     <section id="reports">
       <h2>Scheduled reports &amp; alerts</h2>
-      <p><strong>Schedule…</strong> on a dashboard (Users and up) sends it every day, week or month at a local time, with the filters and period on screen, through your organisation's own mail server and webhooks. It sends one of:</p>
+      <p>Send a dashboard every hour, day, week or month at a local time, or a message when a number crosses a line, through your organisation's own mail server and webhooks.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Schedule…</strong> on a dashboard (Users and up) lists its reports and alerts and makes new ones: a name, when, what it sends, and to whom. The filters and period on screen go with it. <strong>Send now</strong> tries one at once.</p>
+          <figure class="shot"><a href="assets/screens/reports.jpg"><img src="assets/screens/reports.jpg" alt="The Reports and alerts dialog: a weekly report and an hourly alert, and the form for a new one" width="760" height="772" loading="lazy"></a><figcaption>A Monday report with the data attached, an hourly alert on revenue, and the form for a new one.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">POST /api/dashboards/{id}/schedules</span>
+<pre><code>{"name": "Monday numbers", "format": "csv",          <span class="c"># csv, signed, public or alert</span>
+ "when": {"every": "weekly", "day": 1, "at": "08:00", "timezone": "Europe/Rome"},
+ "recipients": ["ana@acme.example"], "webhooks": ["sales_team"]}
+
+{"name": "Revenue watch", "format": "alert",
+ "when": {"every": "hourly", "at": "00:05", "timezone": "Europe/Rome"},
+ "alert": {"tile": "revenue", "op": "falls_by", "value": 10},   <span class="c"># above, below, rises_by, falls_by</span>
+ "recipients": ["ana@acme.example"], "webhooks": ["ops"]}</code></pre>
+      </div>
+          <p><code>GET /api/schedules</code> lists every one (Org admins); <code>POST /api/schedules/{id}/run</code> sends one now, <code>PUT …/active</code> pauses or resumes it, <code>DELETE</code> removes it.</p>
+        </div>
+      </div>
       <ul>
         <li><strong>The data:</strong> a zip of each chart's CSV, attached to the email (webhooks get a link to the dashboard).</li>
         <li><strong>A guest link with a password</strong> (Power users and up): a fresh link each time, working until the next report (at most 14 days). The password is never in the email.</li>
         <li><strong>A public link</strong> (Org admins): one of the dashboard's public links.</li>
+        <li><strong>An alert:</strong> a number on the dashboard (a KPI tile) above or below a value, or rising or falling by a percentage on the comparison period. A message goes out only when it crosses the line, and again only after it came back.</li>
       </ul>
-      <p>Reports go only to your members and to the email domains your Org admins allow on <strong>Delivery</strong>, checked on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it, and Org admins can see and pause every report on <strong>Delivery</strong>. Set <code>MAGNUM_PUBLIC_URL</code> so the links in reports work.</p>
-      <p><strong>Alerts</strong> are scheduled the same way: pick a number on the dashboard (a KPI tile) and a line (above or below a value, or rising or falling by a percentage on the comparison period), checked every hour, day, week or month. A message goes out only when the number crosses the line, and again only after it came back.</p>
+      <p>Reports and alerts go only to your members and to the email domains your Org admins allow on <strong>Delivery</strong>, checked on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it. Set <code>MAGNUM_PUBLIC_URL</code> so the links in them work.</p>
     </section>
 
     <section id="themes">
       <h2>Themes &amp; brand colours</h2>
-      <p>The default themes are <strong>Aloha</strong> (light) and <strong>Aloha night</strong> (dark), the ones this site uses. Everyone can pick any theme for themselves. Built-in themes never change, so a theme id always looks the same; projects can add more in <code>project/themes/</code>.</p>
-      <p>Each organisation can also have <strong>its own themes</strong>, made by its Org admins on the <strong>Themes</strong> page:</p>
+      <p>The default themes are <strong>Aloha</strong> (light) and <strong>Aloha night</strong> (dark), the ones this site uses. Everyone can pick any theme for themselves, and each organisation can have its own, in its company's colours. Built-in themes never change, so a theme id always looks the same.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Themes</strong> (Org admins): <strong>Start from it</strong> on any theme opens the editor (colours, chart palette, corners, font) with a live preview and contrast checks. Pick the organisation's default light and dark themes, <strong>Export CSS</strong> for your own site, or import your design team's tokens.</p>
+          <figure class="shot"><a href="assets/screens/themes.jpg"><img src="assets/screens/themes.jpg" alt="The Themes page: defaults for ACME, its own themes, and themes to start from" width="1280" height="820" loading="lazy"></a><figcaption>Themes for ACME.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">project/themes/acme.yaml</span>
+<pre><code>id: acme
+label: ACME
+mode: light                    <span class="c"># or dark</span>
+colors: {bg: "#f7f7fb", surface: "#ffffff", surface_2: "#eef0f6", border: "#d9dce8",
+         text: "#1b1d29", text_muted: "#5b6075", accent: "#3b4fe0", accent_soft: "#e3e7ff",
+         good: "#13804f", bad: "#c4314b"}
+palette: ["#3b4fe0", "#e0703b", "#2aa198", "#b5379b", "#7a8b1f"]
+font: Inter, system-ui, sans-serif
+radius: 10</code></pre>
+      </div>
+          <p>An organisation's own themes and defaults: <code>GET</code>/<code>PUT /api/org-themes</code> (<code>{"themes": […], "default_light": "acme", "default_dark": null}</code>, with <code>?dry_run=1</code> and <code>If-Match</code>). <code>POST /api/themes/import</code> turns CSS tokens into a theme.</p>
+        </div>
+      </div>
       <ul>
-        <li><strong>Visual editor.</strong> Colours, chart palette, corners and font, with a live preview and contrast checks (WCAG: text 4.5:1, chart colours 3:1). Start from any theme.</li>
-        <li><strong>Organisation defaults.</strong> Pick the light and dark theme everyone in the organisation gets unless they chose another.</li>
-        <li><strong>Export CSS.</strong> Any theme as design tokens (<code>--mbi-accent</code>, <code>--mbi-surface</code>, <code>--mbi-chart-1</code> …) plus helper classes (<code>.mbi-card</code>, <code>.mbi-button-primary</code>, <code>.mbi-kpi</code> …) for your own site or design system.</li>
-        <li><strong>Import CSS.</strong> Your design team pastes tokens back, edited or from their own system, and the editor opens with them. Only validated token values are read; the rest is ignored.</li>
+        <li><strong>Contrast checks</strong> (WCAG): text 4.5:1, chart colours 3:1.</li>
+        <li><strong>Export CSS</strong> gives design tokens (<code>--mbi-accent</code>, <code>--mbi-surface</code>, <code>--mbi-chart-1</code> …) and helper classes (<code>.mbi-card</code>, <code>.mbi-button-primary</code>, <code>.mbi-kpi</code> …); <strong>import</strong> reads only validated token values back.</li>
+        <li>A dashboard can pin a theme with <code>theme: &lt;id&gt;</code>.</li>
       </ul>
-      <p class="muted">Organisation themes live in the organisation's own ScramDB and are available through <code>/api/org-themes</code>, with dry runs and version checks like other documents.</p>
     </section>
 
     <section id="agents">
       <h2>AI agents &amp; MCP</h2>
       <p>Agents, scripts, CI jobs and notebooks use the same API as the UI, so they get the same rules, permissions and audit trail as people do.</p>
       <h3>API tokens</h3>
-      <p>Make one under <strong>Security › API tokens</strong>, then send it as <code>Authorization: Bearer mbi_…</code>.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Security</strong> (next to your name), then <strong>API tokens</strong>: say what will use it, read-only or read &amp; write, and how long it lasts. The token is shown once, with the setup for each MCP client.</p>
+          <figure class="shot"><a href="assets/screens/security.jpg"><img src="assets/screens/security.jpg" alt="The Security card: password, authenticator app, and API tokens with one read-only token" width="420" height="686" loading="lazy"></a><figcaption>Your security settings, with a read-only token for Claude Code.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <pre><code>curl -H "Authorization: Bearer mbi_…" https://bi.example.com/api/dashboards</code></pre>
+      </div>
+          <p>Tokens are made by a signed-in person (a token can't make another). <code>GET /api/tokens</code> lists yours (Org admins: <code>?all=true</code>), <code>DELETE /api/tokens/{id}</code> revokes one.</p>
+        </div>
+      </div>
       <ul>
         <li>It acts for the person who made it, in their organisation, with at most their role (or a lower one you choose). Row filters and organisation isolation apply as usual.</li>
         <li><strong>Read-only</strong> (reading, queries, dry runs) or <strong>read &amp; write</strong>. It always expires: 90 days by default, at most 365. The secret is shown once; only a hash is stored.</li>
@@ -466,14 +660,34 @@ cache: 1h</code></pre>
     <section id="organisations">
       <h2>Organisations &amp; roles</h2>
       <p>Each organisation has its own members, connections and dashboards, none visible to other organisations. Each can have its own ScramDB instance for dashboards and cache; if it's unreachable, only that organisation is affected.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Members</strong> (Org admins): add people by email with a role, give someone personal filters (they only narrow), let everyone from your email domain in with a default role, or set a one-time password for someone. The table at the top shows what each role can do.</p>
+          <figure class="shot"><a href="assets/screens/members.jpg"><img src="assets/screens/members.jpg" alt="The Members page: what each role can do, and ACME's people" width="1280" height="820" loading="lazy"></a><figcaption>ACME's members; one only sees EMEA.</figcaption></figure>
+          <p>System owners create organisations and give each its own database on <strong>Organisations</strong>.</p>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">PUT /api/members</span>
+<pre><code>{"default_role": "viewer",                <span class="c"># people who join by domain</span>
+ "users": {
+   "ana@acme.example": "org_admin",
+   "ben@acme.example": "power_user",
+   "dev@acme.example": {"role": "viewer",
+     "filters": [{"model": "sales", "dimension": "region", "values": ["EMEA"]}]}}}</code></pre>
+      </div>
+          <p>With <code>?dry_run=1</code> and <code>If-Match</code>; agents use <code>get_members</code> and <code>save_members</code>. Organisations: <code>GET</code>/<code>PUT /api/platform</code> (system owners), <code>magnum-bi org set-database &lt;org&gt;</code>. On a first start, <code>project/access.yaml</code> can bring the initial organisations and members.</p>
+        </div>
+      </div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Role</th><th>Can</th></tr></thead>
           <tbody>
             <tr><td>Viewer</td><td>View dashboards, use their filters and the period picker</td></tr>
-            <tr><td>User</td><td>+ drill down, embed, download data (CSV, a zip per dashboard)</td></tr>
-            <tr><td>Power user</td><td>+ create / edit / delete dashboards, Explore, see SQL and YAML</td></tr>
-            <tr><td>Org admin</td><td>+ manage members, roles, personal filters, connections, models and public links</td></tr>
+            <tr><td>User</td><td>+ drill down, embed, download data, schedule reports and alerts</td></tr>
+            <tr><td>Power user</td><td>+ create / edit / delete dashboards, Explore, see SQL and YAML, guest links</td></tr>
+            <tr><td>Org admin</td><td>+ manage members, roles, personal filters, connections, models, delivery and public links</td></tr>
             <tr><td>System owner</td><td>Everything, in every organisation</td></tr>
           </tbody>
         </table>
@@ -503,6 +717,24 @@ cache: 1h</code></pre>
         </table>
       </div>
       <h3>Policies</h3>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>On <strong>Members › Sign-in</strong>, Org admins choose the ways their people may sign in (within what the platform allows), require an authenticator code with passwords, and set up their single sign-on provider. Each person adds passkeys and an authenticator app under <strong>Security</strong>.</p>
+          <figure class="shot"><a href="assets/screens/sign-in.jpg"><img src="assets/screens/sign-in.jpg" alt="The organisation's sign-in settings: allowed methods, authenticator codes, single sign-on" width="712" height="343" loading="lazy"></a><figcaption>ACME's sign-in rules.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">PUT /api/members/sign-in</span>
+<pre><code>{"sign_in": {"methods": ["password", "passkey", "oidc", "token"],   <span class="c"># and google</span>
+             "require_two_factor": true},
+ "oidc": {"label": "ACME (Microsoft)", "issuer": "https://login.microsoftonline.com/…/v2.0",
+          "client_id": "…", "client_secret": "…",          <span class="c"># write-only</span>
+          "group_roles": {"BI admins": "org_admin", "Analysts": "power_user"}}}</code></pre>
+      </div>
+          <p>Accounts from the server: <code>magnum-bi user set-password | disable | enable &lt;email&gt;</code>.</p>
+        </div>
+      </div>
       <p>Which methods people may use, and whether passwords need an authenticator code, is set at three levels: the platform, the platform for one organisation, and the organisation itself. Organisations choose within the platform's rules and can only tighten them. Policies are checked at sign-in and on every request: a stricter policy signs out sessions that no longer meet it.</p>
       <p class="muted">An account whose password was issued by an Org admin is bound to that organisation: with that password it can never act as a system owner or in another organisation. Disable an account (and end its sessions) with <code>magnum-bi user disable &lt;email&gt;</code>.</p>
     </section>

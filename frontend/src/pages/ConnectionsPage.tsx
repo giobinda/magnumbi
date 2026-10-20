@@ -4,6 +4,7 @@ import { api } from '../api'
 import type { ConnectionInfo, ConnectionType } from '../api'
 import { useAuth } from '../auth'
 import { useModels } from '../hooks'
+import { missingConnections } from '../connections'
 
 type Field = { key: string; label: string; kind?: 'text' | 'number' | 'bool' | 'tables' | 'gib'; optional?: boolean; placeholder?: string }
 
@@ -85,7 +86,7 @@ export default function ConnectionsPage() {
   const load = () => api.connections().then(r => { setList(r.connections); setKeySet(r.secret_key) }, e => setError(e.message))
   useEffect(() => { load() }, [])
 
-  const needed = [...new Set(models.map(m => m.connection))].filter(n => !list?.some(c => c.name === n))
+  const needed = missingConnections(models, (list ?? []).map(c => c.name))
   const remove = async (c: ConnectionInfo) => {
     if (!confirm(`Delete the connection "${c.name}"? Models that use it stop working here.`)) return
     try { await api.deleteConnection(c.name); load() } catch (e) { setError((e as Error).message) }

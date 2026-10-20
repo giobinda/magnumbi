@@ -440,3 +440,25 @@ pre.prompt { white-space: pre-wrap; }
 
 /* phones: long inline code (addresses, settings) wraps */
 .doc :not(pre) > code { overflow-wrap: anywhere; }
+
+/* Docs: "In the app" / "In code" tabs on sections that have both, with screenshots */
+.tabs { margin: 18px 0 24px; border: 1px solid var(--border); border-radius: 12px; background: var(--surface); }
+.tab-list { display: flex; gap: 2px; padding: 4px 8px 0; border-bottom: 1px solid var(--border); }
+.tab-list button {
+  border: 0; background: none; padding: 9px 14px; margin-bottom: -1px; cursor: pointer;
+  font: inherit; font-weight: 600; font-size: .95rem; color: var(--text-muted); border-bottom: 2px solid transparent;
+}
+.tab-list button:hover { color: var(--text); }
+.tab-list button[aria-selected="true"] { color: var(--text); border-bottom-color: var(--accent); }
+.tab-list button:focus-visible { outline: 2px solid var(--accent); outline-offset: -2px; border-radius: 6px; }
+.tab-panel { padding: 16px 18px 4px; }
+.tab-panel > :last-child { margin-bottom: 14px; }
+.tab-panel .code { margin-bottom: 14px; }
+html:not(.js) .tab-list { display: none; }
+html:not(.js) .tab-panel::before { content: attr(data-label); display: block; font-weight: 700; margin-bottom: 8px; }
+.shot { margin: 4px 0 16px; }
+.shot img {
+  display: block; max-width: 100%; height: auto; border: 1px solid var(--border); border-radius: 10px;
+  box-shadow: var(--shadow); background: var(--bg-soft);
+}
+.shot figcaption { font-size: .85rem; color: var(--text-muted); margin-top: 7px; }

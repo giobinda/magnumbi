@@ -74,6 +74,7 @@ make check                      # validate project YAML (models, blends, dashboa
 make demo [ORG=x] [MONTHS=13]   # the NYC taxi x weather demo (downloads; backend/src/demo.rs)
 make lint                       # cargo clippy --all-targets + oxlint
 make e2e-attack                 # local only: hostile names, labels, markdown and data in Chromium (e2e/)
+make screenshots                # local only: retake the website's screenshots (website/assets/screens/)
 cargo fmt                       # rustfmt.toml: max_width 120
 docker compose up -d --build     # the packaged stack, from this checkout, on :8000
 helm lint deploy/helm/magnum-bi --set production=false          # after chart changes, also
@@ -136,7 +137,9 @@ Other engines:
 
 - **The website follows the product.** When a user-facing feature, command or setting changes,
   update `website/` (mostly `docs.html`, sometimes `index.html`) in the same change, as for
-  `README.md`. The agent setup prompt lives in `website/assets/site.js`.
+  `README.md`. Sections of `docs.html` with a screen have "In the app" and "In code" tabs: keep
+  both, and retake the screenshots (`make screenshots`) when a screen they show changes. The agent
+  setup prompt lives in `website/assets/site.js`.
 
 - **Errors:** `ApiError` (`error.rs`) is JSON `{"detail": …}`. Database outages become 503.
   Errors that quote SQL are shown only to roles that may see SQL.

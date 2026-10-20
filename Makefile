@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint e2e-attack
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint e2e-attack screenshots
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -68,6 +68,11 @@ e2e-attack:         ## try script injection in a real browser (local only: Podma
 	cd frontend && npm run build
 	cargo build
 	e2e/run.sh
+
+screenshots:        ## the website's screenshots (local only: Podman/Docker, Node, Chromium)
+	cd frontend && npm run build
+	cargo build
+	e2e/screens.sh
 
 lint:
 	cargo clippy --all-targets

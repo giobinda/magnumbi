@@ -3,6 +3,19 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Added
+
+- **Docs with "In the app" and "In code" tabs** on every section that has a screen (models,
+  dashboards, connections, blends, cache, embedding, links, delivery, reports, themes, tokens,
+  members, sign-in), with screenshots. `make screenshots` retakes them from a demo company.
+
+### Fixed
+
+- An organisation couldn't save a blend joining one of its own models ("unknown model").
+- The Connections page listed a blend among the connections still to set up, as an empty name.
+
 ## 0.1.4 (2026-10-20)
 
 ### Added
