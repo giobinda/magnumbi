@@ -3,7 +3,7 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
-## Unreleased
+## 0.1.5 (2026-10-20)
 
 ### Added
 
@@ -26,6 +26,7 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   Explore or Models › Shared formulas (`/api/formulas`, with `?dry_run=1`). Saved in the
   organisation's own database.
 - The sample model's "Revenue per unit" is now a formula.
+- **The image for ARM too** (`linux/arm64`, built natively), next to x86: the same tags.
 - **Docs with "In the app" and "In code" tabs** on every section that has a screen (models,
   dashboards, connections, blends, cache, embedding, links, delivery, reports, themes, tokens,
   members, sign-in), with screenshots. `make screenshots` retakes them from a demo company.
