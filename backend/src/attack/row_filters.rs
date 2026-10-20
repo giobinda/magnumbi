@@ -217,12 +217,14 @@ async fn dashboards_links_and_downloads_never_see_past_a_restriction() {
             leaks.extend(differs(&format!("tile {t} with {req}"), &got, &expected));
             let as_guest = w.send(&guest, "POST", &path(&guest_api), Some(req.clone())).await.json();
             leaks.extend(differs(&format!("guest link, tile {t} with {req}"), &as_guest, &expected));
-            // the CSV holds what the tile shows
+            // the CSV holds what the tile shows them
             let csv = w.send(&b, "POST", &format!("/api/dashboards/random/tiles/{t}/export"), Some(req.clone())).await;
+            let shown = w.send(&b, "POST", &path("/api/dashboards/random"), Some(req.clone())).await.json();
             let lines = csv.body.trim_end().lines().count().saturating_sub(1);
-            let rows = expected["rows"].as_array().map_or(0, |r| r.len());
+            let rows = shown["rows"].as_array().map_or(0, |r| r.len());
             if lines != rows {
-                leaks.push(format!("CSV of tile {t} with {req}: {lines} rows, expected {rows}"));
+                let body: String = csv.body.chars().take(300).collect();
+                leaks.push(format!("CSV of tile {t} with {req}: {lines} rows, the tile shows {rows} ({}: {body})", csv.status));
             }
         }
     }

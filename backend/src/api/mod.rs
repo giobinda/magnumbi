@@ -454,6 +454,8 @@ pub mod tests {
         SETUP
             .get_or_init(|| async {
                 crate::db::migrate(&store.pool, crate::db::PRIMARY).await.unwrap();
+                // tests give organisations this database too (state.orgs.pin): their tables as well
+                crate::db::migrate(&store.pool, crate::db::ORG).await.unwrap();
                 if store.user(OWNER).await.unwrap().is_none() {
                     let hash = crate::auth::password::hash("test-only-password").unwrap();
                     store.set_password(OWNER, Some("Owner"), &hash, None, false).await.unwrap();
