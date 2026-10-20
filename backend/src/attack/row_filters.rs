@@ -224,7 +224,10 @@ async fn dashboards_links_and_downloads_never_see_past_a_restriction() {
             let rows = shown["rows"].as_array().map_or(0, |r| r.len());
             if lines != rows {
                 let body: String = csv.body.chars().take(300).collect();
-                leaks.push(format!("CSV of tile {t} with {req}: {lines} rows, the tile shows {rows} ({}: {body})", csv.status));
+                leaks.push(format!(
+                    "CSV of tile {t} with {req}: {lines} rows, the tile shows {rows} ({}: {body})",
+                    csv.status
+                ));
             }
         }
     }
