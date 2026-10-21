@@ -22,6 +22,7 @@ import TileView from '../components/TileView'
 import TextTile, { TextEditor } from '../components/TextTile'
 import Tabs, { MoveTab } from '../components/Tabs'
 import { onTab, pickTab } from '../tabs'
+import { deprecatedIn } from '../governance'
 import { useModels, usePhone } from '../hooks'
 import { phoneLayout } from '../phoneLayout'
 import DownloadButton from '../components/DownloadButton'
@@ -208,6 +209,9 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       )}
 
       {modelsError && <div className="error">Could not load models: {modelsError}</div>}
+      {deprecatedIn(dash.tiles, models).map(m => (
+        <div key={m.name} className="notice warn small">This dashboard uses <b>{m.label}</b>, which is deprecated{m.note ? `: ${m.note}` : ''}.</div>
+      ))}
       {warnings.length > 0 && !embed && <div className="warn">{warnings.map(w => <div key={w}>⚠ {w}</div>)}</div>}
 
       {view === 'yaml' && !embed && can('edit') ? (

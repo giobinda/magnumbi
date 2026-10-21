@@ -19,6 +19,7 @@ mod demo;
 mod error;
 mod export;
 mod formula;
+mod governance;
 mod materialize;
 mod netguard;
 mod org_models;
@@ -392,6 +393,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         themes: Default::default(),
         models: Default::default(),
         formulas: Default::default(),
+        governance: Default::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),

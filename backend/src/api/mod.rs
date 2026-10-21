@@ -8,6 +8,7 @@ mod dashboards;
 pub(crate) mod delivery;
 mod exports;
 mod formulas;
+mod governance;
 mod guest;
 mod mcp;
 mod models;
@@ -135,6 +136,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections/{name}/test", post(connections::test))
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
+        .route("/api/governance", get(governance::list))
+        .route("/api/governance/{model}", axum::routing::put(governance::save))
         .route("/api/formulas", get(formulas::list))
         .route("/api/formulas/check", post(formulas::check))
         .route("/api/formulas/{model}/{name}", axum::routing::put(formulas::save).delete(formulas::delete))
@@ -530,6 +533,7 @@ pub mod tests {
             themes: Default::default(),
             models: Default::default(),
             formulas: Default::default(),
+            governance: Default::default(),
             oidc: crate::auth::oidc::Oidc::new(),
             passkeys: crate::auth::passkeys::relying_party(&config),
             demo: Default::default(),

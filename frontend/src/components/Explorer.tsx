@@ -3,6 +3,7 @@ import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
 import { usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
+import { modelOption } from '../governance'
 import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
 import FormulaEditor from './FormulaEditor'
@@ -208,8 +209,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
     <div className="explorer">
       <aside className="fields">
         <select value={modelName} onChange={e => switchModel(e.target.value)}>
-          {models.map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
+          {models.map(m => <option key={m.name} value={m.name}>{modelOption(m)}</option>)}
         </select>
+        {model?.governance?.status === 'deprecated' && (
+          <p className="warn-text small">Deprecated{model.governance.note ? `: ${model.governance.note}` : ''}</p>
+        )}
         {model?.description && <p className="muted small">{model.description}</p>}
         <input placeholder="Search fields…" value={search} onChange={e => setSearch(e.target.value)} />
         <div className="field-group row">Dimensions

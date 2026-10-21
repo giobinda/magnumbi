@@ -3,6 +3,16 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Added
+
+- **Data catalog: owners, stewards and status.** Each model has, per organisation, an owner (any
+  member: ownership isn't a role), stewards, and a status (certified, draft, deprecated) with a
+  note, on the new **Catalog** page. Org admins choose owners; owners decide the rest. The status
+  shows in Explore's model picker, deprecated models warn on their dashboards, and agents see it
+  through MCP. An organisation's own model belongs to its maker. API: `/api/governance`.
+
 ## 0.1.5 (2026-10-20)
 
 ### Added

@@ -31,7 +31,8 @@ const INSTRUCTIONS: &str = "Magnum BI is a BI tool: semantic models (dimensions 
 connection), blends (models joined across databases; their fields are written model.field), and dashboards \
 (YAML: tiles, each a query on a model, or `type: text` with markdown `text:`; optional `tabs:`). You act as the person whose API token you use, in their organisation \
 and role; data restrictions apply to you as to them.\n\
-Explore first: list_models, then describe_model for field names; run_query takes a semantic query \
+Explore first: list_models, then describe_model for field names; a model's governance says who \
+owns it and its status: prefer certified models, avoid deprecated ones (the note says why); run_query takes a semantic query \
 ({model, dimensions, measures, filters, sort, limit, period, formulas}), never SQL. Time dimensions take a grain: \
 \"sold_at:month\" (hour, day, week, month, quarter, year).\n\
 To change a dashboard: get_dashboard (YAML and its version), edit the YAML, validate_dashboard (a dry_run that \

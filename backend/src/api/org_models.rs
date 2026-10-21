@@ -110,7 +110,14 @@ pub async fn save(
     if p.dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));
     }
-    state.orgs.store(caller.org()).await?.put_org_model(caller.org(), &m, Some(caller.email())).await?;
+    let store = state.orgs.store(caller.org()).await?;
+    store.put_org_model(caller.org(), &m, Some(caller.email())).await?;
+    // a new model belongs to its maker
+    if !store.governance(caller.org()).await?.iter().any(|(model, ..)| *model == name) {
+        let g = crate::governance::Governance { owner: Some(caller.email().to_string()), ..Default::default() };
+        store.put_governance(caller.org(), &name, &g, Some(caller.email())).await?;
+        state.governance.forget(caller.org());
+    }
     state.models.forget(caller.org());
     state.blends.forget(caller.org());
     state.usage.record(crate::usage::Event { model: Some(name), ..caller.event("model_saved") });
@@ -142,9 +149,12 @@ pub async fn delete(
     Path(name): Path<String>,
 ) -> ApiResult<Json<Value>> {
     require_org_admin(&caller)?;
-    if !state.orgs.store(caller.org()).await?.delete_org_model(caller.org(), &name).await? {
+    let store = state.orgs.store(caller.org()).await?;
+    if !store.delete_org_model(caller.org(), &name).await? {
         return Err(ApiError::not_found(format!("no model of yours named {name:?}")));
     }
+    store.delete_governance(caller.org(), &name).await?;
+    state.governance.forget(caller.org());
     state.models.forget(caller.org());
     state.blends.forget(caller.org());
     state.usage.record(crate::usage::Event { model: Some(name), ..caller.event("model_deleted") });

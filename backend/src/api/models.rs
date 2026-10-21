@@ -67,7 +67,15 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
 pub async fn list(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
     caller.require("view")?;
     let types = connection_types(&state, &caller).await?;
-    let models: Vec<Value> = available_models(&caller).values().map(|m| model_json(&caller, m, &types)).collect();
+    let governance = super::governance::of_org(&state, &caller).await?;
+    let models: Vec<Value> = available_models(&caller)
+        .values()
+        .map(|m| {
+            let mut v = model_json(&caller, m, &types);
+            v["governance"] = super::governance::shown(&caller, governance.get(&m.name));
+            v
+        })
+        .collect();
     // configuration problems: builders only
     let errors = if caller.can("edit") { json!(caller.project.errors) } else { json!({}) };
     Ok(Json(json!({"models": models, "errors": errors})))
@@ -80,7 +88,9 @@ pub async fn get_model(
 ) -> ApiResult<Json<Value>> {
     caller.require("view")?;
     let types = connection_types(&state, &caller).await?;
-    Ok(Json(model_json(&caller, model_of(&caller, &name)?, &types)))
+    let mut v = model_json(&caller, model_of(&caller, &name)?, &types);
+    v["governance"] = super::governance::shown(&caller, super::governance::of_org(&state, &caller).await?.get(&name));
+    Ok(Json(v))
 }
 
 /// Free-form query (Explore, tile editor): power users and system owners only.

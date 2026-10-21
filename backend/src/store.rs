@@ -1186,6 +1186,51 @@ impl Store {
         Ok(c.execute("DELETE FROM org_models WHERE org = $1 AND name = $2", &[&org, &name]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ governance
+
+    /// Each model's governance in the organisation: (model, governance, updated_at, updated_by).
+    pub async fn governance(
+        &self,
+        org: &str,
+    ) -> Result<Vec<(String, crate::governance::Governance, String, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT model, definition, updated_at, updated_by FROM governance WHERE org = $1 ORDER BY model",
+                &[&org],
+            )
+            .await?;
+        rows.iter()
+            .map(|r| {
+                let at: DateTime<Utc> = r.get(2);
+                Ok((r.get(0), serde_json::from_str(&r.get::<_, String>(1))?, at.to_rfc3339(), r.get(3)))
+            })
+            .collect()
+    }
+
+    pub async fn put_governance(
+        &self,
+        org: &str,
+        model: &str,
+        g: &crate::governance::Governance,
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO governance (org, model, definition, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org, model) DO UPDATE SET definition = EXCLUDED.definition,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &model, &serde_json::to_string(g)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_governance(&self, org: &str, model: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM governance WHERE org = $1 AND model = $2", &[&org, &model]).await? > 0)
+    }
+
     // ------------------------------------------------------------------ shared formulas
 
     /// The organisation's shared formulas: (model, formula, updated_at, updated_by).

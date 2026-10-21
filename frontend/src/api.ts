@@ -45,6 +45,16 @@ export interface Formula {
 }
 export interface SharedFormula { model: string; formula: Formula; updated_at: string; updated_by: string | null; problem?: string | null }
 export interface FormulaCheck { ok: boolean; error?: string; at?: number; type?: DimType }
+/** Where the person stands on a model's governance (backend/src/governance.rs). */
+export type Standing = 'admin' | 'owner' | 'steward' | 'reader'
+export type ModelStatus = 'certified' | 'draft' | 'deprecated'
+export interface Governance {
+  owner: string | null; stewards: string[]; status: ModelStatus | null; note: string | null
+}
+export interface ModelGovernance extends Governance {
+  standing: Standing
+  model?: string; updated_at?: string | null; updated_by?: string | null
+}
 export interface ModelInfo {
   name: string; label: string; description?: string | null; connection: string
   /** the organisation's connection of that name: null when it has none yet */
@@ -55,6 +65,8 @@ export interface ModelInfo {
   blend?: { base: string; joins: BlendJoin[] } | null
   /** the organisation's own (made in the app, on Models) */
   own?: boolean
+  /** who answers for it here, and its status */
+  governance?: ModelGovernance
 }
 
 /** A join key: "base_field = field", with a grain for dates and times ("sold_at:day = day:day") */
@@ -408,6 +420,9 @@ export const api = {
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),
   blends: () => call<{ blends: Blend[] }>('/api/blends'),
   /** `formulas`: the chart's others, which this one may use */
+  governance: () => call<{ models: ModelGovernance[] }>('/api/governance'),
+  saveGovernance: (model: string, g: Governance) =>
+    call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}`, json('PUT', g)),
   checkFormula: (model: string, expr: string, perRow = false, formulas: Formula[] = [], signal?: AbortSignal) =>
     call<FormulaCheck>('/api/formulas/check', { ...json('POST', { model, expr, per_row: perRow, formulas }), signal }),
   /** Org admins: the organisation's shared formulas */
