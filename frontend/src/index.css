@@ -483,3 +483,10 @@ label.check.inline { align-items: center; gap: 4px; }
 .governance-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
 .governance-form label { display: flex; flex-direction: column; gap: 4px; }
 .notice { padding: 8px 12px; border-radius: 8px; margin: 0 0 8px; }
+.tag-mark { font-size: 10px; text-transform: uppercase; letter-spacing: .03em; padding: 0 5px; border-radius: 4px; background: var(--warn-soft); color: var(--warn); }
+.docs-fields { width: 100%; border-collapse: collapse; font-size: 13px; }
+.docs-fields th { text-align: left; font-weight: 600; color: var(--text-muted); padding: 4px; }
+.docs-fields td { padding: 4px; vertical-align: top; }
+.docs-fields input { width: 100%; min-width: 90px; }
+.catalog .tp-badge { margin-right: 4px; }
+@media (max-width: 760px) { .docs-fields thead { display: none; } .docs-fields tr, .docs-fields td { display: block; } }

@@ -351,6 +351,8 @@ pub(crate) mod tests {
             "org_models",
             "formulas",
             "governance",
+            "model_docs",
+            "glossary",
             "dashboards",
             "dashboard_versions",
             "connections",

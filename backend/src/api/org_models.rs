@@ -154,6 +154,8 @@ pub async fn delete(
         return Err(ApiError::not_found(format!("no model of yours named {name:?}")));
     }
     store.delete_governance(caller.org(), &name).await?;
+    store.delete_model_docs(caller.org(), &name).await?;
+    state.docs.forget(caller.org());
     state.governance.forget(caller.org());
     state.models.forget(caller.org());
     state.blends.forget(caller.org());

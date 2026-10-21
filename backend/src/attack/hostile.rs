@@ -309,6 +309,26 @@ fn document_cases(w: &World) -> Vec<Case> {
         NoCrash,
     ));
     out.push(case("huge CSS", "POST", "/api/themes/import", json!({"css": "a{}".repeat(300_000)}), NoCrash));
+    // documentation and the glossary: text, kept as text
+    let docs = "/api/governance/sales/docs";
+    out.push(case("a huge description", "PUT", docs, json!({"description": "x".repeat(100_000)}), Refused));
+    out.push(case("a tag with markup", "PUT", docs, json!({"tags": ["<img src=x onerror=alert(1)>"]}), Refused));
+    out.push(case("docs of no field", "PUT", docs, json!({"fields": {"users.password_hash": {}}}), Refused));
+    out.push(case("docs with NUL", "PUT", docs, json!({"description": "a\u{0}b"}), NoCrash));
+    out.push(case("HTML in docs", "PUT", docs, json!({"description": "<script>alert(1)</script>"}), NoCrash));
+    // a term's name is text ("P/E ratio"), never a path
+    for (name, expect) in [
+        ("..", NoCrash),
+        ("a/b", NoCrash),
+        (&"t".repeat(200), Refused),
+        (" ", Refused),
+        (" x", Refused),
+        ("a\u{7}b", Refused),
+    ] {
+        let path = format!("/api/glossary/{}", name.replace('/', "%2F").replace(' ', "%20").replace('\u{7}', "%07"));
+        out.push(case(format!("term {name:?}"), "PUT", path, json!({"name": name, "definition": "d"}), expect));
+    }
+    out.push(case("a term of no name", "PUT", "/api/glossary/x", json!({"name": "y", "definition": "d"}), Refused));
     out
 }
 

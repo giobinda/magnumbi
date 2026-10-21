@@ -126,6 +126,10 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     // ownership isn't a role: any member may own a model (the handler decides; see below)
     ("GET", "/api/governance", VIEWER),
     ("PUT", "/api/governance/{model}", VIEWER),
+    ("PUT", "/api/governance/{model}/docs", VIEWER),
+    ("GET", "/api/glossary", VIEWER),
+    ("PUT", "/api/glossary/{name}", VIEWER),
+    ("DELETE", "/api/glossary/{name}", VIEWER),
     ("GET", "/api/formulas", ADMIN),
     ("POST", "/api/formulas/check", POWER),
     ("PUT", "/api/formulas/{model}/{name}", ADMIN),
@@ -176,6 +180,8 @@ pub fn fill(w: &World, path: &str) -> String {
         "team"
     } else if path.starts_with("/api/org-models/") {
         "attack_model"
+    } else if path.starts_with("/api/glossary/") {
+        "attack_term"
     } else if path.starts_with("/api/formulas/") {
         "attack_formula"
     } else {
@@ -248,6 +254,8 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/platform/organisations/{org}/database" => json!({"dsn": "postgresql://evil@127.0.0.1:1/x"}),
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
         "/api/governance/{model}" => json!({"owner": "evil@evil.example", "status": "certified"}),
+        "/api/governance/{model}/docs" => json!({"description": "evil"}),
+        "/api/glossary/{name}" => json!({"name": "attack_term", "definition": "evil"}),
         "/api/formulas/{model}/{name}" => json!({"name": "attack_formula", "expr": "revenue * 1000"}),
         "/api/formulas/check" => json!({"model": "sales", "expr": "revenue / transactions"}),
         "/api/org-models/{name}" => json!({"name": "attack_model", "connection": "warehouse", "table": "sample_sales",
@@ -306,6 +314,10 @@ pub async fn assert_intact(w: &World) {
     assert_eq!(f["formulas"], json!([]), "A's shared formulas changed: {f}");
     let g = w.send(&owner, "GET", "/api/governance", None).await.json();
     assert!(!g.to_string().contains("evil"), "A's governance changed: {g}");
+    let g = w.send(&owner, "GET", "/api/glossary", None).await.json();
+    assert!(!g.to_string().contains("evil"), "A's glossary changed: {g}");
+    let m = w.send(&owner, "GET", "/api/models/sales", None).await.json();
+    assert!(!m.to_string().contains("evil"), "A's docs changed: {m}");
     let m = w.send(&owner, "GET", "/api/members", None).await.json();
     assert!(!m.to_string().contains("evil"), "A's members changed: {m}");
 }
@@ -354,6 +366,15 @@ async fn nobody_gets_past_their_role() {
     let r = w.send(&power, "PUT", "/api/governance/sales", Some(g)).await;
     if r.status != StatusCode::FORBIDDEN {
         leaks.push(format!("a colleague took the sales model: {} {}", r.status, r.body));
+    }
+    let r = w.send(&power, "PUT", "/api/governance/sales/docs", Some(json!({"description": "evil"}))).await;
+    let t = w
+        .send(&power, "PUT", "/api/glossary/attack_term", Some(json!({"name": "attack_term", "definition": "evil"})))
+        .await;
+    for (what, r) in [("documented", r), ("added a glossary term to", t)] {
+        if r.status != StatusCode::FORBIDDEN {
+            leaks.push(format!("a colleague {what} the organisation: {} {}", r.status, r.body));
+        }
     }
     // a colleague at the right role, but neither its maker nor an Org admin, can't touch a report
     for (method, path) in [("DELETE", ""), ("PUT", "/active"), ("POST", "/run")] {

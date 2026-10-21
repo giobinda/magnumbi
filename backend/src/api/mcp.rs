@@ -100,7 +100,15 @@ fn tools() -> Vec<Tool> {
             perm: "view",
             writes: false,
             schema: || obj(json!({"name": {"type": "string"}}), &["name"]),
-            description: "One model or blend: its dimensions (with types), measures (with formats) and drill hierarchies.",
+            description: "One model or blend: its dimensions (with types), measures (with formats) and drill hierarchies, \
+with the organisation's documentation (descriptions, synonyms, examples, tags, glossary terms) and governance.",
+        },
+        Tool {
+            name: "get_glossary",
+            perm: "view",
+            writes: false,
+            schema: || obj(json!({}), &[]),
+            description: "The organisation's business terms: definitions, synonyms, and the fields (model.field) that implement each.",
         },
         Tool {
             name: "run_query",
@@ -426,6 +434,7 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
     let Json(v) = match name {
         "list_models" => models::list(s(), a()).await?,
         "describe_model" => models::get_model(s(), a(), Path(arg(&args, "name")?)).await?,
+        "get_glossary" => super::governance::glossary(s(), a()).await?,
         "run_query" => models::query(s(), a(), Body(arg(&args, "query")?)).await?,
         "preview_sql" => models::compile_only(s(), a(), Body(arg(&args, "query")?)).await?,
         "list_dashboards" => dashboards::list(s(), a()).await?,

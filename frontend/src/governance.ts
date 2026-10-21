@@ -22,3 +22,37 @@ export function deprecatedIn(tiles: { query?: { model: string } | null }[], mode
 export const mayDecide = (s: Standing) => s === 'admin' || s === 'owner'
 /** Only Org admins give a model a new owner. */
 export const mayHandOver = (s: Standing) => s === 'admin'
+
+/** Explore's field search: the name, the label, or any synonym. */
+export function fieldMatches(f: { name: string; label?: string | null; synonyms?: string[] }, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || [f.name, f.label ?? '', ...(f.synonyms ?? [])].some(x => x.toLowerCase().includes(q))
+}
+
+/** Items typed with commas: trimmed, once each (whatever the case). */
+export function parseList(text: string): string[] {
+  const out: string[] = []
+  for (const x of text.split(',').map(s => s.trim()).filter(Boolean)) {
+    if (!out.some(o => o.toLowerCase() === x.toLowerCase())) out.push(x)
+  }
+  return out
+}
+
+/** Tags that ask for care with the data (shown next to the field). */
+export const SENSITIVE = ['pii', 'personal', 'confidential', 'restricted']
+export const sensitive = (tags?: string[]) => (tags ?? []).filter(t => SENSITIVE.includes(t))
+
+/** A field's tooltip: its formula, description, synonyms, examples, terms and tags, a line each. */
+export function fieldTitle(f: {
+  formula?: string | null; description?: string | null; synonyms?: string[]; examples?: string[]; terms?: string[]; tags?: string[]
+}): string | undefined {
+  const lines = [
+    f.formula ? `= ${f.formula}` : '',
+    f.description ?? '',
+    f.synonyms?.length ? `Also called: ${f.synonyms.join(', ')}` : '',
+    f.examples?.length ? `For example: ${f.examples.join('; ')}` : '',
+    f.terms?.length ? `Glossary: ${f.terms.join(', ')}` : '',
+    f.tags?.length ? `Tags: ${f.tags.join(', ')}` : '',
+  ].filter(Boolean)
+  return lines.length ? lines.join('\n') : undefined
+}

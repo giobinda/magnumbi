@@ -109,6 +109,176 @@ impl Governance {
     }
 }
 
+/// The longest description or definition, and the most synonyms, examples or tags on one thing.
+pub const MAX_TEXT: usize = 2000;
+pub const MAX_LIST: usize = 20;
+/// The longest synonym, example or term name.
+const MAX_ITEM: usize = 80;
+static TAG: std::sync::LazyLock<regex::Regex> =
+    std::sync::LazyLock::new(|| regex::Regex::new(r"^[a-z0-9][a-z0-9_-]{0,39}$").unwrap());
+
+/// What an organisation says about a model and its fields, on top of what the model says itself
+/// (stewards and above write it). Shown as text, never as HTML.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct ModelDocs {
+    #[serde(default)]
+    pub description: Option<String>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+    #[serde(default)]
+    pub fields: std::collections::BTreeMap<String, FieldDocs>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct FieldDocs {
+    #[serde(default)]
+    pub description: Option<String>,
+    /// other words people use for it ("turnover" for revenue): found by search, given to agents
+    #[serde(default)]
+    pub synonyms: Vec<String>,
+    #[serde(default)]
+    pub examples: Vec<String>,
+    /// classification (pii, confidential, finance...): information only, no access rule
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// glossary terms this field implements
+    #[serde(default)]
+    pub terms: Vec<String>,
+}
+
+/// A business term in the organisation's glossary.
+#[derive(Debug, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Term {
+    pub name: String,
+    pub definition: String,
+    #[serde(default)]
+    pub synonyms: Vec<String>,
+}
+
+fn text(what: &str, t: &Option<String>) -> Result<(), String> {
+    match t {
+        Some(t) if t.chars().count() > MAX_TEXT => Err(format!("{what} is too long (at most {MAX_TEXT} characters)")),
+        _ => Ok(()),
+    }
+}
+
+fn items(what: &str, list: &[String], max_len: usize) -> Result<(), String> {
+    if list.len() > MAX_LIST {
+        return Err(format!("{what}: at most {MAX_LIST}"));
+    }
+    for i in list {
+        if i.trim().is_empty() {
+            return Err(format!("{what}: an empty one"));
+        }
+        if i.chars().count() > max_len {
+            return Err(format!("{what}: {i:?} is too long (at most {max_len} characters)"));
+        }
+    }
+    Ok(())
+}
+
+pub fn check_synonyms(what: &str, list: &[String]) -> Result<(), String> {
+    items(what, list, MAX_ITEM)
+}
+
+pub fn check_tags(what: &str, list: &[String]) -> Result<(), String> {
+    tags(what, list)
+}
+
+fn tags(what: &str, list: &[String]) -> Result<(), String> {
+    items(what, list, 40)?;
+    match list.iter().find(|t| !TAG.is_match(t)) {
+        Some(t) => Err(format!("{what}: {t:?} isn't a tag (small letters, digits, - and _, such as pii)")),
+        None => Ok(()),
+    }
+}
+
+impl ModelDocs {
+    /// `fields`: the model's fields; `terms`: the glossary's terms.
+    pub fn check(&self, fields: &[&str], terms: &[String]) -> Result<(), String> {
+        text("the description", &self.description)?;
+        tags("the model's tags", &self.tags)?;
+        for (name, f) in &self.fields {
+            if !fields.contains(&name.as_str()) {
+                return Err(format!("the model has no field {name:?}"));
+            }
+            text(&format!("{name}'s description"), &f.description)?;
+            items(&format!("{name}'s synonyms"), &f.synonyms, MAX_ITEM)?;
+            items(&format!("{name}'s examples"), &f.examples, MAX_ITEM * 3)?;
+            tags(&format!("{name}'s tags"), &f.tags)?;
+            if let Some(t) = f.terms.iter().find(|t| !terms.iter().any(|x| x.eq_ignore_ascii_case(t))) {
+                return Err(format!("{name}: {t:?} isn't in the glossary"));
+            }
+        }
+        Ok(())
+    }
+}
+
+impl Term {
+    pub fn check(&self) -> Result<(), String> {
+        if self.name.trim().is_empty() {
+            return Err("a term needs a name".into());
+        }
+        if self.name.trim() != self.name || self.name.chars().any(char::is_control) {
+            return Err("a term's name is plain text, without spaces around it".into());
+        }
+        if self.name.chars().count() > MAX_ITEM {
+            return Err(format!("the name is too long (at most {MAX_ITEM} characters)"));
+        }
+        if self.definition.trim().is_empty() {
+            return Err("a term needs a definition".into());
+        }
+        text("the definition", &Some(self.definition.clone()))?;
+        items("synonyms", &self.synonyms, MAX_ITEM)
+    }
+}
+
+/// A model as the API shows it (models::model_json), with the organisation's docs on top: their
+/// descriptions win, synonyms and tags add up (once each), examples and terms are theirs.
+pub fn document(model: &mut serde_json::Value, docs: &ModelDocs) {
+    use serde_json::{Value, json};
+    let add = |v: &mut Value, extra: &[String]| {
+        let mut list: Vec<String> =
+            v.as_array().map_or(vec![], |a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect());
+        for e in extra {
+            if !list.iter().any(|x| x.eq_ignore_ascii_case(e)) {
+                list.push(e.clone());
+            }
+        }
+        *v = json!(list);
+    };
+    if let Some(d) = &docs.description {
+        model["description"] = json!(d);
+    }
+    if !docs.tags.is_empty() {
+        add(&mut model["tags"], &docs.tags);
+    }
+    for kind in ["dimensions", "measures"] {
+        let Some(fields) = model[kind].as_array_mut() else { continue };
+        for f in fields {
+            let Some(d) = f["name"].as_str().and_then(|n| docs.fields.get(n)) else { continue };
+            if let Some(text) = &d.description {
+                f["description"] = json!(text);
+            }
+            if !d.synonyms.is_empty() {
+                add(&mut f["synonyms"], &d.synonyms);
+            }
+            if !d.tags.is_empty() {
+                add(&mut f["tags"], &d.tags);
+            }
+            if !d.examples.is_empty() {
+                f["examples"] = json!(d.examples);
+            }
+            if !d.terms.is_empty() {
+                f["terms"] = json!(d.terms);
+            }
+        }
+    }
+}
+
 fn same_email(a: &Option<String>, b: &Option<String>) -> bool {
     match (a, b) {
         (Some(a), Some(b)) => a.eq_ignore_ascii_case(b),
@@ -171,5 +341,71 @@ mod tests {
         let many: Vec<String> = (0..=MAX_STEWARDS).map(|i| format!("p{i}@acme.example")).collect();
         let crowd = Governance { stewards: many.clone(), ..Default::default() };
         assert!(crowd.check(&many).unwrap_err().contains("at most"));
+    }
+
+    fn docs(v: serde_json::Value) -> ModelDocs {
+        serde_json::from_value(v).unwrap()
+    }
+
+    #[test]
+    fn docs_name_real_fields_and_stay_within_bounds() {
+        let fields = ["region", "revenue"];
+        let terms = ["net revenue".to_string()];
+        let ok = docs(serde_json::json!({"description": "Sales from the tills", "tags": ["finance"],
+            "fields": {"revenue": {"description": "After discounts", "synonyms": ["turnover"], "examples": ["1,234.50"],
+                                   "tags": ["finance"], "terms": ["Net revenue"]}}}));
+        assert!(ok.check(&fields, &terms).is_ok());
+        let e = |v| docs(v).check(&fields, &terms).unwrap_err();
+        assert!(e(serde_json::json!({"fields": {"password_hash": {}}})).contains("no field"));
+        assert!(e(serde_json::json!({"tags": ["Not A Tag!"]})).contains("tag"));
+        assert!(e(serde_json::json!({"fields": {"region": {"terms": ["churn"]}}})).contains("glossary"));
+        assert!(e(serde_json::json!({"description": "x".repeat(MAX_TEXT + 1)})).contains("long"));
+        assert!(
+            e(serde_json::json!({"fields": {"region": {"synonyms": vec!["s"; MAX_LIST + 1]}}})).contains("at most")
+        );
+        assert!(e(serde_json::json!({"fields": {"region": {"synonyms": [" "]}}})).contains("empty"));
+    }
+
+    #[test]
+    fn docs_add_to_what_the_model_says() {
+        let mut model = serde_json::json!({"description": "From YAML",
+            "dimensions": [{"name": "region", "description": null, "synonyms": ["area"], "tags": []}],
+            "measures": [{"name": "revenue", "description": "YAML says", "synonyms": [], "tags": ["finance"]}]});
+        let d = docs(serde_json::json!({"description": "Sales from the tills",
+            "fields": {"region": {"synonyms": ["territory", "Area"], "tags": ["geo"]},
+                       "revenue": {"description": "After discounts", "tags": ["finance", "audited"], "terms": ["net revenue"]}}}));
+        document(&mut model, &d);
+        assert_eq!(model["description"], "Sales from the tills");
+        let region = &model["dimensions"][0];
+        // the model's own synonyms first, then the organisation's, once each (whatever the case)
+        assert_eq!(region["synonyms"], serde_json::json!(["area", "territory"]));
+        assert_eq!(region["tags"], serde_json::json!(["geo"]));
+        let revenue = &model["measures"][0];
+        assert_eq!(revenue["description"], "After discounts");
+        assert_eq!(revenue["tags"], serde_json::json!(["finance", "audited"]));
+        assert_eq!(revenue["terms"], serde_json::json!(["net revenue"]));
+        // nothing documented: as it was
+        let before = model.clone();
+        document(&mut model, &ModelDocs::default());
+        assert_eq!(model, before);
+    }
+
+    #[test]
+    fn glossary_terms_are_checked() {
+        let t = |v: serde_json::Value| serde_json::from_value::<Term>(v).unwrap();
+        assert!(
+            t(serde_json::json!({"name": "Net revenue", "definition": "Sales after discounts and returns",
+            "synonyms": ["net sales"]}))
+            .check()
+            .is_ok()
+        );
+        assert!(t(serde_json::json!({"name": " ", "definition": "x"})).check().unwrap_err().contains("name"));
+        assert!(t(serde_json::json!({"name": " x", "definition": "y"})).check().unwrap_err().contains("plain"));
+        assert!(t(serde_json::json!({"name": "a\u{7}b", "definition": "y"})).check().unwrap_err().contains("plain"));
+        assert!(t(serde_json::json!({"name": "P/E ratio", "definition": "y"})).check().is_ok());
+        assert!(t(serde_json::json!({"name": "x", "definition": ""})).check().unwrap_err().contains("definition"));
+        assert!(
+            t(serde_json::json!({"name": "x".repeat(81), "definition": "y"})).check().unwrap_err().contains("long")
+        );
     }
 }

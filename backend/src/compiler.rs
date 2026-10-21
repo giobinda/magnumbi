@@ -689,6 +689,8 @@ fn adhoc_measure(dl: Dialect, r: &str, model: &Model) -> Result<Option<Measure>,
         format: if money { "currency" } else { "number" }.into(),
         higher_is_better: true,
         hidden: false,
+        synonyms: vec![],
+        tags: vec![],
     }))
 }
 

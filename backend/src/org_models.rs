@@ -115,6 +115,8 @@ pub fn propose(
             formula: None,
             hidden: false,
             aggregation: None,
+            synonyms: vec![],
+            tags: vec![],
         });
     }
     let taken = |n: &str| columns.iter().any(|(c, _)| c == n);
@@ -132,6 +134,7 @@ pub fn propose(
         measures,
         hierarchies: BTreeMap::new(),
         cache: None,
+        tags: vec![],
     };
     (model, skipped)
 }
@@ -147,6 +150,8 @@ fn measure(name: &str, kind: &str, sql: Option<String>) -> Measure {
         format: "number".into(),
         higher_is_better: true,
         hidden: false,
+        synonyms: vec![],
+        tags: vec![],
     }
 }
 

@@ -610,8 +610,17 @@ a new owner; the owner sets the status and note and names stewards; everyone els
 member may own a model (ownership isn't a role). An organisation's own model belongs to its maker.
 The status shows in Explore's model picker, deprecated models warn on the dashboards that use
 them, and every model in `/api/models` (and MCP's `list_models`, `describe_model`) carries its
-`governance`. Next: documentation, a glossary and classification tags, then lineage, usage and
-search.
+`governance`.
+
+**Documentation** (stewards, the owner and Org admins; `PUT /api/governance/{model}/docs`): a
+description and tags for the model, and per field a description, synonyms, examples, tags and the
+glossary terms it implements. A platform model's YAML has its own `description`, `synonyms` and
+`tags`; an organisation's description replaces the model's for it, synonyms and tags add up.
+Models in `/api/models` (and MCP) come with it merged; Explore's tooltips show it and its search
+finds fields by synonyms; `pii`, `personal`, `confidential` and `restricted` fields are marked.
+Tags are information only. The **glossary** (`/api/glossary`, MCP `get_glossary`) holds the
+organisation's terms; a term belongs to whoever added it (Org admins, and model owners and
+stewards add terms). Next: lineage, usage and search.
 
 ## Themes and company colours
 

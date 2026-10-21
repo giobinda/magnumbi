@@ -77,6 +77,15 @@ await api('POST', '/api/dashboards/sales_overview/guest-links', { expires_in_hou
 await api('POST', '/api/tokens', { name: 'Claude Code', scope: 'read' })
 await api('PUT', '/api/governance/sales', { owner: 'ben@acme.example', stewards: ['chloe@acme.example'], status: 'certified',
   note: 'Reconciled with the finance close every month.' })
+await api('PUT', '/api/glossary/Net%20revenue', { name: 'Net revenue', definition: 'What customers paid after discounts and returns, before tax.',
+  synonyms: ['net sales'] })
+await api('PUT', '/api/glossary/Store', { name: 'Store', definition: 'A shop of ours with its own till, counted once however many sales it makes.' })
+await api('PUT', '/api/governance/sales/docs', { description: 'Every sale at our tills over the last 18 months, after returns.',
+  tags: ['finance'], fields: {
+    revenue: { description: 'What customers paid, after discounts.', synonyms: ['takings'], examples: ['1,234.50'], terms: ['Net revenue'] },
+    store: { description: 'The shop where the sale happened.', tags: ['location'], terms: ['Store'] },
+    amount: { tags: ['confidential'] },
+  } })
 await api('PUT', '/api/governance/stores', { owner: process.env.SCREENS_ADMIN, stewards: [], status: 'draft',
   note: 'New: store attributes are being checked.' })
 await api('PUT', '/api/governance/sales_by_store', { owner: 'ben@acme.example', stewards: [], status: 'deprecated',
@@ -179,6 +188,11 @@ await shot('catalog', '/catalog', {
   el: '.page',
   before: async () => { await page.click('.card.governance:has-text("Store sales") button:has-text("Edit")') },
 })
+await shot('catalog-docs', '/catalog', {
+  el: '.card.governance:has-text("Store sales")',
+  before: async () => { await page.click('.card.governance:has-text("Store sales") button:has-text("Documentation")') },
+})
+await shot('glossary', '/catalog', { el: '.glossary' })
 await shot('members', '/members', { height: 820 })
 await shot('sign-in', '/members', { el: '.sign-in-settings' })
 await shot('usage', '/usage', { height: 820 })

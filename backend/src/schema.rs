@@ -99,6 +99,12 @@ pub struct Dimension {
     /// how the column is aggregated when used as a number (None: sum for numbers)
     #[serde(default)]
     pub aggregation: Option<Aggregation>,
+    /// other words people use for it (search, agents); organisations add theirs (governance.rs)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub synonyms: Vec<String>,
+    /// classification such as pii or finance: information only
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 fn default_dim_type() -> String {
@@ -131,6 +137,10 @@ pub struct Measure {
     pub higher_is_better: bool,
     #[serde(default)]
     pub hidden: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub synonyms: Vec<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 fn default_format() -> String {
@@ -171,6 +181,9 @@ pub struct Model {
     /// how long results may be reused ("15m", "6h", 0/off). Parsed now, used once caching lands.
     #[serde(default, deserialize_with = "duration")]
     pub cache: Option<u64>,
+    /// classification such as finance: information only
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub tags: Vec<String>,
 }
 
 impl Model {
@@ -185,6 +198,16 @@ impl Model {
     /// Field-level checks (the project loader checks connections and `extends`).
     pub fn validate(&self) -> Result<(), String> {
         check_name(&self.name)?;
+        crate::governance::check_tags("the model's tags", &self.tags)?;
+        for (name, synonyms, tags) in self
+            .dimensions
+            .iter()
+            .map(|d| (&d.name, &d.synonyms, &d.tags))
+            .chain(self.measures.iter().map(|m| (&m.name, &m.synonyms, &m.tags)))
+        {
+            crate::governance::check_synonyms(&format!("{name}'s synonyms"), synonyms)?;
+            crate::governance::check_tags(&format!("{name}'s tags"), tags)?;
+        }
         for d in &self.dimensions {
             check_name(&d.name)?;
             if d.formula.is_some() && d.sql.is_some() {
@@ -436,6 +459,8 @@ impl Formula {
             format: self.format.clone().unwrap_or_else(default_format),
             higher_is_better: true,
             hidden: false,
+            synonyms: vec![],
+            tags: vec![],
         }
     }
 
@@ -451,6 +476,8 @@ impl Formula {
             formula: Some(self.expr.clone()),
             hidden: false,
             aggregation: None,
+            synonyms: vec![],
+            tags: vec![],
         }
     }
 
