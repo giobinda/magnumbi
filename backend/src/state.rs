@@ -42,6 +42,8 @@ pub struct AppState {
     pub models: OrgCached<Vec<crate::schema::Model>>,
     /// each model's governance per organisation (api/governance.rs): (model, governance)
     pub governance: OrgCached<Vec<(String, crate::governance::Governance)>>,
+    /// what each organisation says about its models (governance.rs): (model, docs)
+    pub docs: OrgCached<Vec<(String, crate::governance::ModelDocs)>>,
     /// organisations' shared formulas (api/formulas.rs): (model, formula)
     pub formulas: OrgCached<Vec<(String, crate::schema::Formula)>>,
     /// organisations' own sign-in providers (discovery and keys, cached)
@@ -137,6 +139,11 @@ impl AppState {
                 Ok(store.governance(org).await?.into_iter().map(|(m, g, _, _)| (m, g)).collect())
             })
             .await
+    }
+
+    /// What the organisation says about its models.
+    pub async fn org_docs(&self, org: &str) -> anyhow::Result<Arc<Vec<(String, crate::governance::ModelDocs)>>> {
+        self.docs.get(org, || async { self.orgs.store(org).await?.model_docs(org).await }).await
     }
 
     /// The organisation's shared formulas, with the model each belongs to.

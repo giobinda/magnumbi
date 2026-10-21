@@ -32,6 +32,8 @@ measures:
     type: sum
     sql: amount
     format: currency
+    synonyms: [sales, turnover]   # other words people use: search and agents find it by them
+    tags: [finance]
   - name: units
     label: Units
     type: sum

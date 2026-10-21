@@ -1231,6 +1231,75 @@ impl Store {
         Ok(c.execute("DELETE FROM governance WHERE org = $1 AND model = $2", &[&org, &model]).await? > 0)
     }
 
+    /// What the organisation says about its models: (model, docs).
+    pub async fn model_docs(&self, org: &str) -> Result<Vec<(String, crate::governance::ModelDocs)>> {
+        let c = self.pool.get().await?;
+        let rows = c.query("SELECT model, definition FROM model_docs WHERE org = $1 ORDER BY model", &[&org]).await?;
+        rows.iter().map(|r| Ok((r.get(0), serde_json::from_str(&r.get::<_, String>(1))?))).collect()
+    }
+
+    pub async fn put_model_docs(
+        &self,
+        org: &str,
+        model: &str,
+        d: &crate::governance::ModelDocs,
+        by: Option<&str>,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO model_docs (org, model, definition, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org, model) DO UPDATE SET definition = EXCLUDED.definition,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &model, &serde_json::to_string(d)?, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_model_docs(&self, org: &str, model: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute("DELETE FROM model_docs WHERE org = $1 AND model = $2", &[&org, &model]).await?;
+        Ok(())
+    }
+
+    /// The organisation's glossary: (term, owner, updated_at, updated_by), by name.
+    pub async fn glossary(
+        &self,
+        org: &str,
+    ) -> Result<Vec<(crate::governance::Term, Option<String>, String, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT definition, owner, updated_at, updated_by FROM glossary WHERE org = $1 ORDER BY name_key",
+                &[&org],
+            )
+            .await?;
+        rows.iter()
+            .map(|r| {
+                let at: DateTime<Utc> = r.get(2);
+                Ok((serde_json::from_str(&r.get::<_, String>(0))?, r.get(1), at.to_rfc3339(), r.get(3)))
+            })
+            .collect()
+    }
+
+    /// Add or change a term; `owner`: its owner (kept as it was when changing one).
+    pub async fn put_term(&self, org: &str, t: &crate::governance::Term, owner: &str, by: &str) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO glossary (org, name_key, definition, owner, updated_by) VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (org, name_key) DO UPDATE SET definition = EXCLUDED.definition,
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &t.name.to_lowercase(), &serde_json::to_string(t)?, &owner, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_term(&self, org: &str, name: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM glossary WHERE org = $1 AND name_key = $2", &[&org, &name.to_lowercase()]).await? > 0)
+    }
+
     // ------------------------------------------------------------------ shared formulas
 
     /// The organisation's shared formulas: (model, formula, updated_at, updated_by).

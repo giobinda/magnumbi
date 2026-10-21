@@ -27,6 +27,8 @@ export interface Dimension {
   shared?: boolean
   /** Explore: one of this chart's own formulas */
   own?: boolean
+  /** documentation: the model's and the organisation's (governance) */
+  synonyms?: string[]; tags?: string[]; examples?: string[]; terms?: string[]
 }
 export interface TopN { dimension: string; n: number; by: string; bottom?: boolean }
 export type Format = 'number' | 'currency' | 'percent'
@@ -36,6 +38,7 @@ export interface Measure {
   formula?: string | null
   /** one of the organisation's shared formulas (its admins edit it) */
   shared?: boolean
+  synonyms?: string[]; tags?: string[]; examples?: string[]; terms?: string[]
 }
 /** A calculation on a model's measures, in the formula language (backend/src/formula.rs). */
 export interface Formula {
@@ -54,6 +57,14 @@ export interface Governance {
 export interface ModelGovernance extends Governance {
   standing: Standing
   model?: string; updated_at?: string | null; updated_by?: string | null
+  /** the catalog: what the organisation itself says about the model */
+  docs?: ModelDocs
+}
+export interface FieldDocs { description?: string | null; synonyms?: string[]; examples?: string[]; tags?: string[]; terms?: string[] }
+export interface ModelDocs { description?: string | null; tags?: string[]; fields?: Record<string, FieldDocs> }
+export interface Term { name: string; definition: string; synonyms?: string[] }
+export interface GlossaryTerm extends Term {
+  owner: string | null; fields: string[]; updated_at: string; updated_by: string | null; may_edit: boolean
 }
 export interface ModelInfo {
   name: string; label: string; description?: string | null; connection: string
@@ -67,6 +78,7 @@ export interface ModelInfo {
   own?: boolean
   /** who answers for it here, and its status */
   governance?: ModelGovernance
+  tags?: string[]
 }
 
 /** A join key: "base_field = field", with a grain for dates and times ("sold_at:day = day:day") */
@@ -421,6 +433,10 @@ export const api = {
   blends: () => call<{ blends: Blend[] }>('/api/blends'),
   /** `formulas`: the chart's others, which this one may use */
   governance: () => call<{ models: ModelGovernance[] }>('/api/governance'),
+  saveDocs: (model: string, d: ModelDocs) => call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}/docs`, json('PUT', d)),
+  glossary: () => call<{ terms: GlossaryTerm[]; may_add: boolean }>('/api/glossary'),
+  saveTerm: (t: Term) => call<{ ok: boolean }>(`/api/glossary/${encodeURIComponent(t.name)}`, json('PUT', t)),
+  deleteTerm: (name: string) => call<{ ok: boolean }>(`/api/glossary/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   saveGovernance: (model: string, g: Governance) =>
     call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}`, json('PUT', g)),
   checkFormula: (model: string, expr: string, perRow = false, formulas: Formula[] = [], signal?: AbortSignal) =>

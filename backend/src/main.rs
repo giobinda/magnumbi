@@ -394,6 +394,7 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         models: Default::default(),
         formulas: Default::default(),
         governance: Default::default(),
+        docs: Default::default(),
         oidc: crate::auth::oidc::Oidc::new(),
         passkeys: crate::auth::passkeys::relying_party(&config),
         demo: Default::default(),

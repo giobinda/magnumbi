@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deprecatedIn, modelOption, mayDecide, mayHandOver } from './governance'
+import { deprecatedIn, fieldMatches, fieldTitle, modelOption, mayDecide, mayHandOver, parseList, sensitive } from './governance'
 import type { ModelInfo } from './api'
 
 const model = (name: string, status: string | null, note: string | null = null) => ({
@@ -25,5 +25,30 @@ describe('governance', () => {
   it('knows who decides what', () => {
     expect([mayDecide('admin'), mayDecide('owner'), mayDecide('steward'), mayDecide('reader')]).toEqual([true, true, false, false])
     expect([mayHandOver('admin'), mayHandOver('owner')]).toEqual([true, false])
+  })
+
+  it('finds fields by their names, labels and synonyms', () => {
+    const revenue = { name: 'revenue', label: 'Revenue', synonyms: ['turnover', 'Takings'] }
+    expect(['rev', 'TURN', 'takings', ''].map(q => fieldMatches(revenue, q))).toEqual([true, true, true, true])
+    expect(fieldMatches(revenue, 'units')).toBe(false)
+    expect(fieldMatches({ name: 'region' }, 'reg')).toBe(true)
+  })
+
+  it('reads lists typed with commas, once each', () => {
+    expect(parseList(' Turnover, takings ,, turnover ')).toEqual(['Turnover', 'takings'])
+    expect(parseList('')).toEqual([])
+  })
+
+  it('knows which tags call for care', () => {
+    expect(sensitive(['finance', 'pii'])).toEqual(['pii'])
+    expect(sensitive(['confidential', 'audited', 'personal'])).toEqual(['confidential', 'personal'])
+    expect(sensitive(undefined)).toEqual([])
+  })
+
+  it('says what it knows about a field in its tooltip', () => {
+    expect(fieldTitle({ description: 'After discounts', synonyms: ['turnover'], tags: ['finance'], terms: ['Net revenue'] }))
+      .toBe('After discounts\nAlso called: turnover\nGlossary: Net revenue\nTags: finance')
+    expect(fieldTitle({ formula: 'amount * qty' })).toBe('= amount * qty')
+    expect(fieldTitle({})).toBeUndefined()
   })
 })

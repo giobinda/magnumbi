@@ -3,7 +3,7 @@ import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
 import { usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
-import { modelOption } from '../governance'
+import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
 import FormulaEditor from './FormulaEditor'
@@ -202,8 +202,6 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
     }
   }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, target, period, initial, validTop, formulas])
 
-  const q = search.toLowerCase()
-  const match = (n: string, l?: string | null) => !q || n.toLowerCase().includes(q) || (l ?? '').toLowerCase().includes(q)
 
   return (
     <div className="explorer">
@@ -220,11 +218,12 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
           {model && !model.blend && <button className="link new-formula" title="A field of each row, from its columns"
             onClick={() => setEditing('new-row')}>ƒ New field</button>}
         </div>
-        {model?.dimensions.filter(d => match(d.name, d.label)).map(d => (
+        {model?.dimensions.filter(d => fieldMatches(d, search)).map(d => (
           <FieldItem key={d.name} field={{ kind: 'dimension', name: d.name }} label={fieldLabel(model, d.name)}
             icon={d.formula ? 'ƒ' : TYPE_ICON[d.type]} onAdd={add} used={dims.some(x => fieldName(x) === d.name)}
-            title={d.formula ? `${d.formula}${d.description ? ` · ${d.description}` : ''}` : d.description ?? undefined}
+            title={fieldTitle(d)}
             extra={<>
+              {sensitive(d.tags).map(t => <span key={t} className="tag-mark" title={`Tagged ${t}: take care with this data`}>{t}</span>)}
               {isCountable(d) && (
                 <button className="add" title={`Add as a number (${AGG_LABELS[defaultAgg(d)]}); the aggregation can be changed`}
                   onClick={() => setMeasures(ms => (ms.includes(adhocRef(d)) ? ms : [...ms, adhocRef(d)]))}>Σ</button>
@@ -240,10 +239,10 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
           {model && !model.blend && <button className="link new-formula" title="A calculation on the measures and columns"
             onClick={() => setEditing('new')}>ƒ New formula</button>}
         </div>
-        {model?.measures.filter(m => match(m.name, m.label)).map(m => (
+        {model?.measures.filter(m => fieldMatches(m, search)).map(m => (
           <FieldItem key={m.name} field={{ kind: 'measure', name: m.name }} label={fieldLabel(model, m.name)}
             icon={m.type === 'formula' ? 'ƒ' : 'Σ'} onAdd={add} used={measures.includes(m.name)}
-            title={m.formula ? `${m.formula}${m.description ? ` · ${m.description}` : ''}` : m.description ?? undefined}
+            title={fieldTitle(m)}
             extra={m.shared && can('manage_members') ? (
               <button className="add" title="Edit this shared formula" onClick={() => setEditing(asFormula(m, false, m.format))}>✎</button>
             ) : undefined} />

@@ -351,13 +351,18 @@ measures:
 
     <section id="catalog">
       <h2>Data catalog &amp; governance</h2>
-      <p>Each model has, in each organisation, an <strong>owner</strong> who answers for it, <strong>stewards</strong> who look after its documentation, and a <strong>status</strong>: <em>certified</em>, <em>draft</em> or <em>deprecated</em>, with a note saying why (or what to use instead).</p>
+      <p>Each model has, in each organisation, an <strong>owner</strong> who answers for it, <strong>stewards</strong> who look after its documentation, and a <strong>status</strong>: <em>certified</em>, <em>draft</em> or <em>deprecated</em>, with a note saying why (or what to use instead). Its documentation says what the model and each field mean, other words people use for them, examples, classification tags, and the glossary terms they implement.</p>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
           <p><strong>Catalog</strong> lists every model you can see, with its owner, stewards and status. The owner and Org admins see <strong>Edit</strong>.</p>
           <figure class="shot"><a href="assets/screens/catalog.jpg"><img src="assets/screens/catalog.jpg" alt="The data catalog: models with their status, owner and stewards, one being edited" width="760" height="935" loading="lazy"></a><figcaption>A certified model being edited, a deprecated blend saying what to use instead, and a draft.</figcaption></figure>
           <p>The status shows next to the model in Explore's model picker. A deprecated model also shows its note there, and a warning on every dashboard that uses it.</p>
+          <p><strong>Documentation</strong> (for the model's stewards, its owner and Org admins) edits the description and tags of the model, and of each field its description, other names, examples, tags and glossary terms. A description written here replaces the model's own for your organisation; other names and tags add to it.</p>
+          <figure class="shot"><a href="assets/screens/catalog-docs.jpg"><img src="assets/screens/catalog-docs.jpg" alt="A model's documentation: its description and tags, and for each field a description, other names, examples, tags and glossary terms" width="713" height="985" loading="lazy"></a><figcaption>Documenting the sample sales model.</figcaption></figure>
+          <p>In Explore, a field's tooltip shows what it means, its other names, examples, terms and tags; the field search finds it by its other names too (search for "takings" and Revenue comes up); fields tagged <code>pii</code>, <code>personal</code>, <code>confidential</code> or <code>restricted</code> are marked.</p>
+          <p>The <strong>Glossary</strong>, at the bottom of the Catalog, holds the organisation's business terms, each with the fields that implement it.</p>
+          <figure class="shot"><a href="assets/screens/glossary.jpg"><img src="assets/screens/glossary.jpg" alt="The glossary: terms with their definitions, other names, fields and owner" width="713" height="370" loading="lazy"></a><figcaption>Two terms and the fields that implement them.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
 <div class="code">
@@ -365,8 +370,22 @@ measures:
 <pre><code>{"owner": "ben@acme.example", "stewards": ["chloe@acme.example"],
  "status": "certified", "note": "Reconciled with the finance close every month."}</code></pre>
       </div>
+<div class="code">
+        <span class="label">a platform model's own words (project/models/*.yaml)</span>
+<pre><code>measures:
+  - {name: revenue, type: sum, sql: amount, synonyms: [sales, turnover], tags: [finance]}</code></pre>
+      </div>
+<div class="code">
+        <span class="label">PUT /api/governance/sales/docs (stewards and up) and PUT /api/glossary/Net%20revenue</span>
+<pre><code>{"description": "Every sale at our tills, after returns.", "tags": ["finance"],
+ "fields": {"revenue": {"description": "What customers paid, after discounts.", "synonyms": ["takings"],
+                        "examples": ["1,234.50"], "tags": [], "terms": ["Net revenue"]}}}
+
+{"name": "Net revenue", "definition": "What customers paid after discounts and returns.", "synonyms": ["net sales"]}</code></pre>
+      </div>
           <ul>
-            <li><code>GET /api/governance</code>: every model you can see, with its governance and where you stand (<code>admin</code>, <code>owner</code>, <code>steward</code> or <code>reader</code>). Each model in <code>GET /api/models</code> carries its <code>governance</code> too, and so do MCP's <code>list_models</code> and <code>describe_model</code>: agents are told to prefer certified models and avoid deprecated ones.</li>
+            <li><code>GET /api/governance</code>: every model you can see, with its governance and where you stand (<code>admin</code>, <code>owner</code>, <code>steward</code> or <code>reader</code>). Each model in <code>GET /api/models</code> carries its <code>governance</code> too, and so do MCP's <code>list_models</code> and <code>describe_model</code>: agents are told to prefer certified models and avoid deprecated ones. Models come with the documentation merged in (descriptions, <code>synonyms</code>, <code>examples</code>, <code>tags</code>, <code>terms</code>); <code>GET /api/governance</code> has each organisation's own <code>docs</code>, as written.</li>
+            <li><code>GET /api/glossary</code> (and MCP's <code>get_glossary</code>): the terms, with the fields that implement them. Writes take <code>?dry_run=1</code>.</li>
           </ul>
         </div>
       </div>
@@ -374,7 +393,9 @@ measures:
       <ul>
         <li><strong>Org admins</strong> (system owners in the platform workspace) decide everything, and are the only ones who give a model a new owner.</li>
         <li>The <strong>owner</strong> sets the status and note and names the stewards. An organisation's own model belongs to whoever made it; a platform model has no owner until an Org admin names one.</li>
-        <li><strong>Stewards</strong> will look after a model's documentation and glossary (coming next); everyone else reads.</li>
+        <li><strong>Stewards</strong> (and the owner, and Org admins) write a model's documentation; everyone else reads.</li>
+        <li>A <strong>glossary term</strong> belongs to whoever added it: its owner and Org admins change or remove it. Terms are added by Org admins and by whoever owns or stewards a model.</li>
+        <li><strong>Tags</strong> are information only: they don't hide anything from anyone. Documentation is shown as plain text, never as HTML.</li>
         <li>Ownership isn't a role: any member can own or steward a model, a viewer included. Owners and stewards must be members of the organisation. Each organisation keeps its own, in its own database.</li>
       </ul>
     </section>

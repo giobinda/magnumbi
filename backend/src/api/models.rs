@@ -34,6 +34,7 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
                 d.aggregation.map(|a| a.as_str()).or((d.kind == "number").then_some("sum")).filter(|_| blend.is_none());
             json!({"name": d.name, "label": d.label, "description": d.description, "type": d.kind,
                    "hidden": d.hidden, "aggregation": aggregation, "formula": d.formula,
+                   "synonyms": d.synonyms, "tags": d.tags,
                    "shared": caller.project.formulas.contains(&(m.name.clone(), d.name.clone()))})
         })
         .collect();
@@ -44,6 +45,7 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
         .map(|x| {
             json!({"name": x.name, "label": x.label, "description": x.description, "type": x.kind, "format": x.format,
                    "higher_is_better": x.higher_is_better, "hidden": x.hidden, "formula": x.formula,
+                   "synonyms": x.synonyms, "tags": x.tags,
                    // one of the organisation's shared formulas (its admins edit it in the app)
                    "shared": caller.project.formulas.contains(&(m.name.clone(), x.name.clone()))})
         })
@@ -52,6 +54,7 @@ fn model_json(caller: &crate::auth::Caller, m: &Model, types: &BTreeMap<String, 
         "name": m.name,
         "label": m.label.clone().unwrap_or_else(|| m.name.clone()),
         "description": m.description,
+        "tags": m.tags,
         "connection": m.connection,
         "connection_type": conn,
         "extends": caller.project.bases.get(&m.name),
@@ -68,10 +71,12 @@ pub async fn list(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<
     caller.require("view")?;
     let types = connection_types(&state, &caller).await?;
     let governance = super::governance::of_org(&state, &caller).await?;
+    let docs = super::governance::docs_of(&state, &caller).await?;
     let models: Vec<Value> = available_models(&caller)
         .values()
         .map(|m| {
             let mut v = model_json(&caller, m, &types);
+            super::governance::documented(&mut v, &docs, &m.name);
             v["governance"] = super::governance::shown(&caller, governance.get(&m.name));
             v
         })
@@ -89,6 +94,7 @@ pub async fn get_model(
     caller.require("view")?;
     let types = connection_types(&state, &caller).await?;
     let mut v = model_json(&caller, model_of(&caller, &name)?, &types);
+    super::governance::documented(&mut v, &super::governance::docs_of(&state, &caller).await?, &name);
     v["governance"] = super::governance::shown(&caller, super::governance::of_org(&state, &caller).await?.get(&name));
     Ok(Json(v))
 }

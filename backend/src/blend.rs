@@ -201,6 +201,7 @@ impl Blend {
             measures: vec![],
             hierarchies: BTreeMap::new(),
             cache: self.cache,
+            tags: vec![],
         };
         for (i, m) in self.models(models).into_iter().enumerate() {
             let keys: Vec<String> = match i {
@@ -486,6 +487,8 @@ fn joined(cx: &Ctx, sides: &[usize], q: &Query, now: DateTime<Utc>) -> Result<Jo
         formula: None,
         hidden,
         aggregation: None,
+        synonyms: vec![],
+        tags: vec![],
     };
     for (field, grain) in &base_keys {
         let d = base.dimension(field).expect("validated");
@@ -714,6 +717,7 @@ impl Joined {
             measures: self.measures.clone(),
             hierarchies: BTreeMap::new(),
             cache: None,
+            tags: vec![],
         }
     }
 

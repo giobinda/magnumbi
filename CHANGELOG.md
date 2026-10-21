@@ -12,6 +12,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   note, on the new **Catalog** page. Org admins choose owners; owners decide the rest. The status
   shows in Explore's model picker, deprecated models warn on their dashboards, and agents see it
   through MCP. An organisation's own model belongs to its maker. API: `/api/governance`.
+- **Documentation and a glossary.** Stewards document a model and its fields: descriptions,
+  other names, examples, classification tags (information only), and the glossary terms they
+  implement; the Catalog's glossary holds the organisation's business terms. Explore shows it in
+  tooltips, finds fields by their other names, and marks sensitive fields; agents get it through
+  MCP (`describe_model`, `get_glossary`). Platform YAML takes `synonyms` and `tags` too.
 
 ## 0.1.5 (2026-10-20)
 
