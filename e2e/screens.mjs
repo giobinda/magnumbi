@@ -75,6 +75,12 @@ await api('POST', '/api/dashboards/sales_overview/share-links', { cache_seconds:
 await api('POST', '/api/dashboards/sales_overview/guest-links', { expires_in_hours: 168, password: 'Partner-Preview-1', role: 'viewer',
   filters: [{ model: 'sales', dimension: 'region', values: ['EMEA'] }] })
 await api('POST', '/api/tokens', { name: 'Claude Code', scope: 'read' })
+await api('PUT', '/api/governance/sales', { owner: 'ben@acme.example', stewards: ['chloe@acme.example'], status: 'certified',
+  note: 'Reconciled with the finance close every month.' })
+await api('PUT', '/api/governance/stores', { owner: process.env.SCREENS_ADMIN, stewards: [], status: 'draft',
+  note: 'New: store attributes are being checked.' })
+await api('PUT', '/api/governance/sales_by_store', { owner: 'ben@acme.example', stewards: [], status: 'deprecated',
+  note: 'Use Stores directly: it has the same fields.' })
 await api('PUT', '/api/formulas/sales/revenue_per_store', { name: 'revenue_per_store', label: 'Revenue per store',
   expr: 'revenue / count_distinct(store)', format: 'currency' })
 
@@ -169,6 +175,10 @@ await shot('guest-link', '/dashboards/sales_overview', { el: '.modal', before: d
 await shot('reports', '/dashboards/sales_overview', { el: '.modal', before: dialog('Schedule…') })
 await shot('delivery', '/delivery', { el: '.page' })
 await shot('themes', '/themes', { height: 820 })
+await shot('catalog', '/catalog', {
+  el: '.page',
+  before: async () => { await page.click('.card.governance:has-text("Store sales") button:has-text("Edit")') },
+})
 await shot('members', '/members', { height: 820 })
 await shot('sign-in', '/members', { el: '.sign-in-settings' })
 await shot('usage', '/usage', { height: 820 })

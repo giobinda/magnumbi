@@ -600,6 +600,19 @@ ScramDB, and everyone in it can explore it and build dashboards and blends on it
 API: `GET /api/connections/{name}/tables`, `GET /api/connections/{name}/tables/{table}/model?name=…`
 (a proposal), `GET /api/org-models`, `PUT`/`DELETE /api/org-models/{name}` (`?dry_run=1`).
 
+## Data catalog and governance
+
+Each model has, per organisation, an **owner**, **stewards** and a **status** (certified, draft or
+deprecated, with a note), on the **Catalog** page (`GET /api/governance`,
+`PUT /api/governance/{model}` with `?dry_run=1`; `governance.rs`, `api/governance.rs`). Org admins
+(system owners in the platform workspace) decide everything and are the only ones who give a model
+a new owner; the owner sets the status and note and names stewards; everyone else reads. Any
+member may own a model (ownership isn't a role). An organisation's own model belongs to its maker.
+The status shows in Explore's model picker, deprecated models warn on the dashboards that use
+them, and every model in `/api/models` (and MCP's `list_models`, `describe_model`) carries its
+`governance`. Next: documentation, a glossary and classification tags, then lineage, usage and
+search.
+
 ## Themes and company colours
 
 The default themes are **Aloha** (light) and **Aloha night** (dark); people can pick any theme

@@ -472,3 +472,14 @@ label.check.inline { align-items: center; gap: 4px; }
 .formula-editor .palette .row { gap: 6px; margin-top: 4px; justify-content: flex-start; }
 .formula-editor .palette .chip { border: 0; cursor: pointer; padding: 3px 10px; min-height: 0; }
 .chip.fn { background: var(--surface-2); color: var(--text); }
+
+/* governance: the data catalog (CatalogPage.tsx) and status badges */
+.status { font-size: 12px; padding: 2px 8px; border-radius: 999px; text-transform: capitalize; }
+.status.certified { border: 1px solid var(--good); color: var(--good); }
+.status.draft { background: var(--surface-2); color: var(--text-muted); }
+.status.deprecated { background: var(--warn-soft); color: var(--warn); }
+.catalog .card.governance { margin-bottom: 10px; }
+.catalog .card.governance p { margin: 0; }
+.governance-form { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; }
+.governance-form label { display: flex; flex-direction: column; gap: 4px; }
+.notice { padding: 8px 12px; border-radius: 8px; margin: 0 0 8px; }

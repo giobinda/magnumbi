@@ -152,6 +152,7 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
                 | ["members"]
                 | ["org-themes"]
                 | ["formulas", _, _]
+                | ["governance", _]
         );
     }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)

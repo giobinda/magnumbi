@@ -40,6 +40,8 @@ pub struct AppState {
     pub themes: OrgCached<crate::themes::OrgThemes>,
     /// organisations' own models (org_models.rs), read from their databases
     pub models: OrgCached<Vec<crate::schema::Model>>,
+    /// each model's governance per organisation (api/governance.rs): (model, governance)
+    pub governance: OrgCached<Vec<(String, crate::governance::Governance)>>,
     /// organisations' shared formulas (api/formulas.rs): (model, formula)
     pub formulas: OrgCached<Vec<(String, crate::schema::Formula)>>,
     /// organisations' own sign-in providers (discovery and keys, cached)
@@ -123,6 +125,16 @@ impl AppState {
             .get(org, || async {
                 let store = self.orgs.store(org).await?;
                 Ok(store.org_models(org).await?.into_iter().map(|(m, _, _)| m).collect())
+            })
+            .await
+    }
+
+    /// Each model's governance in the organisation.
+    pub async fn org_governance(&self, org: &str) -> anyhow::Result<Arc<Vec<(String, crate::governance::Governance)>>> {
+        self.governance
+            .get(org, || async {
+                let store = self.orgs.store(org).await?;
+                Ok(store.governance(org).await?.into_iter().map(|(m, g, _, _)| (m, g)).collect())
             })
             .await
     }

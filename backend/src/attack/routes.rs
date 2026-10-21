@@ -123,6 +123,9 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("POST", "/api/connections/{name}/test", ADMIN),
     ("GET", "/api/connections/{name}/tables", ADMIN),
     ("GET", "/api/connections/{name}/tables/{table}/model", ADMIN),
+    // ownership isn't a role: any member may own a model (the handler decides; see below)
+    ("GET", "/api/governance", VIEWER),
+    ("PUT", "/api/governance/{model}", VIEWER),
     ("GET", "/api/formulas", ADMIN),
     ("POST", "/api/formulas/check", POWER),
     ("PUT", "/api/formulas/{model}/{name}", ADMIN),
@@ -244,6 +247,7 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/platform/demo" => json!({"org": w.a, "months": 1}),
         "/api/platform/organisations/{org}/database" => json!({"dsn": "postgresql://evil@127.0.0.1:1/x"}),
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
+        "/api/governance/{model}" => json!({"owner": "evil@evil.example", "status": "certified"}),
         "/api/formulas/{model}/{name}" => json!({"name": "attack_formula", "expr": "revenue * 1000"}),
         "/api/formulas/check" => json!({"model": "sales", "expr": "revenue / transactions"}),
         "/api/org-models/{name}" => json!({"name": "attack_model", "connection": "warehouse", "table": "sample_sales",
@@ -300,6 +304,8 @@ pub async fn assert_intact(w: &World) {
     assert!(!p.to_string().contains("evil"), "the platform settings changed: {p}");
     let f = w.send(&owner, "GET", "/api/formulas", None).await.json();
     assert_eq!(f["formulas"], json!([]), "A's shared formulas changed: {f}");
+    let g = w.send(&owner, "GET", "/api/governance", None).await.json();
+    assert!(!g.to_string().contains("evil"), "A's governance changed: {g}");
     let m = w.send(&owner, "GET", "/api/members", None).await.json();
     assert!(!m.to_string().contains("evil"), "A's members changed: {m}");
 }
@@ -342,8 +348,14 @@ async fn nobody_gets_past_their_role() {
             }
         }
     }
-    // a colleague at the right role, but neither its maker nor an Org admin, can't touch a report
     let power = As { who: Who::Person(w.power_a.clone()), org: w.a.clone(), view_as: None };
+    // a colleague who doesn't own a model can't change its governance, nor take it
+    let g = json!({"owner": w.power_a, "status": "certified"});
+    let r = w.send(&power, "PUT", "/api/governance/sales", Some(g)).await;
+    if r.status != StatusCode::FORBIDDEN {
+        leaks.push(format!("a colleague took the sales model: {} {}", r.status, r.body));
+    }
+    // a colleague at the right role, but neither its maker nor an Org admin, can't touch a report
     for (method, path) in [("DELETE", ""), ("PUT", "/active"), ("POST", "/run")] {
         let p = format!("/api/schedules/{}{path}", w.schedule_id);
         let r = w.send(&power, method, &p, Some(json!({"active": false}))).await;

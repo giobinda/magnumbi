@@ -350,6 +350,7 @@ pub(crate) mod tests {
             "guest_links",
             "org_models",
             "formulas",
+            "governance",
             "dashboards",
             "dashboard_versions",
             "connections",
