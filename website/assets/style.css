@@ -233,6 +233,8 @@ section.alt { background: var(--bg-soft); border-top: 1px solid var(--border); b
 
 /* split layout (text + code) */
 .split { display: grid; grid-template-columns: 1fr 1.1fr; gap: 48px; align-items: start; }
+/* grid items may shrink below their content (a long code line scrolls inside its block instead) */
+.split > *, .showcase > * { min-width: 0; }
 .split + .split { margin-top: 64px; }
 @media (max-width: 920px) { .split { grid-template-columns: 1fr; gap: 24px; } }
 .checks { list-style: none; padding: 0; margin: 0; }
@@ -462,3 +464,19 @@ html:not(.js) .tab-panel::before { content: attr(data-label); display: block; fo
   box-shadow: var(--shadow); background: var(--bg-soft);
 }
 .shot figcaption { font-size: .85rem; color: var(--text-muted); margin-top: 7px; }
+
+/* highlights: the features, one row each (index.html) */
+.showcase { display: grid; grid-template-columns: 1fr 1.25fr; gap: 56px; align-items: center; }
+.showcase + .showcase { margin-top: 88px; }
+.showcase.flip .showcase-text { order: 2; }
+.showcase h3 { font-size: 1.6rem; line-height: 1.2; margin: 8px 0 12px; }
+.showcase-text > p { color: var(--text-muted); font-size: 1.08rem; margin: 0 0 18px; }
+.showcase-shot { display: block; border-radius: 14px; overflow: hidden; border: 1px solid var(--border);
+  box-shadow: 0 18px 50px rgba(10, 20, 40, .16); background: var(--surface); }
+.showcase-shot img { display: block; width: 100%; height: auto; max-height: 460px; object-fit: cover; object-position: top left; }
+.showcase-more { margin-top: 72px; text-align: center; color: var(--text-muted); font-size: 1.05rem; }
+@media (max-width: 920px) {
+  .showcase { grid-template-columns: 1fr; gap: 24px; }
+  .showcase.flip .showcase-text { order: 0; }
+  .showcase + .showcase { margin-top: 56px; }
+}
