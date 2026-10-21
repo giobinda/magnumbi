@@ -21,6 +21,8 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   other words and description (agents: MCP `search_catalog`). Each model's lineage shows what it
   reads, the dashboards, tiles, reports, blends and shared formulas using it, each field's uses
   (and the fields no dashboard uses), and its queries in the last 30 days.
+- **What a field means, in Explore:** a **?** next to every field opens its catalog entry
+  (description, other names, examples, tags, and its glossary terms with their definitions).
 
 ## 0.1.5 (2026-10-20)
 
