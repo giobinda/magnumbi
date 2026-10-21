@@ -31,7 +31,7 @@ const INSTRUCTIONS: &str = "Magnum BI is a BI tool: semantic models (dimensions 
 connection), blends (models joined across databases; their fields are written model.field), and dashboards \
 (YAML: tiles, each a query on a model, or `type: text` with markdown `text:`; optional `tabs:`). You act as the person whose API token you use, in their organisation \
 and role; data restrictions apply to you as to them.\n\
-Explore first: list_models, then describe_model for field names; a model's governance says who \
+Explore first: list_models (or search_catalog with the question's words), then describe_model for field names; a model's governance says who \
 owns it and its status: prefer certified models, avoid deprecated ones (the note says why); run_query takes a semantic query \
 ({model, dimensions, measures, filters, sort, limit, period, formulas}), never SQL. Time dimensions take a grain: \
 \"sold_at:month\" (hour, day, week, month, quarter, year).\n\
@@ -102,6 +102,16 @@ fn tools() -> Vec<Tool> {
             schema: || obj(json!({"name": {"type": "string"}}), &["name"]),
             description: "One model or blend: its dimensions (with types), measures (with formats) and drill hierarchies, \
 with the organisation's documentation (descriptions, synonyms, examples, tags, glossary terms) and governance.",
+        },
+        Tool {
+            name: "search_catalog",
+            perm: "view",
+            writes: false,
+            schema: || {
+                obj(json!({"q": {"type": "string", "description": "words, e.g. \"churn\" or \"net revenue\""}}), &["q"])
+            },
+            description: "Find models, fields, glossary terms and dashboards by name, other words people use (synonyms, \
+terms, tags) or description: to find the right measure for a question.",
         },
         Tool {
             name: "get_glossary",
@@ -435,6 +445,10 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
         "list_models" => models::list(s(), a()).await?,
         "describe_model" => models::get_model(s(), a(), Path(arg(&args, "name")?)).await?,
         "get_glossary" => super::governance::glossary(s(), a()).await?,
+        "search_catalog" => {
+            let q = arg::<String>(&args, "q")?;
+            super::governance::search(s(), a(), UrlQuery(super::governance::SearchParams::of(q))).await?
+        }
         "run_query" => models::query(s(), a(), Body(arg(&args, "query")?)).await?,
         "preview_sql" => models::compile_only(s(), a(), Body(arg(&args, "query")?)).await?,
         "list_dashboards" => dashboards::list(s(), a()).await?,

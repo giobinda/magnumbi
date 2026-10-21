@@ -490,3 +490,7 @@ label.check.inline { align-items: center; gap: 4px; }
 .docs-fields input { width: 100%; min-width: 90px; }
 .catalog .tp-badge { margin-right: 4px; }
 @media (max-width: 760px) { .docs-fields thead { display: none; } .docs-fields tr, .docs-fields td { display: block; } }
+.catalog-search input { width: 100%; margin: 6px 0 10px; }
+.search-results { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
+.lineage { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
+.lineage p { margin: 0 0 4px; }

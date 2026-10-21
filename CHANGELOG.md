@@ -17,6 +17,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   implement; the Catalog's glossary holds the organisation's business terms. Explore shows it in
   tooltips, finds fields by their other names, and marks sensitive fields; agents get it through
   MCP (`describe_model`, `get_glossary`). Platform YAML takes `synonyms` and `tags` too.
+- **Catalog search and lineage.** Search finds models, fields, terms and dashboards by name,
+  other words and description (agents: MCP `search_catalog`). Each model's lineage shows what it
+  reads, the dashboards, tiles, reports, blends and shared formulas using it, each field's uses
+  (and the fields no dashboard uses), and its queries in the last 30 days.
 
 ## 0.1.5 (2026-10-20)
 

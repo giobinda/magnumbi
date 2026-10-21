@@ -140,6 +140,8 @@ pub fn router(state: Shared) -> Router {
         .route("/api/governance/{model}", axum::routing::put(governance::save))
         .route("/api/governance/{model}/docs", axum::routing::put(governance::save_docs))
         .route("/api/glossary", get(governance::glossary))
+        .route("/api/catalog/search", get(governance::search))
+        .route("/api/catalog/{model}/lineage", get(governance::lineage))
         .route("/api/glossary/{name}", axum::routing::put(governance::save_term).delete(governance::delete_term))
         .route("/api/formulas", get(formulas::list))
         .route("/api/formulas/check", post(formulas::check))

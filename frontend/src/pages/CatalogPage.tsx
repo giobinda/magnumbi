@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import type { FieldDocs, Governance, GlossaryTerm, ModelDocs, ModelGovernance, ModelInfo, ModelStatus, Term } from '../api'
+import type { FieldDocs, Governance, GlossaryTerm, Lineage, ModelDocs, ModelGovernance, ModelInfo, ModelStatus, SearchResult, Term } from '../api'
 import { useCan } from '../auth'
-import { STATUSES, mayDecide, mayHandOver, parseList } from '../governance'
+import { STATUSES, describeUsage, mayDecide, mayHandOver, parseList } from '../governance'
 import { forgetModels, useModels } from '../hooks'
 import { parseRecipients } from '../schedule'
 
@@ -13,6 +13,7 @@ export default function CatalogPage() {
   const [list, setList] = useState<ModelGovernance[]>([])
   const [editing, setEditing] = useState<string | null>(null)
   const [documenting, setDocumenting] = useState<string | null>(null)
+  const [tracing, setTracing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { models } = useModels()
   const can = useCan()
@@ -27,14 +28,16 @@ export default function CatalogPage() {
         deprecated, saying why) and names <b>stewards</b> to look after its documentation. {can('manage_members')
           ? 'As an Org admin, you choose the owners.' : 'Org admins choose the owners.'}</p>
       {error && <div className="error">{error}</div>}
+      <Search onModel={name => { setTracing(name); document.getElementById(`model-${name}`)?.scrollIntoView({ behavior: 'smooth' }) }} />
       {list.map(g => (
-        <div key={g.model} className="card governance">
+        <div key={g.model} id={`model-${g.model}`} className="card governance">
           <div className="row wrap">
             <b>{label(g.model!)}</b>
             {g.status && <span className={`status ${g.status}`}>{g.status}</span>}
             <span className="muted small mono">{g.model}</span>
             <span className="grow" />
             {can('explore') && <Link className="btn" to={`/explore?model=${encodeURIComponent(g.model!)}`}>Explore</Link>}
+            <button onClick={() => setTracing(tracing === g.model ? null : g.model!)}>{tracing === g.model ? 'Hide lineage' : 'Lineage & usage'}</button>
             {g.standing !== 'reader' && documenting !== g.model && <button onClick={() => setDocumenting(g.model!)}>Documentation</button>}
             {mayDecide(g.standing) && editing !== g.model && <button onClick={() => setEditing(g.model!)}>Edit</button>}
           </div>
@@ -52,6 +55,7 @@ export default function CatalogPage() {
             {g.updated_by && <> · changed by {g.updated_by}, {new Date(g.updated_at!).toLocaleDateString()}</>}
             {g.standing !== 'reader' && <> · you: {g.standing === 'admin' ? 'Org admin' : g.standing}</>}
           </p>
+          {tracing === g.model && <LineagePanel model={g.model!} info={models.find(m => m.name === g.model)} />}
           {documenting === g.model && models.some(m => m.name === g.model) && (
             <DocsForm model={models.find(m => m.name === g.model)!} initial={g.docs ?? {}} onCancel={() => setDocumenting(null)}
               onSave={async d => { await api.saveDocs(g.model!, d); setDocumenting(null); forgetModels(); load() }} />
@@ -68,6 +72,82 @@ export default function CatalogPage() {
 }
 
 const listText = (l?: string[]) => (l ?? []).join(', ')
+
+const KINDS: Record<SearchResult['kind'], string> = { model: 'Model', field: 'Field', term: 'Term', dashboard: 'Dashboard' }
+
+/** Search the catalog by names, other words and descriptions. */
+function Search({ onModel }: { onModel: (name: string) => void }) {
+  const [q, setQ] = useState('')
+  const [results, setResults] = useState<SearchResult[] | null>(null)
+  useEffect(() => {
+    if (!q.trim()) return
+    const ctl = new AbortController()
+    const t = setTimeout(() => {
+      api.searchCatalog(q, ctl.signal).then(r => setResults(r.results), () => {})
+    }, 250)
+    return () => { clearTimeout(t); ctl.abort() }
+  }, [q])
+  const shown = q.trim() ? results : null
+  return (
+    <div className="catalog-search">
+      <input type="search" value={q} onChange={e => setQ(e.target.value)} aria-label="Search the catalog"
+        placeholder="Search models, fields, terms and dashboards (e.g. takings, net revenue)…" />
+      {shown && shown.length === 0 && <p className="muted small">Nothing found.</p>}
+      {shown && shown.length > 0 && (
+        <ul className="search-results">
+          {shown.map(r => (
+            <li key={`${r.kind}:${r.model}:${r.name}`}>
+              <span className="tp-badge">{KINDS[r.kind]}</span>{' '}
+              {r.kind === 'dashboard' ? <Link to={`/dashboards/${encodeURIComponent(r.name)}`}><b>{r.label}</b></Link>
+                : r.kind === 'term' ? <a href="#glossary"><b>{r.label}</b></a>
+                : <button className="link" onClick={() => onModel(r.model ?? r.name)}><b>{r.label}</b></button>}
+              {r.model && <span className="muted small"> in {r.model}</span>}
+              {r.text && <div className="muted small">{r.text}</div>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
+/** Where a model comes from and where it's used. */
+function LineagePanel({ model, info }: { model: string; info?: ModelInfo }) {
+  const [l, setL] = useState<Lineage | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  useEffect(() => { api.lineage(model).then(setL, e => setError((e as Error).message)) }, [model])
+  if (error) return <div className="error">{error}</div>
+  if (!l) return <p className="muted small">Loading…</p>
+  const all = [...(info?.dimensions ?? []), ...(info?.measures ?? [])]
+  const label = (f: string) => all.find(x => x.name === f)?.label ?? f
+  const unused = all.filter(f => !l?.fields[f.name]).map(f => f.label ?? f.name)
+  return (
+    <div className="lineage">
+      <p className="small"><b>Reads</b> the connection <span className="mono">{l.reads.connection}</span>
+        {l.reads.table && <> (table <span className="mono">{l.reads.table}</span>)</>}
+        {l.reads.sql && <> (its own SQL)</>}
+        {l.reads.extends && <>, extending <span className="mono">{l.reads.extends}</span></>}.</p>
+      <p className="small"><b>Usage:</b> {describeUsage(l.usage)}{l.usage.last && `; last ${new Date(l.usage.last).toLocaleDateString()}`}.</p>
+      <p className="small"><b>Used in</b>{' '}
+        {l.dashboards.length ? l.dashboards.map((d, i) => <span key={d.id}>{i > 0 && ', '}<Link to={`/dashboards/${encodeURIComponent(d.id)}`}>{d.title}</Link>
+          {' '}<span className="muted">({d.tiles.length} {d.tiles.length === 1 ? 'tile' : 'tiles'})</span></span>) : 'no dashboard'}
+        {l.reports > 0 && <>; {l.reports} scheduled {l.reports === 1 ? 'report' : 'reports'}</>}
+        {l.blends.length > 0 && <>; blends: <span className="mono">{l.blends.join(', ')}</span></>}
+        {l.formulas.length > 0 && <>; shared formulas: <span className="mono">{l.formulas.join(', ')}</span></>}.</p>
+      {unused.length > 0 && <p className="small muted"><b>On no dashboard:</b> {unused.join(', ')}.</p>}
+      {Object.keys(l.fields).length > 0 && (
+        <table className="docs-fields">
+          <thead><tr><th>Field</th><th>Used in</th></tr></thead>
+          <tbody>
+            {Object.entries(l.fields).map(([f, places]) => (
+              <tr key={f}><td>{label(f)}</td><td className="small">{places.join(', ')}</td></tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  )
+}
 
 /** What the organisation says about a model and its fields (the model's own words stay). */
 function DocsForm({ model, initial, onSave, onCancel }: {
@@ -141,7 +221,7 @@ function Glossary() {
     if (!confirm(`Remove "${t.name}" from the glossary?`)) return
     try { await api.deleteTerm(t.name); load() } catch (e) { setError((e as Error).message) }
   }
-  return <section className="glossary">
+  return <section className="glossary" id="glossary">
     <h2 className="section">Glossary</h2>
     <p className="muted small">The organisation's business terms, and the fields that implement each (linked from a model's documentation).
       Agents read them too.</p>

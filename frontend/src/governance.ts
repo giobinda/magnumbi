@@ -56,3 +56,10 @@ export function fieldTitle(f: {
   ].filter(Boolean)
   return lines.length ? lines.join('\n') : undefined
 }
+
+/** A model's queries over a period, in words. */
+export function describeUsage(u: { days: number; queries: number; people: number; last: string | null }): string {
+  if (!u.queries) return `Not queried in the last ${u.days} days`
+  const n = (x: number, one: string, many: string) => `${x} ${x === 1 ? one : many}`
+  return `${n(u.queries, 'query', 'queries')} by ${n(u.people, 'person', 'people')} in the last ${u.days} days`
+}
