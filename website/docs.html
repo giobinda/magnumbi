@@ -362,6 +362,10 @@ measures:
           <figure class="shot"><a href="assets/screens/catalog-docs.jpg"><img src="assets/screens/catalog-docs.jpg" alt="A model's documentation: its description and tags, and for each field a description, other names, examples, tags and glossary terms" width="713" height="985" loading="lazy"></a><figcaption>Documenting the sample sales model.</figcaption></figure>
           <p>In Explore, a field's tooltip shows what it means, its other names, examples, terms and tags; the field search finds it by its other names too (search for "takings" and Revenue comes up); fields tagged <code>pii</code>, <code>personal</code>, <code>confidential</code> or <code>restricted</code> are marked.</p>
           <p>The <strong>Glossary</strong>, at the bottom of the Catalog, holds the organisation's business terms, each with the fields that implement it.</p>
+          <p><strong>Search</strong>, at the top of the Catalog, finds models, fields, glossary terms and dashboards by their names, the other words people use for them, their tags and their descriptions: "takings" finds Revenue.</p>
+          <figure class="shot"><a href="assets/screens/catalog-search.jpg"><img src="assets/screens/catalog-search.jpg" alt="Searching the catalog for takings finds the Revenue field" width="713" height="88" loading="lazy"></a><figcaption>Found by another word for it.</figcaption></figure>
+          <p><strong>Lineage &amp; usage</strong>, on every model, shows what it reads, which dashboards, tiles, scheduled reports, blends and shared formulas use it, where each field is used (and which fields no dashboard uses), and how many queries it served, for how many people, in the last 30 days.</p>
+          <figure class="shot"><a href="assets/screens/lineage.jpg"><img src="assets/screens/lineage.jpg" alt="A model's lineage: its connection and table, usage, dashboards, reports, blends, shared formulas, and each field's uses" width="713" height="554" loading="lazy"></a><figcaption>Where the sample sales model and its fields are used.</figcaption></figure>
           <figure class="shot"><a href="assets/screens/glossary.jpg"><img src="assets/screens/glossary.jpg" alt="The glossary: terms with their definitions, other names, fields and owner" width="713" height="370" loading="lazy"></a><figcaption>Two terms and the fields that implement them.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -386,6 +390,7 @@ measures:
           <ul>
             <li><code>GET /api/governance</code>: every model you can see, with its governance and where you stand (<code>admin</code>, <code>owner</code>, <code>steward</code> or <code>reader</code>). Each model in <code>GET /api/models</code> carries its <code>governance</code> too, and so do MCP's <code>list_models</code> and <code>describe_model</code>: agents are told to prefer certified models and avoid deprecated ones. Models come with the documentation merged in (descriptions, <code>synonyms</code>, <code>examples</code>, <code>tags</code>, <code>terms</code>); <code>GET /api/governance</code> has each organisation's own <code>docs</code>, as written.</li>
             <li><code>GET /api/glossary</code> (and MCP's <code>get_glossary</code>): the terms, with the fields that implement them. Writes take <code>?dry_run=1</code>.</li>
+            <li><code>GET /api/catalog/search?q=takings</code> (and MCP's <code>search_catalog</code>, which agents use to find the right measure for a question) and <code>GET /api/catalog/{model}/lineage</code>. A model's table appears in its lineage only for those who may see SQL.</li>
           </ul>
         </div>
       </div>

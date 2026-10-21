@@ -63,6 +63,15 @@ export interface ModelGovernance extends Governance {
 export interface FieldDocs { description?: string | null; synonyms?: string[]; examples?: string[]; tags?: string[]; terms?: string[] }
 export interface ModelDocs { description?: string | null; tags?: string[]; fields?: Record<string, FieldDocs> }
 export interface Term { name: string; definition: string; synonyms?: string[] }
+export interface SearchResult { kind: 'model' | 'field' | 'term' | 'dashboard'; model: string | null; name: string; label: string; text: string }
+export interface Lineage {
+  model: string
+  reads: { connection: string; extends: string | null; table?: string | null; sql?: boolean }
+  blends: string[]; formulas: string[]; reports: number
+  dashboards: { id: string; title: string; tiles: string[] }[]
+  fields: Record<string, string[]>
+  usage: { days: number; queries: number; people: number; last: string | null }
+}
 export interface GlossaryTerm extends Term {
   owner: string | null; fields: string[]; updated_at: string; updated_by: string | null; may_edit: boolean
 }
@@ -434,6 +443,9 @@ export const api = {
   /** `formulas`: the chart's others, which this one may use */
   governance: () => call<{ models: ModelGovernance[] }>('/api/governance'),
   saveDocs: (model: string, d: ModelDocs) => call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}/docs`, json('PUT', d)),
+  searchCatalog: (q: string, signal?: AbortSignal) =>
+    call<{ results: SearchResult[] }>(`/api/catalog/search?q=${encodeURIComponent(q)}`, { signal }),
+  lineage: (model: string) => call<Lineage>(`/api/catalog/${encodeURIComponent(model)}/lineage`),
   glossary: () => call<{ terms: GlossaryTerm[]; may_add: boolean }>('/api/glossary'),
   saveTerm: (t: Term) => call<{ ok: boolean }>(`/api/glossary/${encodeURIComponent(t.name)}`, json('PUT', t)),
   deleteTerm: (name: string) => call<{ ok: boolean }>(`/api/glossary/${encodeURIComponent(name)}`, { method: 'DELETE' }),

@@ -20,6 +20,7 @@ mod error;
 mod export;
 mod formula;
 mod governance;
+mod lineage;
 mod materialize;
 mod netguard;
 mod org_models;

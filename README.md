@@ -620,7 +620,14 @@ Models in `/api/models` (and MCP) come with it merged; Explore's tooltips show i
 finds fields by synonyms; `pii`, `personal`, `confidential` and `restricted` fields are marked.
 Tags are information only. The **glossary** (`/api/glossary`, MCP `get_glossary`) holds the
 organisation's terms; a term belongs to whoever added it (Org admins, and model owners and
-stewards add terms). Next: lineage, usage and search.
+stewards add terms).
+
+**Search and lineage** (`lineage.rs`): `GET /api/catalog/search?q=` (MCP `search_catalog`) finds
+models, fields, glossary terms and dashboards by names, synonyms, terms, tags and descriptions
+(keyword ranking in the server; the catalog is small). `GET /api/catalog/{model}/lineage`: what a
+model reads (its table only for those who may see SQL), the blends, shared formulas, dashboards,
+tiles and scheduled reports on it, each field's uses, and its queries over 30 days. Embeddings
+(ScramDB's built-in `vector` type and index) can come later, with an embedding provider.
 
 ## Themes and company colours
 

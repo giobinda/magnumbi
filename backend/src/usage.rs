@@ -145,6 +145,20 @@ async fn purge(store: &Store, retention_days: i64) -> Result<()> {
 }
 
 /// The usage summary for the last `days` days: one organisation, or (None) the whole platform.
+/// A model's queries in an organisation over the last `days`: (queries, people, last query).
+pub async fn of_model(store: &Store, org: &str, model: &str, days: i64) -> Result<(i64, i64, Option<DateTime<Utc>>)> {
+    let since: DateTime<Utc> = Utc::now() - chrono::Duration::days(days);
+    let c = store.pool.get().await?;
+    let r = c
+        .query_one(
+            "SELECT COUNT(*), COUNT(DISTINCT user_email), MAX(at) FROM usage_events
+             WHERE org = $1::TEXT AND model = $2::TEXT AND kind = 'query' AND at >= $3::TIMESTAMPTZ",
+            &[&org, &model, &since],
+        )
+        .await?;
+    Ok((r.get(0), r.get(1), r.get(2)))
+}
+
 pub async fn summary(store: &Store, org: Option<&str>, days: i64) -> Result<Value> {
     let since: DateTime<Utc> = Utc::now() - chrono::Duration::days(days);
     let c = store.pool.get().await?;

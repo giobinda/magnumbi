@@ -128,6 +128,8 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("PUT", "/api/governance/{model}", VIEWER),
     ("PUT", "/api/governance/{model}/docs", VIEWER),
     ("GET", "/api/glossary", VIEWER),
+    ("GET", "/api/catalog/search", VIEWER),
+    ("GET", "/api/catalog/{model}/lineage", VIEWER),
     ("PUT", "/api/glossary/{name}", VIEWER),
     ("DELETE", "/api/glossary/{name}", VIEWER),
     ("GET", "/api/formulas", ADMIN),

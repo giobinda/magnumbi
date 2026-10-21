@@ -221,6 +221,152 @@ pub async fn delete_term(
     Ok(Json(json!({"ok": true})))
 }
 
+/// The organisation's dashboards that parse (one that doesn't is skipped: it shows its own error).
+async fn dashboards(state: &AppState, caller: &Caller) -> ApiResult<Vec<(String, crate::schema::Dashboard)>> {
+    let store = state.orgs.store(caller.org()).await?;
+    Ok(store
+        .all_dashboards(caller.org())
+        .await?
+        .into_iter()
+        .filter_map(|(id, text)| crate::project::parse_dashboard(&text).ok().map(|d| (id, d)))
+        .collect())
+}
+
+/// Where a model comes from and where it's used: what it reads, the blends, shared formulas,
+/// dashboards, tiles and reports built on it, each field's uses, and its queries in 30 days.
+pub async fn lineage(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    Path(model): Path<String>,
+) -> ApiResult<Json<Value>> {
+    caller.require("view")?;
+    let m = super::model_of(&caller, &model)?;
+    let uses = crate::lineage::uses(m, &dashboards(&state, &caller).await?);
+    let blends: Vec<&String> = caller
+        .project
+        .blends
+        .values()
+        .filter(|b| b.base == model || b.joins.iter().any(|j| j.model == model))
+        .map(|b| &b.name)
+        .collect();
+    let formulas: Vec<String> = state
+        .org_formulas(caller.org())
+        .await?
+        .iter()
+        .filter(|(m, _)| *m == model)
+        .map(|(_, f)| f.name.clone())
+        .collect();
+    let store = state.orgs.store(caller.org()).await?;
+    let used_on: Vec<&str> = uses.dashboards.iter().map(|d| d.id.as_str()).collect();
+    let reports = store
+        .schedules(caller.org(), None)
+        .await?
+        .iter()
+        .filter(|s| used_on.contains(&s.dashboard_id.as_str()))
+        .count();
+    let (queries, people, last) = crate::usage::of_model(&state.store, caller.org(), &model, 30).await?;
+    let mut reads = json!({"connection": m.connection, "extends": caller.project.bases.get(&model)});
+    // its table or SQL: for those who may see SQL
+    if caller.can("view_sql") {
+        reads["table"] = json!(m.table);
+        reads["sql"] = json!(m.sql.is_some());
+    }
+    Ok(Json(json!({
+        "model": model, "reads": reads, "blends": blends, "formulas": formulas, "reports": reports,
+        "dashboards": uses.dashboards, "fields": uses.fields,
+        "usage": {"days": 30, "queries": queries, "people": people, "last": last.map(|t| t.to_rfc3339())},
+    })))
+}
+
+#[derive(serde::Deserialize)]
+pub struct SearchParams {
+    #[serde(default)]
+    q: String,
+}
+
+impl SearchParams {
+    pub fn of(q: String) -> SearchParams {
+        SearchParams { q }
+    }
+}
+
+/// Search the catalog: the models, fields, glossary terms and dashboards the caller can see, by
+/// names, other words (synonyms, terms, tags) and descriptions.
+pub async fn search(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<SearchParams>,
+) -> ApiResult<Json<Value>> {
+    caller.require("view")?;
+    if p.q.chars().count() > 200 {
+        return Err(ApiError::bad_request("search for at most 200 characters"));
+    }
+    use crate::lineage::Item;
+    let docs = docs_of(&state, &caller).await?;
+    let strings = |v: &Value| -> Vec<String> {
+        v.as_array().map_or(vec![], |a| a.iter().filter_map(|x| x.as_str().map(String::from)).collect())
+    };
+    let text = |v: &Value| v.as_str().unwrap_or_default().to_string();
+    let mut items = vec![];
+    for m in super::available_models(&caller).values() {
+        let mut v = json!({"description": m.description, "tags": m.tags,
+            "dimensions": m.dimensions.iter().filter(|d| !d.hidden).map(|d| json!({"name": d.name, "label": d.label, "description": d.description, "synonyms": d.synonyms, "tags": d.tags})).collect::<Vec<_>>(),
+            "measures": m.measures.iter().filter(|x| !x.hidden).map(|x| json!({"name": x.name, "label": x.label, "description": x.description, "synonyms": x.synonyms, "tags": x.tags})).collect::<Vec<_>>()});
+        documented(&mut v, &docs, &m.name);
+        let label = m.label.clone().unwrap_or_else(|| m.name.clone());
+        items.push(Item {
+            kind: "model",
+            model: None,
+            name: m.name.clone(),
+            label,
+            words: strings(&v["tags"]),
+            text: text(&v["description"]),
+        });
+        for f in v["dimensions"].as_array().into_iter().chain(v["measures"].as_array()).flatten() {
+            let name = text(&f["name"]);
+            let words = [strings(&f["synonyms"]), strings(&f["terms"]), strings(&f["tags"])].concat();
+            let label = f["label"].as_str().map_or_else(|| crate::compiler::humanize(&name), String::from);
+            items.push(Item {
+                kind: "field",
+                model: Some(m.name.clone()),
+                name,
+                label,
+                words,
+                text: text(&f["description"]),
+            });
+        }
+    }
+    let store = state.orgs.store(caller.org()).await?;
+    for (t, ..) in store.glossary(caller.org()).await? {
+        items.push(Item {
+            kind: "term",
+            model: None,
+            label: t.name.clone(),
+            name: t.name,
+            words: t.synonyms,
+            text: t.definition,
+        });
+    }
+    for (id, d) in dashboards(&state, &caller).await? {
+        items.push(Item {
+            kind: "dashboard",
+            model: None,
+            name: id,
+            label: d.title,
+            words: vec![],
+            text: d.description.unwrap_or_default(),
+        });
+    }
+    let results: Vec<Value> = crate::lineage::search(&items, &p.q)
+        .into_iter()
+        .map(|i| {
+            json!({"kind": i.kind, "model": i.model, "name": i.name, "label": i.label,
+                        "text": i.text.chars().take(200).collect::<String>()})
+        })
+        .collect();
+    Ok(Json(json!({"results": results})))
+}
+
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
@@ -475,6 +621,77 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         let (_, g, _) = send(&app, Some(&ana), &org, "GET", "/api/glossary", None, None).await;
         assert_eq!(g["terms"], json!([]));
+        clean_up(&state, &org).await;
+    }
+
+    const USED: &str = r#"
+title: Weekly sales
+filters: [{model: sales, field: region}]
+tiles:
+  - id: by_store
+    query: {model: sales, dimensions: [store], measures: [revenue]}
+"#;
+
+    #[tokio::test]
+    async fn the_catalog_traces_where_a_model_is_used() {
+        let Some((app, state, cookie, org)) = org_with(USED).await else { return };
+        let c = Some(cookie.as_str());
+        let f = json!({"name": "per_sale", "expr": "revenue / transactions"});
+        send(&app, c, &org, "PUT", "/api/formulas/sales/per_sale", Some(f), None).await;
+        let (s, l, _) = send(&app, c, &org, "GET", "/api/catalog/sales/lineage", None, None).await;
+        assert_eq!(s, StatusCode::OK, "{l}");
+        assert_eq!(l["dashboards"], json!([{"id": "shared", "title": "Weekly sales", "tiles": ["by_store"]}]));
+        assert_eq!(l["fields"]["store"], json!(["shared/by_store"]));
+        assert_eq!(l["fields"]["region"], json!(["shared (filter)"]));
+        assert_eq!(l["formulas"], json!(["per_sale"]));
+        assert_eq!(l["reads"]["connection"], json!("warehouse"));
+        assert_eq!(l["reads"]["table"], json!("sample_sales"));
+        assert!(l["usage"]["queries"].is_number() && l["usage"]["people"].is_number(), "{l}");
+        // what it reads, in SQL terms, for those who may see SQL only
+        let (_, l, _) = send(&app, c, &org, "GET", "/api/catalog/sales/lineage", None, Some("viewer")).await;
+        assert!(l["reads"].get("table").is_none(), "{l}");
+        // blends built on a model
+        let (_, l, _) = send(&app, c, &org, "GET", "/api/catalog/weather/lineage", None, None).await;
+        assert_eq!(l["blends"], json!(["taxi_weather"]));
+        let (s, _, _) = send(&app, c, &org, "GET", "/api/catalog/nope/lineage", None, None).await;
+        assert!(s.is_client_error());
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn the_catalog_finds_by_names_other_words_and_meaning() {
+        let Some((app, state, cookie, org)) = org_with(USED).await else { return };
+        let c = Some(cookie.as_str());
+        let term = json!({"name": "Net revenue", "definition": "What customers paid after discounts", "synonyms": ["net sales"]});
+        send(&app, c, &org, "PUT", "/api/glossary/Net%20revenue", Some(term), None).await;
+        let docs = json!({"fields": {"revenue": {"synonyms": ["takings"], "terms": ["Net revenue"]}}});
+        let (s, b, _) = send(&app, c, &org, "PUT", "/api/governance/sales/docs", Some(docs), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let find = |q: &'static str| {
+            let (app, org) = (app.clone(), org.clone());
+            let cookie = cookie.clone();
+            async move {
+                let (s, r, _) =
+                    send(&app, Some(&cookie), &org, "GET", &format!("/api/catalog/search?q={q}"), None, Some("viewer"))
+                        .await;
+                assert_eq!(s, StatusCode::OK, "{r}");
+                r["results"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .map(|x| format!("{}:{}", x["kind"].as_str().unwrap(), x["name"].as_str().unwrap()))
+                    .collect::<Vec<_>>()
+            }
+        };
+        assert_eq!(find("takings").await[0], "field:revenue");
+        assert!(find("net%20sales").await.contains(&"term:Net revenue".to_string()));
+        assert!(find("weekly").await.contains(&"dashboard:shared".to_string()));
+        assert_eq!(find("store%20sales").await[0], "model:sales");
+        assert!(find("%3Cscript%3E").await.is_empty());
+        // and agents
+        let call = json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": "search_catalog", "arguments": {"q": "takings"}}});
+        let (_, r, _) = send(&app, c, &org, "POST", "/api/mcp", Some(call), None).await;
+        assert!(r.to_string().contains("revenue"), "{r}");
         clean_up(&state, &org).await;
     }
 }

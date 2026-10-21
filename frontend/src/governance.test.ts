@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deprecatedIn, fieldMatches, fieldTitle, modelOption, mayDecide, mayHandOver, parseList, sensitive } from './governance'
+import { deprecatedIn, describeUsage, fieldMatches, fieldTitle, modelOption, mayDecide, mayHandOver, parseList, sensitive } from './governance'
 import type { ModelInfo } from './api'
 
 const model = (name: string, status: string | null, note: string | null = null) => ({
@@ -50,5 +50,11 @@ describe('governance', () => {
       .toBe('After discounts\nAlso called: turnover\nGlossary: Net revenue\nTags: finance')
     expect(fieldTitle({ formula: 'amount * qty' })).toBe('= amount * qty')
     expect(fieldTitle({})).toBeUndefined()
+  })
+
+  it('says how much a model is used', () => {
+    expect(describeUsage({ days: 30, queries: 42, people: 5, last: '2026-10-20T09:00:00Z' })).toBe('42 queries by 5 people in the last 30 days')
+    expect(describeUsage({ days: 30, queries: 1, people: 1, last: null })).toBe('1 query by 1 person in the last 30 days')
+    expect(describeUsage({ days: 30, queries: 0, people: 0, last: null })).toBe('Not queried in the last 30 days')
   })
 })

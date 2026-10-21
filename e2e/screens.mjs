@@ -193,6 +193,17 @@ await shot('catalog-docs', '/catalog', {
   before: async () => { await page.click('.card.governance:has-text("Store sales") button:has-text("Documentation")') },
 })
 await shot('glossary', '/catalog', { el: '.glossary' })
+await shot('catalog-search', '/catalog', {
+  el: '.catalog-search',
+  before: async () => { await page.fill('.catalog-search input', 'takings'); await page.waitForSelector('.search-results li') },
+})
+await shot('lineage', '/catalog', {
+  el: '.card.governance:has-text("Store sales")',
+  before: async () => {
+    await page.click('.card.governance:has-text("Store sales") button:has-text("Lineage & usage")')
+    await page.waitForSelector('.lineage table')
+  },
+})
 await shot('members', '/members', { height: 820 })
 await shot('sign-in', '/members', { el: '.sign-in-settings' })
 await shot('usage', '/usage', { height: 820 })
