@@ -1,11 +1,12 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
 import { usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
 import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
-import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import FieldHelp from './FieldHelp'
 import FormulaEditor from './FormulaEditor'
 import { MultiSelect } from './FilterBar'
 import PeriodControl from './PeriodControl'
@@ -85,6 +86,14 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   const [editing, setEditing] = useState<Formula | 'new' | 'new-row' | null>(null)
   // what each per-row formula gives (from the server's check)
   const [types, setTypes] = useState<Record<string, DimType>>({})
+  // the field whose ? panel is open ("dimension:region"), and the glossary (read on the first one)
+  const [helpFor, setHelpFor] = useState<string | null>(null)
+  const [glossary, setGlossary] = useState<GlossaryTerm[] | null>(null)
+  const toggleHelp = (key: string) => {
+    setHelpFor(h => (h === key ? null : key))
+    if (glossary === null) api.glossary().then(r => setGlossary(r.terms), () => setGlossary([]))
+  }
+  const closeHelp = useCallback(() => setHelpFor(null), [])
   const can = useCan()
 
   const base = models.find(m => m.name === modelName)
@@ -221,9 +230,13 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         {model?.dimensions.filter(d => fieldMatches(d, search)).map(d => (
           <FieldItem key={d.name} field={{ kind: 'dimension', name: d.name }} label={fieldLabel(model, d.name)}
             icon={d.formula ? 'ƒ' : TYPE_ICON[d.type]} onAdd={add} used={dims.some(x => fieldName(x) === d.name)}
+            onHelp={() => toggleHelp(`dimension:${d.name}`)}
+            help={helpFor === `dimension:${d.name}` && <FieldHelp field={d} kind="dimension" glossary={glossary} onClose={closeHelp} />}
             title={fieldTitle(d)}
             extra={<>
-              {sensitive(d.tags).map(t => <span key={t} className="tag-mark" title={`Tagged ${t}: take care with this data`}>{t}</span>)}
+              {sensitive(d.tags).length > 0 && (
+                <span className="tag-mark" title={`Tagged ${sensitive(d.tags).join(', ')}: take care with this data`}>!</span>
+              )}
               {isCountable(d) && (
                 <button className="add" title={`Add as a number (${AGG_LABELS[defaultAgg(d)]}); the aggregation can be changed`}
                   onClick={() => setMeasures(ms => (ms.includes(adhocRef(d)) ? ms : [...ms, adhocRef(d)]))}>Σ</button>
@@ -242,6 +255,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         {model?.measures.filter(m => fieldMatches(m, search)).map(m => (
           <FieldItem key={m.name} field={{ kind: 'measure', name: m.name }} label={fieldLabel(model, m.name)}
             icon={m.type === 'formula' ? 'ƒ' : 'Σ'} onAdd={add} used={measures.includes(m.name)}
+            onHelp={() => toggleHelp(`measure:${m.name}`)}
+            help={helpFor === `measure:${m.name}` && <FieldHelp field={m} kind="measure" glossary={glossary} onClose={closeHelp} />}
             title={fieldTitle(m)}
             extra={m.shared && can('manage_members') ? (
               <button className="add" title="Edit this shared formula" onClick={() => setEditing(asFormula(m, false, m.format))}>✎</button>
@@ -421,16 +436,25 @@ function TopControl({ top, dims, measures, label, onChange }: {
   )
 }
 
-function FieldItem({ field, label, icon, title, onAdd, used, extra }: { field: Field; label: string; icon: string; title?: string; onAdd: (f: Field) => void; used: boolean; extra?: ReactNode }) {
-  return (
+function FieldItem({ field, label, icon, title, onAdd, used, extra, onHelp, help }: {
+  field: Field; label: string; icon: string; title?: string; onAdd: (f: Field) => void; used: boolean; extra?: ReactNode
+  /** the ? button: what the catalog says about the field (`help`: the open panel) */
+  onHelp?: () => void; help?: ReactNode
+}) {
+  return <>
     <div className={`field-item ${field.kind}${used ? ' used' : ''}`} draggable title={title ?? 'Drag to a shelf, or double-click to add'}
       onDragStart={e => { e.dataTransfer.setData(DRAG_MIME, JSON.stringify(field)); e.dataTransfer.effectAllowed = 'copy' }}
       onDoubleClick={() => onAdd(field)}>
       <span className="ficon">{icon}</span><span className="flabel">{label}</span>
       {extra}
+      {onHelp && (
+        <button className={`field-help-btn${help ? ' open' : ''}`} aria-label={`What ${label} means`} aria-expanded={Boolean(help)}
+          title="What it means" onClick={onHelp} onDoubleClick={e => e.stopPropagation()}>?</button>
+      )}
       <button className="add" onClick={() => onAdd(field)} title="Add">+</button>
     </div>
-  )
+    {help}
+  </>
 }
 
 function Shelf({ label, drop, empty, children }: { label: string; drop: object; empty: string; children: ReactNode }) {

@@ -63,3 +63,11 @@ export function describeUsage(u: { days: number; queries: number; people: number
   const n = (x: number, one: string, many: string) => `${x} ${x === 1 ? one : many}`
   return `${n(u.queries, 'query', 'queries')} by ${n(u.people, 'person', 'people')} in the last ${u.days} days`
 }
+
+/** A field's glossary terms with their definitions (null: no longer in the glossary). */
+export function definitions(terms: string[] | undefined, glossary: { name: string; definition: string }[]) {
+  return (terms ?? []).map(t => {
+    const found = glossary.find(g => g.name.toLowerCase() === t.toLowerCase())
+    return { name: found?.name ?? t, definition: found?.definition ?? null }
+  })
+}

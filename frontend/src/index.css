@@ -494,3 +494,15 @@ label.check.inline { align-items: center; gap: 4px; }
 .search-results { list-style: none; padding: 0; margin: 0 0 14px; display: flex; flex-direction: column; gap: 8px; }
 .lineage { border-top: 1px solid var(--border); margin-top: 8px; padding-top: 8px; }
 .lineage p { margin: 0 0 4px; }
+
+/* Explore: the ? next to a field, and what the catalog says about it (FieldHelp.tsx) */
+.field-help-btn { border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); border-radius: 999px;
+  width: 18px; height: 18px; min-height: 0; padding: 0; font-size: 11px; font-weight: 700; line-height: 1; flex: none; opacity: .55; }
+.field-item:hover .field-help-btn, .field-help-btn:focus-visible, .field-help-btn.open { opacity: 1; }
+.field-help-btn.open { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.field-help { margin: 2px 0 8px 26px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface);
+  box-shadow: var(--shadow); font-size: 13px; display: flex; flex-direction: column; gap: 6px; }
+.field-help p { margin: 0; }
+.field-help-head { display: flex; flex-direction: column; }
+.field-help .term { margin: 2px 0 0; }
+.field-help .tp-badge { margin-right: 4px; }

@@ -115,6 +115,13 @@ await shot('explore', '/explore', {
     for (const f of ['Region', 'Revenue']) await page.dblclick(`.field-item:has(.flabel:text-is("${f}"))`)
   },
 })
+await shot('field-help', '/explore', {
+  el: '.explorer .fields',
+  before: async () => {
+    await page.click('.field-item:has(.flabel:text-is("Revenue")) .field-help-btn')
+    await page.waitForSelector('.field-help .term')
+  },
+})
 await shot('formula', '/explore', {
   el: '.modal',
   before: async () => {

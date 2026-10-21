@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { deprecatedIn, describeUsage, fieldMatches, fieldTitle, modelOption, mayDecide, mayHandOver, parseList, sensitive } from './governance'
+import { definitions, deprecatedIn, describeUsage, fieldMatches, fieldTitle, modelOption, mayDecide, mayHandOver, parseList, sensitive } from './governance'
 import type { ModelInfo } from './api'
 
 const model = (name: string, status: string | null, note: string | null = null) => ({
@@ -56,5 +56,17 @@ describe('governance', () => {
     expect(describeUsage({ days: 30, queries: 42, people: 5, last: '2026-10-20T09:00:00Z' })).toBe('42 queries by 5 people in the last 30 days')
     expect(describeUsage({ days: 30, queries: 1, people: 1, last: null })).toBe('1 query by 1 person in the last 30 days')
     expect(describeUsage({ days: 30, queries: 0, people: 0, last: null })).toBe('Not queried in the last 30 days')
+  })
+
+  it('finds the glossary definitions of a field\'s terms', () => {
+    const glossary = [
+      { name: 'Net revenue', definition: 'After discounts and returns' },
+      { name: 'Store', definition: 'A shop with its own till' },
+    ]
+    expect(definitions(['net revenue', 'Churn'], glossary)).toEqual([
+      { name: 'Net revenue', definition: 'After discounts and returns' },
+      { name: 'Churn', definition: null },
+    ])
+    expect(definitions(undefined, glossary)).toEqual([])
   })
 })
