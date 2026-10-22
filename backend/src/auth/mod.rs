@@ -157,6 +157,10 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
                 | ["glossary", _]
         );
     }
+    // a report checked, not made
+    if *method == Method::POST && dry_run && matches!(parts.as_slice(), ["dashboards", _, "schedules"]) {
+        return true;
+    }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)
     *method == Method::POST
         && (matches!(parts.as_slice(), ["query"] | ["query", "sql"] | ["period"] | ["mcp"] | ["formulas", "check"])

@@ -433,11 +433,15 @@ setup for each client, e.g. Claude Code:
 claude mcp add --transport http magnum-bi https://bi.example.com/api/mcp --header "Authorization: Bearer mbi_..."
 ```
 
-Tools (`api/mcp.rs`): `list_models`, `describe_model`, `run_query`, `preview_sql`, `list_dashboards`,
-`get_dashboard`, `validate_dashboard`, `save_dashboard`, `delete_dashboard`, `dashboard_history`,
-`list_blends`, `save_blend`, `delete_blend`, `list_connections`, `save_connection`,
-`delete_connection`, `get_members`, `save_members`, `list_themes`, `export_theme_css`,
-`import_theme_css`, `get_org_themes`, `save_org_themes`, `usage_summary`. Each calls the API handler
+Tools (`api/mcp.rs`): `list_models`, `describe_model`, `search_catalog`, `get_glossary`,
+`get_catalog`, `get_lineage`, `run_query`, `preview_sql`, `check_formula`, `save_formula`,
+`delete_formula`, `list_dashboards`, `get_dashboard`, `validate_dashboard`, `save_dashboard`,
+`delete_dashboard`, `dashboard_history`, `list_reports`, `create_report`, `pause_report`,
+`resume_report`, `send_report_now`, `delete_report`, `list_blends`, `save_blend`, `delete_blend`,
+`list_connections`, `save_connection`, `delete_connection`, `get_members`, `save_members`,
+`list_themes`, `export_theme_css`, `import_theme_css`, `get_org_themes`, `save_org_themes`,
+`usage_summary`. Writes that change what others see take `dry_run` (dashboards, blends, members,
+reports, shared formulas). Each calls the API handler
 a browser would, as the token's person, so permissions, row filters, dry runs and version checks
 are the API's own. Agents see only the tools they may use; read-only tokens get no writing tools.
 Every tool call is in the usage log. The endpoint is stateless JSON-RPC (streamable HTTP transport
