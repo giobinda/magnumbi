@@ -21,6 +21,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   other words and description (agents: MCP `search_catalog`). Each model's lineage shows what it
   reads, the dashboards, tiles, reports, blends and shared formulas using it, each field's uses
   (and the fields no dashboard uses), and its queries in the last 30 days.
+- **Chat.** People ask questions in plain words and get the answer with its chart, using the
+  organisation's own AI provider (OpenAI-compatible APIs or Anthropic; key sealed per
+  organisation). It runs MCP's tools as the person, offers no admin tools, and shows every change
+  as a proposal to confirm. Org admins choose what leaves (rows per result, sensitive fields) and a
+  monthly limit, and whether people start on the chat; each person can choose for themselves.
 - **More for agents (MCP):** scheduled reports and alerts (`list_reports`, `create_report` with
   `dry_run`, `pause_report`, `resume_report`, `send_report_now`, `delete_report`), formulas
   (`check_formula`, `save_formula` with `dry_run`, `delete_formula`) and the catalog

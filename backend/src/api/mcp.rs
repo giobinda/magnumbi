@@ -27,7 +27,7 @@ use crate::state::Shared;
 /// Newest first; a client asking for one of these gets it, others get the newest.
 const PROTOCOL_VERSIONS: [&str; 3] = ["2025-11-25", "2025-06-18", "2025-03-26"];
 
-const INSTRUCTIONS: &str = "Magnum BI is a BI tool: semantic models (dimensions and measures over a database \
+pub(crate) const INSTRUCTIONS: &str = "Magnum BI is a BI tool: semantic models (dimensions and measures over a database \
 connection), blends (models joined across databases; their fields are written model.field), and dashboards \
 (YAML: tiles, each a query on a model, or `type: text` with markdown `text:`; optional `tabs:`). You act as the person whose API token you use, in their organisation \
 and role; data restrictions apply to you as to them.\n\
@@ -486,19 +486,12 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
                 return rpc_error(id, -32602, &format!("unknown tool {name:?}"));
             };
             let args = params.get("arguments").cloned().unwrap_or(json!({}));
-            // a read-only token may only check: a dry run, on a tool that honours it
-            let dry = args["dry_run"].as_bool().unwrap_or(false) && DRY_RUNS.contains(&name);
-            let result = if tool.writes && !dry && read_only(&caller) {
-                Err(ApiError::forbidden("this API token is read-only"))
-            } else {
-                call(&state, &caller, name, args).await
-            };
-            let mut out = match result {
+            let mut out = match run_tool(&state, &caller, &tool, args).await {
                 Ok(v) => {
                     json!({"content": [{"type": "text", "text": serde_json::to_string_pretty(&v).unwrap_or_default()}],
                                 "structuredContent": v, "isError": false})
                 }
-                Err(e) => json!({"content": [{"type": "text", "text": error_text(e)}], "isError": true}),
+                Err(e) => json!({"content": [{"type": "text", "text": e}], "isError": true}),
             };
             if !out["structuredContent"].is_object() {
                 out.as_object_mut().expect("object").remove("structuredContent");
@@ -511,7 +504,47 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
 }
 
 /// The writing tools that check without saving when given `dry_run: true`.
-const DRY_RUNS: [&str; 4] = ["save_blend", "save_members", "create_report", "save_formula"];
+pub(crate) const DRY_RUNS: [&str; 4] = ["save_blend", "save_members", "create_report", "save_formula"];
+
+/// A tool run as `tools/call` runs it: Ok(what the API answered), or its error as text.
+async fn run_tool(state: &Shared, caller: &std::sync::Arc<Caller>, tool: &Tool, args: Value) -> Result<Value, String> {
+    // a read-only token may only check: a dry run, on a tool that honours it
+    let dry = args["dry_run"].as_bool().unwrap_or(false) && DRY_RUNS.contains(&tool.name);
+    if tool.writes && !dry && read_only(caller) {
+        return Err(error_text(ApiError::forbidden("this API token is read-only")));
+    }
+    call(state, caller, tool.name, args).await.map_err(error_text)
+}
+
+/// A tool the caller may use, for the in-app chat (api/chat.rs).
+pub(crate) struct ToolInfo {
+    pub name: &'static str,
+    pub description: &'static str,
+    pub writes: bool,
+    pub schema: Value,
+}
+
+/// The tools among `names` this caller may use (as tools/list would show them).
+pub(crate) fn tools_for(caller: &Caller, names: &[&str]) -> Vec<ToolInfo> {
+    tools()
+        .into_iter()
+        .filter(|t| names.contains(&t.name) && visible(caller, t))
+        .map(|t| ToolInfo { name: t.name, description: t.description, writes: t.writes, schema: (t.schema)() })
+        .collect()
+}
+
+/// One tool, for the in-app chat: the same checks and handlers as tools/call.
+pub(crate) async fn call_tool(
+    state: &Shared,
+    caller: &std::sync::Arc<Caller>,
+    name: &str,
+    args: Value,
+) -> Result<Value, String> {
+    let Some(tool) = tools().into_iter().find(|t| t.name == name && visible(caller, t)) else {
+        return Err(format!("the tool {name:?} isn't available to you"));
+    };
+    run_tool(state, caller, &tool, args).await
+}
 
 /// What the API would have answered, as text the agent can act on.
 fn error_text(e: ApiError) -> String {

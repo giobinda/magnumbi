@@ -298,3 +298,41 @@ async fn an_organisations_own_model_on_the_same_table_is_restricted_too() {
     assert!(leaks.is_empty(), "an organisation's own model escaped the restriction:\n{}", leaks.join("\n"));
     w.clean_up().await;
 }
+
+#[tokio::test]
+async fn the_chat_shows_its_model_only_what_the_person_may_see() {
+    use crate::api::chat::tests::{calls, fake_provider, says};
+    let Some(w) = World::new().await else { return };
+    let (b, _) = people(&w);
+    // whatever the model asks for, B's restriction applies to what it gets back
+    let asks = [
+        json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"]}),
+        json!({"model": "sales", "dimensions": ["region", "store"], "measures": ["transactions"],
+               "filters": [{"field": "region", "op": "equals", "values": ["APAC", "AMER"]}]}),
+    ];
+    let mut script = vec![];
+    for (i, q) in asks.iter().enumerate() {
+        script.push(calls(&format!("c{i}"), "run_query", json!({"query": q})));
+    }
+    script.push(says("Done."));
+    let (port, asked) = fake_provider(script).await;
+    let settings = json!({"settings": {"enabled": true, "format": "openai", "url": format!("http://127.0.0.1:{port}/v1"),
+                                       "model": "m", "rows_to_model": 5000}, "key": "k"});
+    let r = w.send(&b, "PUT", "/api/chat/settings", Some(settings)).await;
+    assert!(r.status.is_success(), "{}", r.body);
+    let r = w.send(&b, "POST", "/api/chat", Some(json!({"message": "Revenue everywhere?"}))).await;
+    assert!(r.status.is_success(), "{}", r.body);
+    {
+        let asked = asked.lock().unwrap();
+        let mut regions = std::collections::BTreeSet::new();
+        for m in asked.last().unwrap().1["messages"].as_array().unwrap().iter().filter(|m| m["role"] == "tool") {
+            let result: Value = serde_json::from_str(m["content"].as_str().unwrap()).unwrap();
+            let at = result["columns"].as_array().unwrap().iter().position(|c| c["name"] == "region").unwrap();
+            for row in result["rows"].as_array().unwrap() {
+                regions.insert(row[at].as_str().unwrap_or("").to_string());
+            }
+        }
+        assert!(!regions.is_empty() && regions.iter().all(|r| r == "EMEA"), "the model saw {regions:?}");
+    }
+    w.clean_up().await;
+}

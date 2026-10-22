@@ -155,7 +155,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const moveTile = (id: string, to: string) =>
     update(d => ({ ...d, tiles: d.tiles.map(t => (t.id === id ? { ...t, tab: to === d.tabs?.[0] ? null : to, layout: { ...t.layout, y: 1000 } } : t)) }))
 
-  if (error) return <div className="page"><div className="error">{error}</div><Link to="/">← Dashboards</Link></div>
+  if (error) return <div className="page"><div className="error">{error}</div><Link to="/dashboards">← Dashboards</Link></div>
   if (!dash) return <div className="page"><div className="empty">Loading…</div></div>
 
   const visible = onTab(dash.tiles, tabs, tab)

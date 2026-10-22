@@ -75,6 +75,8 @@ await api('POST', '/api/dashboards/sales_overview/share-links', { cache_seconds:
 await api('POST', '/api/dashboards/sales_overview/guest-links', { expires_in_hours: 168, password: 'Partner-Preview-1', role: 'viewer',
   filters: [{ model: 'sales', dimension: 'region', values: ['EMEA'] }] })
 await api('POST', '/api/tokens', { name: 'Claude Code', scope: 'read' })
+await api('PUT', '/api/chat/settings', { settings: { enabled: true, format: 'openai', url: process.env.SCREENS_LLM,
+  model: 'gpt-4.1', monthly_questions: 1000, rows_to_model: 200, keep_sensitive: true, home: 'dashboards' }, key: 'sk-screenshots' })
 await api('PUT', '/api/governance/sales', { owner: 'ben@acme.example', stewards: ['chloe@acme.example'], status: 'certified',
   note: 'Reconciled with the finance close every month.' })
 await api('PUT', '/api/glossary/Net%20revenue', { name: 'Net revenue', definition: 'What customers paid after discounts and returns, before tax.',
@@ -210,6 +212,25 @@ await shot('lineage', '/catalog', {
     await page.click('.card.governance:has-text("Store sales") button:has-text("Lineage & usage")')
     await page.waitForSelector('.lineage table')
   },
+})
+await shot('chat', '/chat', {
+  before: async () => {
+    await page.click('.chat-ideas button:first-child')
+    await page.waitForSelector('.chat-chart canvas', { timeout: 20000 })
+  },
+})
+await shot('chat-proposal', null, {
+  el: '.chat-msg.assistant:has(.chat-proposal)',
+  before: async () => {
+    await page.fill('.chat-ask textarea', 'Send me this every Monday morning')
+    await page.click('.chat-ask button.primary')
+    await page.waitForSelector('.chat-proposal', { timeout: 20000 })
+  },
+})
+await shot('chat-settings', '/chat-settings', {
+  el: '.page',
+  // as an organisation would have it (the screenshots' provider is a local stand-in)
+  before: async () => { await page.fill('.chat-settings input[placeholder^="https://api.openai.com"]', 'https://api.openai.com/v1') },
 })
 await shot('members', '/members', { height: 820 })
 await shot('sign-in', '/members', { el: '.sign-in-settings' })

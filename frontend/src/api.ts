@@ -63,6 +63,23 @@ export interface ModelGovernance extends Governance {
 export interface FieldDocs { description?: string | null; synonyms?: string[]; examples?: string[]; tags?: string[]; terms?: string[] }
 export interface ModelDocs { description?: string | null; tags?: string[]; fields?: Record<string, FieldDocs> }
 export interface Term { name: string; definition: string; synonyms?: string[] }
+/** The in-app chat (backend/src/api/chat.rs). */
+export type Home = 'chat' | 'dashboards'
+export interface ChatSettings {
+  enabled: boolean; format: 'openai' | 'anthropic'; url: string; model: string
+  monthly_questions: number; rows_to_model: number; keep_sensitive: boolean; home: Home
+}
+export interface Proposal {
+  id: string; tool: string; args: Record<string, unknown>; summary: string
+  status: 'proposed' | 'applied' | 'failed'; check?: unknown; result?: unknown; error?: string
+}
+export type ChatMessage =
+  | { role: 'user'; text: string }
+  | { role: 'assistant'; text: string; charts: { query: Query }[]; proposals: Proposal[] }
+export interface ChatState {
+  enabled: boolean; home: Home; org_home: Home; my_home: Home | null
+  conversations: { id: string; title: string; updated_at: string }[]
+}
 export interface SearchResult { kind: 'model' | 'field' | 'term' | 'dashboard'; model: string | null; name: string; label: string; text: string }
 export interface Lineage {
   model: string
@@ -443,6 +460,18 @@ export const api = {
   /** `formulas`: the chart's others, which this one may use */
   governance: () => call<{ models: ModelGovernance[] }>('/api/governance'),
   saveDocs: (model: string, d: ModelDocs) => call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}/docs`, json('PUT', d)),
+  chat: () => call<ChatState>('/api/chat'),
+  ask: (message: string, conversation?: string | null) =>
+    call<{ conversation: string; title: string; reply: ChatMessage }>('/api/chat', json('POST', { message, conversation: conversation ?? undefined })),
+  conversation: (id: string) => call<{ id: string; title: string; messages: ChatMessage[] }>(`/api/chat/${encodeURIComponent(id)}`),
+  deleteConversation: (id: string) => call<{ ok: boolean }>(`/api/chat/${encodeURIComponent(id)}`, { method: 'DELETE' }),
+  applyProposal: (conversation: string, proposal: string) =>
+    call<Proposal>(`/api/chat/${encodeURIComponent(conversation)}/proposals/${encodeURIComponent(proposal)}`, json('POST', {})),
+  setHome: (home: Home | null) => call<{ ok: boolean }>('/api/chat/home', json('PUT', { home })),
+  chatSettings: () => call<{ settings: ChatSettings | null; has_key: boolean }>('/api/chat/settings'),
+  saveChatSettings: (settings: ChatSettings, key?: string) =>
+    call<{ ok: boolean }>('/api/chat/settings', json('PUT', { settings, key: key || undefined })),
+  deleteChatSettings: () => call<{ ok: boolean }>('/api/chat/settings', { method: 'DELETE' }),
   searchCatalog: (q: string, signal?: AbortSignal) =>
     call<{ results: SearchResult[] }>(`/api/catalog/search?q=${encodeURIComponent(q)}`, { signal }),
   lineage: (model: string) => call<Lineage>(`/api/catalog/${encodeURIComponent(model)}/lineage`),

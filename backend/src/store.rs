@@ -1300,6 +1300,140 @@ impl Store {
         Ok(c.execute("DELETE FROM glossary WHERE org = $1 AND name_key = $2", &[&org, &name.to_lowercase()]).await? > 0)
     }
 
+    // ------------------------------------------------------------------ chat
+
+    /// The tenant's chat settings and its sealed API key (if any).
+    pub async fn chat_settings(&self, org: &str) -> Result<Option<(crate::chat::ChatSettings, Option<String>)>> {
+        let c = self.pool.get().await?;
+        let row = c.query_opt("SELECT config, key_sealed FROM chat_settings WHERE org = $1", &[&org]).await?;
+        row.map(|r| Ok((serde_json::from_str(&r.get::<_, String>(0))?, r.get(1)))).transpose()
+    }
+
+    /// Save the settings; `key_sealed`: a new key (None keeps the one saved).
+    pub async fn put_chat_settings(
+        &self,
+        org: &str,
+        s: &crate::chat::ChatSettings,
+        key_sealed: Option<&str>,
+        by: &str,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        let config = serde_json::to_string(s)?;
+        c.execute(
+            "INSERT INTO chat_settings (org, config, key_sealed, updated_by) VALUES ($1, $2, $3, $4)
+             ON CONFLICT (org) DO UPDATE SET config = EXCLUDED.config,
+               key_sealed = COALESCE(EXCLUDED.key_sealed, chat_settings.key_sealed),
+               updated_by = EXCLUDED.updated_by, updated_at = now()",
+            &[&org, &config, &key_sealed, &by],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_chat_settings(&self, org: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute("DELETE FROM chat_settings WHERE org = $1", &[&org]).await? > 0)
+    }
+
+    /// Where a person chose to start (None: where their organisation does).
+    pub async fn chat_home(&self, org: &str, email: &str) -> Result<Option<String>> {
+        let c = self.pool.get().await?;
+        let row = c.query_opt("SELECT home FROM chat_home WHERE org = $1 AND user_email = $2", &[&org, &email]).await?;
+        Ok(row.map(|r| r.get(0)))
+    }
+
+    pub async fn put_chat_home(&self, org: &str, email: &str, home: Option<&str>) -> Result<()> {
+        let c = self.pool.get().await?;
+        match home {
+            Some(h) => {
+                c.execute(
+                    "INSERT INTO chat_home (org, user_email, home) VALUES ($1, $2, $3)
+                     ON CONFLICT (org, user_email) DO UPDATE SET home = EXCLUDED.home",
+                    &[&org, &email, &h],
+                )
+                .await?
+            }
+            None => c.execute("DELETE FROM chat_home WHERE org = $1 AND user_email = $2", &[&org, &email]).await?,
+        };
+        Ok(())
+    }
+
+    /// One more question this month; how many there have been, this one included.
+    pub async fn count_chat_question(&self, org: &str, month: &str) -> Result<i64> {
+        let c = self.pool.get().await?;
+        let now: i64 = c
+            .query_opt("SELECT questions FROM chat_usage WHERE org = $1 AND month = $2", &[&org, &month])
+            .await?
+            .map_or(0, |r| r.get(0));
+        c.execute(
+            "INSERT INTO chat_usage (org, month, questions) VALUES ($1, $2, $3::BIGINT)
+             ON CONFLICT (org, month) DO UPDATE SET questions = EXCLUDED.questions",
+            &[&org, &month, &(now + 1)],
+        )
+        .await?;
+        Ok(now + 1)
+    }
+
+    /// A person's conversations, newest first: (id, title, updated_at).
+    pub async fn chat_conversations(&self, org: &str, email: &str) -> Result<Vec<(String, String, String)>> {
+        let c = self.pool.get().await?;
+        let rows = c
+            .query(
+                "SELECT id, title, updated_at FROM chat_conversations WHERE org = $1 AND user_email = $2
+                 ORDER BY updated_at DESC LIMIT 100",
+                &[&org, &email],
+            )
+            .await?;
+        Ok(rows.iter().map(|r| (r.get(0), r.get(1), r.get::<_, DateTime<Utc>>(2).to_rfc3339())).collect())
+    }
+
+    /// One of a person's conversations: (title, turns, shown), as JSON.
+    pub async fn chat_conversation(
+        &self,
+        org: &str,
+        email: &str,
+        id: &str,
+    ) -> Result<Option<(String, String, String)>> {
+        let c = self.pool.get().await?;
+        let row = c
+            .query_opt(
+                "SELECT title, turns, shown FROM chat_conversations WHERE org = $1 AND user_email = $2 AND id = $3",
+                &[&org, &email, &id],
+            )
+            .await?;
+        Ok(row.map(|r| (r.get(0), r.get(1), r.get(2))))
+    }
+
+    pub async fn put_chat_conversation(
+        &self,
+        org: &str,
+        email: &str,
+        id: &str,
+        title: &str,
+        turns: &str,
+        shown: &str,
+    ) -> Result<()> {
+        let c = self.pool.get().await?;
+        c.execute(
+            "INSERT INTO chat_conversations (org, id, user_email, title, turns, shown) VALUES ($1, $2, $3, $4, $5, $6)
+             ON CONFLICT (org, id) DO UPDATE SET turns = EXCLUDED.turns, shown = EXCLUDED.shown, updated_at = now()
+             WHERE chat_conversations.user_email = EXCLUDED.user_email",
+            &[&org, &id, &email, &title, &turns, &shown],
+        )
+        .await?;
+        Ok(())
+    }
+
+    pub async fn delete_chat_conversation(&self, org: &str, email: &str, id: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.execute(
+            "DELETE FROM chat_conversations WHERE org = $1 AND user_email = $2 AND id = $3",
+            &[&org, &email, &id],
+        )
+        .await?
+            > 0)
+    }
+
     // ------------------------------------------------------------------ shared formulas
 
     /// The organisation's shared formulas: (model, formula, updated_at, updated_by).
