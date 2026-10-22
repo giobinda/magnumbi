@@ -348,9 +348,9 @@ async fn run(w: &World, who: &As, cases: Vec<Case>) -> Vec<String> {
         } else if c.expect == Expect::Refused && !r.status.is_client_error() {
             wrong.push(format!("{}: accepted ({}) {body}", c.what, r.status));
         }
-        // quadratic parsing took 40 s (release) and minutes here; a busy shared test database can
-        // make an ordinary save take several seconds, so the line is well above that
-        if took > std::time::Duration::from_secs(15) {
+        // quadratic parsing took 40 s (release) and minutes here; under the whole suite's load an
+        // ordinary request on the shared test database has taken over 15 s, so the line is at 30
+        if took > std::time::Duration::from_secs(30) {
             wrong.push(format!("{}: took {took:?}", c.what));
         }
     }

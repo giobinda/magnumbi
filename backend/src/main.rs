@@ -8,6 +8,7 @@ mod attack;
 mod auth;
 mod blend;
 mod cache;
+mod chat;
 mod compiler;
 mod config;
 mod connections;

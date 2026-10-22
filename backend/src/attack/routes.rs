@@ -124,6 +124,15 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("GET", "/api/connections/{name}/tables", ADMIN),
     ("GET", "/api/connections/{name}/tables/{table}/model", ADMIN),
     // ownership isn't a role: any member may own a model (the handler decides; see below)
+    ("GET", "/api/chat", VIEWER),
+    ("POST", "/api/chat", VIEWER),
+    ("PUT", "/api/chat/home", VIEWER),
+    ("GET", "/api/chat/settings", ADMIN),
+    ("PUT", "/api/chat/settings", ADMIN),
+    ("DELETE", "/api/chat/settings", ADMIN),
+    ("GET", "/api/chat/{id}", VIEWER),
+    ("DELETE", "/api/chat/{id}", VIEWER),
+    ("POST", "/api/chat/{id}/proposals/{proposal}", VIEWER),
     ("GET", "/api/governance", VIEWER),
     ("PUT", "/api/governance/{model}", VIEWER),
     ("PUT", "/api/governance/{model}/docs", VIEWER),
@@ -206,6 +215,7 @@ pub fn fill(w: &World, path: &str) -> String {
     let mut p = path
         .replace("{id}", &id)
         .replace("{model}", "sales")
+        .replace("{proposal}", "attack_proposal")
         .replace("{name}", name)
         .replace("{tile}", "t")
         .replace("{table}", "sample_sales")
@@ -255,6 +265,10 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/platform/demo" => json!({"org": w.a, "months": 1}),
         "/api/platform/organisations/{org}/database" => json!({"dsn": "postgresql://evil@127.0.0.1:1/x"}),
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
+        "/api/chat" => json!({"message": "evil question"}),
+        "/api/chat/home" => json!({"home": "chat"}),
+        "/api/chat/settings" => json!({"settings": {"enabled": true, "format": "openai",
+            "url": "https://evil.example/v1", "model": "evil"}, "key": "evil-key"}),
         "/api/governance/{model}" => json!({"owner": "evil@evil.example", "status": "certified"}),
         "/api/governance/{model}/docs" => json!({"description": "evil"}),
         "/api/glossary/{name}" => json!({"name": "attack_term", "definition": "evil"}),
@@ -316,6 +330,8 @@ pub async fn assert_intact(w: &World) {
     assert_eq!(f["formulas"], json!([]), "A's shared formulas changed: {f}");
     let g = w.send(&owner, "GET", "/api/governance", None).await.json();
     assert!(!g.to_string().contains("evil"), "A's governance changed: {g}");
+    let c = w.send(&owner, "GET", "/api/chat/settings", None).await.json();
+    assert!(!c.to_string().contains("evil"), "A's chat settings changed: {c}");
     let g = w.send(&owner, "GET", "/api/glossary", None).await.json();
     assert!(!g.to_string().contains("evil"), "A's glossary changed: {g}");
     let m = w.send(&owner, "GET", "/api/models/sales", None).await.json();

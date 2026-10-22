@@ -78,6 +78,7 @@
         <li><a href="#models">Models</a></li>
         <li><a href="#formulas">Formulas</a></li>
         <li><a href="#catalog">Data catalog</a></li>
+        <li><a href="#chat">Chat</a></li>
         <li><a href="#dashboards">Dashboards</a></li>
         <li><a href="#connections">Data connections</a></li>
         <li><a href="#blends">Blends</a></li>
@@ -403,6 +404,54 @@ measures:
         <li>A <strong>glossary term</strong> belongs to whoever added it: its owner and Org admins change or remove it. Terms are added by Org admins and by whoever owns or stewards a model.</li>
         <li><strong>Tags</strong> are information only: they don't hide anything from anyone. Documentation is shown as plain text, never as HTML.</li>
         <li>Ownership isn't a role: any member can own or steward a model, a viewer included. Owners and stewards must be members of the organisation. Each organisation keeps its own, in its own database.</li>
+      </ul>
+    </section>
+
+    <section id="chat">
+      <h2>Chat</h2>
+      <p>People ask their data questions in plain words, and get an answer with the chart it's based on. The chat can also prepare dashboards, scheduled reports, alerts and formulas, which are made only when the person confirms them. It uses your organisation's own AI provider: Magnum BI includes no AI of its own, and you choose the provider, the model and the key.</p>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <ol>
+            <li>An Org admin opens <strong>Chat</strong>, then <strong>Chat settings</strong>: picks a provider (OpenAI, Anthropic, Mistral, any OpenAI-compatible API, or your own server such as Ollama), the model and the key, and switches the chat on.</li>
+            <li>Everyone in the organisation finds <strong>Chat</strong> in the menu, with suggested questions built from the catalog. <em>Start here when I sign in</em> makes it their start page (an Org admin can make it everyone's).</li>
+          </ol>
+          <figure class="shot"><a href="assets/screens/chat.jpg"><img src="assets/screens/chat.jpg" alt="The chat: a question about revenue, the answer, and its chart with what it's based on" width="1280" height="820" loading="lazy"></a><figcaption>An answer, its chart, and what it's based on (a certified model).</figcaption></figure>
+          <p>Every answer with numbers shows the chart they come from, the model (and whether it's certified) and the fields, with <strong>Pin to dashboard</strong> and <strong>Open in Explore</strong>. When the chat suggests a change, it shows it first:</p>
+          <figure class="shot"><a href="assets/screens/chat-proposal.jpg"><img src="assets/screens/chat-proposal.jpg" alt="A proposed weekly report, waiting for the person to confirm it" width="860" height="160" loading="lazy"></a><figcaption>Nothing changes until the person confirms.</figcaption></figure>
+          <figure class="shot"><a href="assets/screens/chat-settings.jpg"><img src="assets/screens/chat-settings.jpg" alt="Chat settings: provider, model, key, what leaves your servers, and limits" width="760" height="1081" loading="lazy"></a><figcaption>The organisation's provider, and what it may see.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+        <span class="label">PUT /api/chat/settings (Org admins; ?dry_run=1 to check only)</span>
+<pre><code>{"settings": {"enabled": true, "format": "openai", "url": "https://api.openai.com/v1", "model": "gpt-4.1",
+              "monthly_questions": 1000, "rows_to_model": 200, "keep_sensitive": true, "home": "dashboards"},
+ "key": "sk-…"}</code></pre>
+      </div>
+<div class="code">
+        <span class="label">POST /api/chat</span>
+<pre><code>{"message": "How has revenue changed over the last 3 months?", "conversation": null}
+→ {"conversation": "…", "reply": {"text": "…", "charts": [{"query": {…}}], "proposals": []}}</code></pre>
+      </div>
+          <ul>
+            <li><code>format</code> is <code>openai</code> (any OpenAI-compatible API: OpenAI, Azure OpenAI, Mistral, OpenRouter, Ollama, vLLM…) or <code>anthropic</code>; <code>url</code> is the API's base address. The key is optional for a server of your own.</li>
+            <li><code>GET /api/chat</code>: whether the chat is on, where you start, your conversations; <code>GET</code> and <code>DELETE /api/chat/{id}</code>; <code>POST /api/chat/{id}/proposals/{proposal}</code> makes a proposed change; <code>PUT /api/chat/home</code> with <code>{"home": "chat" | "dashboards" | null}</code>.</li>
+          </ul>
+        </div>
+      </div>
+      <h3>What the chat may do</h3>
+      <ul>
+        <li><strong>It is the person asking.</strong> It uses the same tools as <a href="#agents">agents (MCP)</a>, run as that person: their role decides what it may do, and their data restrictions apply to every query. A person who can't explore gets no free queries from the chat either.</li>
+        <li><strong>Analytics only.</strong> It can search the catalog, query, and prepare dashboards, blends, reports, alerts and formulas. Members, connections, themes and delivery settings stay out of the chat.</li>
+        <li><strong>Changes wait for a yes.</strong> A change is checked first (a mistake goes back to the AI to fix), then shown to the person, and made only when they confirm it, with their permissions at that moment.</li>
+      </ul>
+      <h3>What leaves your servers</h3>
+      <ul>
+        <li>The question, the conversation, the names and documentation of the models, and query results: at most the number of rows you set (200 by default; the chart in the chat always shows them all), never the SQL.</li>
+        <li>With <em>never send sensitive values</em> on (the default), the values of fields tagged <code>pii</code>, <code>personal</code>, <code>confidential</code> or <code>restricted</code> never go to the provider. Counting them is fine (how many customers, never which).</li>
+        <li>The key is sealed for your organisation and never shown again. Calls to the provider go through the same network guard as connections and webhooks; a server on your own network needs to be allowed, as for connections.</li>
+        <li>A monthly limit on questions keeps the provider's costs predictable; each question is in the usage log.</li>
       </ul>
     </section>
 

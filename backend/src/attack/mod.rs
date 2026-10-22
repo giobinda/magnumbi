@@ -239,6 +239,13 @@ impl World {
         let r = ok(self.send(&owner(&a), "POST", &path, Some(report)).await, "scheduled report");
         self.schedule_id = r["id"].as_str().unwrap().into();
         self.canaries.push(report_password);
+
+        // the chat's API key: set, never seen again (a provider nobody can reach: never called)
+        let chat_key = canary("chat-key");
+        let chat = json!({"settings": {"enabled": false, "format": "openai", "url": "https://llm.attack.example/v1",
+                                       "model": "attack-model"}, "key": chat_key});
+        ok(self.send(&owner(&a), "PUT", "/api/chat/settings", Some(chat)).await, "chat settings");
+        self.canaries.push(chat_key);
     }
 
     /// The cookie of someone in the world.

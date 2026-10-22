@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
 import { AuthGate, useAuth, useCan } from './auth'
 import { SecurityCard } from './components/Security'
-import { getOrg, getViewAs, setOrg, setViewAs } from './api'
+import { api, getOrg, getViewAs, setOrg, setViewAs } from './api'
 import type { Role } from './api'
 import MembersPage from './pages/MembersPage'
 import OrganisationsPage from './pages/OrganisationsPage'
@@ -20,6 +20,8 @@ import UnsubscribePage from './pages/UnsubscribePage'
 import ThemesPage from './pages/ThemesPage'
 import ModelsPage from './pages/ModelsPage'
 import CatalogPage from './pages/CatalogPage'
+import ChatPage from './pages/ChatPage'
+import ChatSettingsPage from './pages/ChatSettingsPage'
 
 const ROLE_LABELS: Record<string, string> = { viewer: 'Viewer', user: 'User', power_user: 'Power user', org_admin: 'Org admin', system_owner: 'System owner' }
 
@@ -46,7 +48,8 @@ function SignedIn() {
             <div className="app">
               <nav className="topnav">
                 <NavLink to="/" className="brand">Magnum<span>BI</span></NavLink>
-                <NavLink to="/" end>Dashboards</NavLink>
+                <ChatLink />
+                <NavLink to="/dashboards">Dashboards</NavLink>
                 <Guarded perm="explore"><NavLink to="/explore">Explore</NavLink></Guarded>
                 <Guarded perm="explore"><NavLink to="/blends">Blends</NavLink></Guarded>
                 <MembersLink />
@@ -60,7 +63,10 @@ function SignedIn() {
                 <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
               </nav>
               <Routes>
-                <Route path="/" element={<Home />} />
+                <Route path="/" element={<Start />} />
+                <Route path="/dashboards" element={<Home />} />
+                <Route path="/chat" element={<ChatPage />} />
+                <Route path="/chat-settings" element={<Guarded perm="manage_members" page><ChatSettingsPage /></Guarded>} />
                 <Route path="/explore" element={<Guarded perm="explore" page><ExplorePage /></Guarded>} />
                 <Route path="/blends" element={<Guarded perm="explore" page><BlendsPage /></Guarded>} />
                 <Route path="/themes" element={<Guarded perm="manage_members" page><ThemesPage /></Guarded>} />
@@ -169,4 +175,20 @@ function UserMenu() {
       )}
     </div>
   )
+}
+
+/** Where people start: the chat or the dashboards (their choice, or their organisation's). */
+function Start() {
+  const [home, setHome] = useState<string | null>(null)
+  useEffect(() => { api.chat().then(c => setHome(c.home), () => setHome('dashboards')) }, [])
+  if (home === null) return null
+  return home === 'chat' ? <ChatPage /> : <Home />
+}
+
+/** The chat, once it's on (Org admins see it before, to set it up). */
+function ChatLink() {
+  const can = useCan()
+  const [on, setOn] = useState(false)
+  useEffect(() => { api.chat().then(c => setOn(c.enabled), () => setOn(false)) }, [])
+  return on || can('manage_members') ? <NavLink to="/chat">Chat</NavLink> : null
 }

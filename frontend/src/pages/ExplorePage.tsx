@@ -3,6 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import type { DashboardSummary, ChartTile } from '../api'
 import Explorer from '../components/Explorer'
+import { addTile } from '../pin'
 import { useModels } from '../hooks'
 
 export default function ExplorePage() {
@@ -17,12 +18,7 @@ export default function ExplorePage() {
 
   const addTo = async () => {
     if (!pending || !target) return
-    const { dashboard } = await api.dashboard(target)
-    const bottom = Math.max(0, ...dashboard.tiles.map(t => t.layout.y + t.layout.h))
-    let id = (pending.title || pending.query.measures?.[0] || 'tile').toLowerCase().replace(/[^a-z0-9]+/g, '_')
-    while (dashboard.tiles.some(t => t.id === id)) id += '_2'
-    dashboard.tiles.push({ ...pending, id, layout: { x: 0, y: bottom, w: pending.type === 'kpi' ? 3 : 6, h: pending.type === 'kpi' ? 2 : 5 } })
-    await api.saveDashboard(target, dashboard)
+    await addTile(target, pending)
     navigate(`/dashboards/${target}`)
   }
 

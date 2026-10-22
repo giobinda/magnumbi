@@ -633,6 +633,19 @@ model reads (its table only for those who may see SQL), the blends, shared formu
 tiles and scheduled reports on it, each field's uses, and its queries over 30 days. Embeddings
 (ScramDB's built-in `vector` type and index) can come later, with an embedding provider.
 
+## Chat
+
+People ask their data questions in plain words (**Chat**, or their start page), and the answer
+comes with the chart it's based on. It uses the organisation's own AI provider, set by its Org
+admins (`/api/chat/settings`: an OpenAI-compatible API or Anthropic, the model, the key sealed per
+organisation): Magnum BI includes no AI. The chat uses MCP's tools as the person asking
+(`api/chat.rs`, `chat.rs`): their role and data restrictions apply, admin tools stay out, and
+changes (dashboards, blends, reports, alerts, formulas) are checked and shown as proposals, made
+only when the person confirms (`POST /api/chat/{id}/proposals/{proposal}`). The provider sees at
+most `rows_to_model` rows of a result (200 by default), never SQL, and with `keep_sensitive` (the
+default) no values of fields tagged pii, personal, confidential or restricted. A monthly limit
+per organisation; each person may start on the chat or on dashboards (`PUT /api/chat/home`).
+
 ## Themes and company colours
 
 The default themes are **Aloha** (light) and **Aloha night** (dark); people can pick any theme

@@ -3,6 +3,7 @@
 mod admin;
 mod auth;
 mod blends;
+pub(crate) mod chat;
 mod connections;
 mod dashboards;
 pub(crate) mod delivery;
@@ -136,6 +137,11 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections/{name}/test", post(connections::test))
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
+        .route("/api/chat", get(chat::list).post(chat::ask))
+        .route("/api/chat/home", axum::routing::put(chat::set_home))
+        .route("/api/chat/settings", get(chat::settings).put(chat::save_settings).delete(chat::delete_settings))
+        .route("/api/chat/{id}", get(chat::get).delete(chat::delete))
+        .route("/api/chat/{id}/proposals/{proposal}", post(chat::apply))
         .route("/api/governance", get(governance::list))
         .route("/api/governance/{model}", axum::routing::put(governance::save))
         .route("/api/governance/{model}/docs", axum::routing::put(governance::save_docs))

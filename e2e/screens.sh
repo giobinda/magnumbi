@@ -12,9 +12,12 @@ ADMIN="ana@acme.example"
 PASSWORD="screens-password-1"
 WORK="$(mktemp -d)"
 SERVER=""
+LLM=""
+LLM_PORT="${SCREENS_LLM_PORT:-8097}"
 
 cleanup() {
   [ -n "$SERVER" ] && kill "$SERVER" 2>/dev/null || true
+  [ -n "$LLM" ] && kill "$LLM" 2>/dev/null || true
   for db in screens screensorg screensdata; do devtools/scramdb.sh reset "$db" >/dev/null 2>&1 || true; done
   rm -rf "$WORK"
 }
@@ -42,6 +45,10 @@ for _ in $(seq 60); do curl -sf "http://127.0.0.1:$PORT/api/health" >/dev/null &
 
 (cd e2e && { [ -d node_modules ] || npm ci --silent; } && npx playwright install chromium >/dev/null)
 export SCREENS_BASE="http://127.0.0.1:$PORT" SCREENS_OWNER="$OWNER" SCREENS_ADMIN="$ADMIN" SCREENS_PASSWORD="$PASSWORD"
+# the chat's provider: a scripted stand-in (no real AI is called)
+node e2e/fake-llm.mjs "$LLM_PORT" "$ADMIN" &
+LLM=$!
+export SCREENS_LLM="http://127.0.0.1:$LLM_PORT/v1"
 node e2e/screens.mjs organisation
 echo "postgresql://scramdb@127.0.0.1:55492/scramdb" | "$BIN" org set-database acme >/dev/null
 node e2e/screens.mjs
