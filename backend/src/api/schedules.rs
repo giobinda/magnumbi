@@ -4,7 +4,7 @@
 //! members and the email domains its Org admins allow, checked when made and on every run.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query as UrlQuery, State};
 use chrono::{DateTime, Duration, SubsecRound, Utc};
 use serde::Deserialize;
 use serde_json::{Value, json};
@@ -116,10 +116,13 @@ pub struct NewSchedule {
     alert: Option<AlertRule>,
 }
 
+/// A new report or alert on a dashboard (`?dry_run=1`: checked like the real thing, and what it
+/// would be is answered; nothing saved).
 pub async fn create(
     State(state): State<Shared>,
     Auth(caller): Auth,
     Path(id): Path<String>,
+    UrlQuery(p): UrlQuery<super::dashboards::WriteParams>,
     Body(n): Body<NewSchedule>,
 ) -> ApiResult<Json<Value>> {
     caller.require("share")?;
@@ -224,6 +227,9 @@ pub async fn create(
         created_at: now.trunc_subsecs(6),
         firing: false,
     };
+    if p.dry_run {
+        return Ok(Json(json!({"ok": true, "dry_run": true, "schedule": describe(&s)})));
+    }
     store.put_schedule(&org, &s).await?;
     state.usage.record(crate::usage::Event {
         dashboard_id: Some(id),
@@ -709,6 +715,29 @@ mod tests {
         assert_eq!(store.schedule(&org, &id).await.unwrap().unwrap().config.recipients, [OWNER]);
         let forged = json!({"org": org, "token": "x".repeat(40)});
         assert_eq!(send(&app, None, "", "POST", "/api/unsubscribe", Some(forged), None).await.0, StatusCode::NOT_FOUND);
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn a_dry_run_checks_a_report_and_saves_nothing() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let (smtp, _mails) = fake_smtp().await;
+        let server = json!({"host": "127.0.0.1", "port": smtp, "security": "none", "from": "bi@example.com"});
+        send(&app, c, &org, "PUT", "/api/delivery/mail", Some(server), None).await;
+        let path = "/api/dashboards/shared/schedules";
+        let body = json!({"name": "Monday numbers", "when": weekly(), "format": "csv", "recipients": [OWNER]});
+        let (s, b, _) = send(&app, c, &org, "POST", &format!("{path}?dry_run=1"), Some(body), None).await;
+        assert_eq!((s, &b["dry_run"]), (StatusCode::OK, &json!(true)), "{b}");
+        // what it would be: when it would first run
+        assert_eq!(b["schedule"]["name"], json!("Monday numbers"));
+        assert!(b["schedule"]["next_run_at"].is_string(), "{b}");
+        let (_, l, _) = send(&app, c, &org, "GET", path, None, None).await;
+        assert_eq!(l["schedules"], json!([]));
+        // and checked like the real thing
+        let bad = json!({"name": "x", "when": weekly(), "format": "csv", "webhooks": ["nope"]});
+        let (s, b, _) = send(&app, c, &org, "POST", &format!("{path}?dry_run=1"), Some(bad), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
         clean_up(&state, &org).await;
     }
 

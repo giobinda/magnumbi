@@ -21,6 +21,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   other words and description (agents: MCP `search_catalog`). Each model's lineage shows what it
   reads, the dashboards, tiles, reports, blends and shared formulas using it, each field's uses
   (and the fields no dashboard uses), and its queries in the last 30 days.
+- **More for agents (MCP):** scheduled reports and alerts (`list_reports`, `create_report` with
+  `dry_run`, `pause_report`, `resume_report`, `send_report_now`, `delete_report`), formulas
+  (`check_formula`, `save_formula` with `dry_run`, `delete_formula`) and the catalog
+  (`get_catalog`, `get_lineage`). Creating a report takes `?dry_run=1` in the API too.
 - **What a field means, in Explore:** a **?** next to every field opens its catalog entry
   (description, other names, examples, tags, and its glossary terms with their definitions).
 

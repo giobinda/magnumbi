@@ -515,6 +515,17 @@ async fn read_tokens_only_read() {
         ("save_connection", json!({"name": "decoy", "config": scramdb_config()})),
         ("delete_connection", json!({"name": "decoy"})),
         ("save_members", json!({"members": {"users": {"evil@evil.example": "org_admin"}}})),
+        (
+            "create_report",
+            json!({"dashboard": w.dashboard, "report": {"name": "evil", "format": "csv", "recipients": [OWNER],
+                   "when": {"every": "daily", "at": "07:00", "timezone": "UTC"}}}),
+        ),
+        ("pause_report", json!({"id": w.schedule_id})),
+        ("resume_report", json!({"id": w.schedule_id})),
+        ("send_report_now", json!({"id": w.schedule_id})),
+        ("delete_report", json!({"id": w.schedule_id})),
+        ("save_formula", json!({"model": "sales", "formula": {"name": "evil", "expr": "revenue * 1000"}})),
+        ("delete_formula", json!({"model": "sales", "name": "evil"})),
     ] {
         for dry in [false, true] {
             let mut args = args.clone();

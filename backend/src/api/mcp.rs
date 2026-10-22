@@ -183,6 +183,110 @@ terms, tags) or description: to find the right measure for a question.",
             description: "A dashboard's saved versions (who, when), newest first.",
         },
         Tool {
+            name: "list_reports",
+            perm: "share",
+            writes: false,
+            schema: || obj(json!({"dashboard": {"type": "string", "description": "a dashboard id"}}), &["dashboard"]),
+            description: "A dashboard's scheduled reports and alerts, the webhooks they can use, and whether email is set up.",
+        },
+        Tool {
+            name: "create_report",
+            perm: "share",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"dashboard": {"type": "string"},
+                "report": {"type": "object", "description": "{name, format: csv | signed | public | alert, \
+when: {every: daily | weekly | monthly | hourly, day?, at: \"HH:MM\", timezone}, recipients: [emails of members], \
+webhooks?: [names], request?: {filters, period} (the dashboard's inputs), guest_role?, password? (signed), \
+share_link? (public: one of the dashboard's links), alert? ({tile, measure?, op: above | below | rises_by | falls_by, \
+value}: for format alert)}"},
+                "dry_run": {"type": "boolean", "description": "check it and say what it would be, without making it"}}),
+                    &["dashboard", "report"],
+                )
+            },
+            description: "Schedule a report (the dashboard's data, a guest link or a public link, by email or webhooks) \
+or an alert (when a tile's number crosses a line). Recipients must be members or allowed domains.",
+        },
+        Tool {
+            name: "pause_report",
+            perm: "share",
+            writes: true,
+            schema: || obj(json!({"id": {"type": "string"}}), &["id"]),
+            description: "Pause one of your scheduled reports or alerts (Org admins: anyone's).",
+        },
+        Tool {
+            name: "resume_report",
+            perm: "share",
+            writes: true,
+            schema: || obj(json!({"id": {"type": "string"}}), &["id"]),
+            description: "Resume a paused report or alert, from now on.",
+        },
+        Tool {
+            name: "send_report_now",
+            perm: "share",
+            writes: true,
+            schema: || obj(json!({"id": {"type": "string"}}), &["id"]),
+            description: "Send a scheduled report now (an alert: check it now).",
+        },
+        Tool {
+            name: "delete_report",
+            perm: "share",
+            writes: true,
+            schema: || obj(json!({"id": {"type": "string"}}), &["id"]),
+            description: "Delete a scheduled report or alert.",
+        },
+        Tool {
+            name: "check_formula",
+            perm: "explore",
+            writes: false,
+            schema: || {
+                obj(
+                    json!({"model": {"type": "string"}, "expr": {"type": "string"},
+                "per_row": {"type": "boolean"}, "formulas": {"type": "array", "description": "the query's other formulas"}}),
+                    &["model", "expr"],
+                )
+            },
+            description: "Check a formula before using it in run_query: {ok} or {ok: false, error, at (where)}.",
+        },
+        Tool {
+            name: "save_formula",
+            perm: "manage_members",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"model": {"type": "string"},
+                "formula": {"type": "object", "description": "{name, expr, label?, format?: number | currency | percent, per_row?, description?}"},
+                "dry_run": {"type": "boolean"}}),
+                    &["model", "formula"],
+                )
+            },
+            description: "Share a formula with the whole organisation, as one of the model's measures (or, per_row, fields).",
+        },
+        Tool {
+            name: "delete_formula",
+            perm: "manage_members",
+            writes: true,
+            schema: || obj(json!({"model": {"type": "string"}, "name": {"type": "string"}}), &["model", "name"]),
+            description: "Remove one of the organisation's shared formulas.",
+        },
+        Tool {
+            name: "get_catalog",
+            perm: "view",
+            writes: false,
+            schema: || obj(json!({}), &[]),
+            description: "Every model you can see: its owner, stewards, status (certified, draft, deprecated) and note, \
+and the organisation's documentation of it.",
+        },
+        Tool {
+            name: "get_lineage",
+            perm: "view",
+            writes: false,
+            schema: || obj(json!({"model": {"type": "string"}}), &["model"]),
+            description: "Where a model comes from and where it's used: dashboards, tiles, reports, blends, shared formulas, \
+each field's uses, and its queries in the last 30 days.",
+        },
+        Tool {
             name: "list_blends",
             perm: "view",
             writes: false,
@@ -407,7 +511,7 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
 }
 
 /// The writing tools that check without saving when given `dry_run: true`.
-const DRY_RUNS: [&str; 2] = ["save_blend", "save_members"];
+const DRY_RUNS: [&str; 4] = ["save_blend", "save_members", "create_report", "save_formula"];
 
 /// What the API would have answered, as text the agent can act on.
 fn error_text(e: ApiError) -> String {
@@ -464,6 +568,37 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
         }
         "dashboard_history" => dashboards::history(s(), a(), Path(arg(&args, "id")?)).await?,
         "list_blends" => blends::list(a()).await?,
+        "list_reports" => super::schedules::list(s(), a(), Path(arg(&args, "dashboard")?)).await?,
+        "create_report" => {
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            super::schedules::create(s(), a(), Path(arg(&args, "dashboard")?), p, Body(arg(&args, "report")?)).await?
+        }
+        "pause_report" | "resume_report" => {
+            let active =
+                serde_json::from_value(json!({"active": name == "resume_report"})).map_err(anyhow::Error::from)?;
+            super::schedules::set_active(s(), a(), Path(arg(&args, "id")?), Body(active)).await?
+        }
+        "send_report_now" => super::schedules::run_now(s(), a(), Path(arg(&args, "id")?)).await?,
+        "delete_report" => super::schedules::delete(s(), a(), Path(arg(&args, "id")?)).await?,
+        "check_formula" => {
+            let mut c = args.clone();
+            c.as_object_mut().map(|o| o.remove("dry_run"));
+            super::formulas::check(
+                a(),
+                Body(serde_json::from_value(c).map_err(|e| ApiError::bad_request(e.to_string()))?),
+            )
+            .await?
+        }
+        "save_formula" => {
+            let f: crate::schema::Formula = arg(&args, "formula")?;
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            super::formulas::save(s(), a(), Path((arg(&args, "model")?, f.name.clone())), p, Body(f)).await?
+        }
+        "delete_formula" => {
+            super::formulas::delete(s(), a(), Path((arg(&args, "model")?, arg(&args, "name")?))).await?
+        }
+        "get_catalog" => super::governance::list(s(), a()).await?,
+        "get_lineage" => super::governance::lineage(s(), a(), Path(arg(&args, "model")?)).await?,
         "save_blend" => {
             let b: crate::blend::Blend = arg(&args, "blend")?;
             let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
@@ -713,5 +848,97 @@ mod tests {
         for t in [&rw, &ro] {
             c.execute("DELETE FROM api_tokens WHERE token_hash = $1", &[&crate::store::sha256_hex(t)]).await.unwrap();
         }
+    }
+
+    /// A tool called through MCP, in an organisation, on a session.
+    async fn org_tool(app: &axum::Router, cookie: &str, org: &str, name: &str, args: Value) -> Value {
+        let call =
+            json!({"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": {"name": name, "arguments": args}});
+        let (s, r, _) =
+            crate::api::share::tests::send(app, Some(cookie), org, "POST", "/api/mcp", Some(call), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        r["result"].clone()
+    }
+
+    /// What a tool answered (its structured content), or panics with its error.
+    fn ok(r: &Value) -> &Value {
+        assert_eq!(r["isError"], json!(false), "{r}");
+        &r["structuredContent"]
+    }
+
+    #[tokio::test]
+    async fn agents_schedule_reports_and_alerts() {
+        use crate::api::share::tests::{clean_up, org_with, send};
+        let dashboard = "title: Agents\ntiles:\n  - {id: rev, type: kpi, query: {model: sales, measures: [revenue]}}\n";
+        let Some((app, state, cookie, org)) = org_with(dashboard).await else { return };
+        let (smtp, _mails) = crate::api::delivery::tests::fake_smtp().await;
+        let server = json!({"host": "127.0.0.1", "port": smtp, "security": "none", "from": "bi@example.com"});
+        send(&app, Some(&cookie), &org, "PUT", "/api/delivery/mail", Some(server), None).await;
+        let report = json!({"name": "Monday numbers", "format": "csv", "recipients": [crate::api::tests::OWNER],
+                            "when": {"every": "weekly", "day": 1, "at": "08:00", "timezone": "Europe/Rome"}});
+        let t = |n, a| org_tool(&app, &cookie, &org, n, a);
+
+        // a dry run says what it would be, and makes nothing
+        let r = t("create_report", json!({"dashboard": "shared", "report": report, "dry_run": true})).await;
+        assert_eq!(ok(&r)["dry_run"], json!(true));
+        assert_eq!(ok(&t("list_reports", json!({"dashboard": "shared"})).await)["schedules"], json!([]));
+        let r = t("create_report", json!({"dashboard": "shared", "report": report})).await;
+        let id = ok(&r)["id"].as_str().unwrap().to_string();
+        // an alert, on a tile's number
+        let alert = json!({"name": "Revenue watch", "format": "alert", "recipients": [crate::api::tests::OWNER],
+                           "when": {"every": "daily", "at": "07:00", "timezone": "UTC"},
+                           "alert": {"tile": "rev", "op": "below", "value": 1000}});
+        assert_eq!(
+            ok(&t("create_report", json!({"dashboard": "shared", "report": alert})).await)["format"],
+            json!("alert")
+        );
+        // paused, resumed, sent now, deleted
+        assert_eq!(ok(&t("pause_report", json!({"id": id})).await)["active"], json!(false));
+        assert_eq!(ok(&t("resume_report", json!({"id": id})).await)["active"], json!(true));
+        let sent = t("send_report_now", json!({"id": id})).await;
+        assert_eq!(sent["isError"], json!(false), "{sent}");
+        ok(&t("delete_report", json!({"id": id})).await);
+        let left = t("list_reports", json!({"dashboard": "shared"})).await;
+        assert_eq!(ok(&left)["schedules"].as_array().unwrap().len(), 1);
+        // mistakes come back as the API says them
+        let bad = t(
+            "create_report",
+            json!({"dashboard": "shared", "report": {"name": "x", "format": "pdf",
+            "recipients": [], "when": {"every": "daily", "at": "07:00", "timezone": "UTC"}}}),
+        )
+        .await;
+        assert_eq!(bad["isError"], json!(true), "{bad}");
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn agents_use_formulas_and_read_the_catalog() {
+        use crate::api::share::tests::{clean_up, org_with};
+        let Some((app, state, cookie, org)) = org_with("title: Agents\ntiles: []\n").await else { return };
+        let t = |n, a| org_tool(&app, &cookie, &org, n, a);
+        // checked as typed
+        assert_eq!(
+            ok(&t("check_formula", json!({"model": "sales", "expr": "revenue / transactions"})).await)["ok"],
+            json!(true)
+        );
+        let wrong = t("check_formula", json!({"model": "sales", "expr": "revnue / 2"})).await;
+        assert!(ok(&wrong)["error"].as_str().unwrap().contains("did you mean revenue"), "{wrong}");
+        // shared with the organisation: a dry run, then for real, then gone
+        let f =
+            json!({"name": "per_sale", "label": "Per sale", "expr": "revenue / transactions", "format": "currency"});
+        assert_eq!(
+            ok(&t("save_formula", json!({"model": "sales", "formula": f, "dry_run": true})).await)["dry_run"],
+            json!(true)
+        );
+        ok(&t("save_formula", json!({"model": "sales", "formula": f})).await);
+        let m = t("describe_model", json!({"name": "sales"})).await;
+        assert!(m.to_string().contains("per_sale"), "{m}");
+        ok(&t("delete_formula", json!({"model": "sales", "name": "per_sale"})).await);
+        // the catalog: who answers for each model, and where it's used
+        let c = t("get_catalog", json!({})).await;
+        assert!(ok(&c)["models"].as_array().unwrap().iter().any(|m| m["model"] == "sales"), "{c}");
+        let l = t("get_lineage", json!({"model": "sales"})).await;
+        assert_eq!(ok(&l)["reads"]["connection"], json!("warehouse"), "{l}");
+        clean_up(&state, &org).await;
     }
 }

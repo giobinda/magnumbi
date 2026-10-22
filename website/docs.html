@@ -769,7 +769,7 @@ radius: 10</code></pre>
 <pre><code>claude mcp add --transport http magnum-bi https://bi.example.com/api/mcp \
   --header "Authorization: Bearer mbi_…"</code></pre>
       </div>
-      <p>The agent can then list and describe models, run queries and preview their SQL, read, validate, save and delete dashboards (with history), and manage blends, connections, members and themes. Give it your company's CSS design tokens and it can turn them into the organisation's default theme. It can also read usage summaries. Agents only see the tools their token allows; read-only tokens get no writing tools. Each tool calls the same API handler a browser would, so permissions and checks are the API's own.</p>
+      <p>The agent can then search the data catalog and read its glossary, owners and lineage, list and describe models, run queries (with formulas, checked first) and preview their SQL, read, validate, save and delete dashboards (with history), schedule reports and alerts (and pause, resume, send or delete them), share formulas with the organisation, and manage blends, connections, members and themes. Give it your company's CSS design tokens and it can turn them into the organisation's default theme. It can also read usage summaries. Agents only see the tools their token allows; read-only tokens get no writing tools. Each tool calls the same API handler a browser would, so permissions and checks are the API's own.</p>
       <h3>Safety nets for changes</h3>
       <ul>
         <li><strong>Dry runs.</strong> Add <code>?dry_run=1</code> when saving a dashboard, blend, members list or organisation themes: everything is checked and warnings come back (for example, a tile on a field that doesn't exist), but nothing is saved.</li>
