@@ -133,6 +133,22 @@ impl ConnectionConfig {
         }
     }
 
+    /// Whether a secret given for `self` may go with `other` too: to the same host (as the same
+    /// user; another port on it is fine) or storage endpoint. A stored secret never follows a
+    /// changed address on its own.
+    pub fn same_destination(&self, other: &ConnectionConfig) -> bool {
+        use ConnectionConfig::*;
+        match (self, other) {
+            (Scramdb(a), Scramdb(b)) | (Postgres(a), Postgres(b)) => {
+                a.host.eq_ignore_ascii_case(&b.host) && a.user == b.user
+            }
+            // a service account key only ever goes to Google
+            (Bigquery(_), Bigquery(_)) => true,
+            (Duckdb(a), Duckdb(b)) => a.s3_endpoint == b.s3_endpoint,
+            _ => false,
+        }
+    }
+
     /// Does this kind of connection need a secret before it can be used?
     pub fn needs_secret(&self) -> bool {
         matches!(self, ConnectionConfig::Bigquery(_))
@@ -368,6 +384,30 @@ impl Stored {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn secrets_stay_with_their_server() {
+        let pg = |host: &str, port: u16, user: &str| -> ConnectionConfig {
+            serde_json::from_value(
+                serde_json::json!({"type": "postgres", "host": host, "port": port, "database": "d", "user": user}),
+            )
+            .unwrap()
+        };
+        assert!(pg("db.acme.example", 5432, "bi").same_destination(&pg("DB.acme.example", 5432, "bi")));
+        assert!(!pg("db.acme.example", 5432, "bi").same_destination(&pg("evil.example", 5432, "bi")));
+        assert!(pg("db.acme.example", 5432, "bi").same_destination(&pg("db.acme.example", 6543, "bi")), "another port");
+        assert!(!pg("db.acme.example", 5432, "bi").same_destination(&pg("db.acme.example", 5432, "admin")));
+        let scram: ConnectionConfig = serde_json::from_value(
+            serde_json::json!({"type": "scramdb", "host": "db.acme.example", "database": "d", "user": "bi"}),
+        )
+        .unwrap();
+        assert!(!pg("db.acme.example", 5432, "bi").same_destination(&scram), "another kind");
+        let duck = |endpoint: Option<&str>| -> ConnectionConfig {
+            serde_json::from_value(serde_json::json!({"type": "duckdb", "s3_endpoint": endpoint})).unwrap()
+        };
+        assert!(duck(Some("minio.acme.example")).same_destination(&duck(Some("minio.acme.example"))));
+        assert!(!duck(Some("minio.acme.example")).same_destination(&duck(Some("evil.example"))));
+    }
     use serde_json::json;
 
     fn cfg(v: Value) -> Result<ConnectionConfig, String> {

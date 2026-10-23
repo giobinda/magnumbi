@@ -122,8 +122,7 @@ pub async fn sweep(store: &Store) -> Result<usize> {
         .await?;
     let mut dropped = 0;
     for r in &gone {
-        materialize::drop(&store.pool, SCHEMA, &r.get::<_, String>(0)).await?;
-        dropped += 1;
+        dropped += usize::from(gone_now(store, SCHEMA, &r.get::<_, String>(0)).await);
     }
     let orphans = c
         .query(
@@ -143,19 +142,29 @@ pub async fn sweep(store: &Store) -> Result<usize> {
     for r in &work {
         let name: String = r.get(0);
         if materialize::work_table_created(&name).is_some_and(|t| t < cutoff) {
-            materialize::drop(&store.pool, "public", &name).await?;
-            dropped += 1;
+            dropped += usize::from(gone_now(store, "public", &name).await);
         }
     }
     for r in &orphans {
         let name: String = r.get(0);
         // tables of the last minutes may be filling right now: leave them for a later sweep
         if created_at(&name).is_some_and(|t| t < cutoff) {
-            materialize::drop(&store.pool, SCHEMA, &name).await?;
-            dropped += 1;
+            dropped += usize::from(gone_now(store, SCHEMA, &name).await);
         }
     }
     Ok(dropped)
+}
+
+/// Drop a table a sweep found. Another sweep (another server) may drop it at the same moment;
+/// that's no reason to stop: logged, and the next sweep sees.
+async fn gone_now(store: &Store, schema: &str, table: &str) -> bool {
+    match materialize::drop(&store.pool, schema, table).await {
+        Ok(()) => true,
+        Err(e) => {
+            tracing::debug!(table, "not dropped (the next sweep will see): {e:#}");
+            false
+        }
+    }
 }
 
 /// What the server does every few minutes on each database: expired results and leftovers go,

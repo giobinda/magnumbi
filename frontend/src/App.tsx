@@ -22,6 +22,7 @@ import ModelsPage from './pages/ModelsPage'
 import CatalogPage from './pages/CatalogPage'
 import ChatPage from './pages/ChatPage'
 import ChatSettingsPage from './pages/ChatSettingsPage'
+import CodePage from './pages/CodePage'
 
 const ROLE_LABELS: Record<string, string> = { viewer: 'Viewer', user: 'User', power_user: 'Power user', org_admin: 'Org admin', system_owner: 'System owner' }
 
@@ -59,6 +60,7 @@ function SignedIn() {
                 <Guarded perm="manage_members"><NavLink to="/themes">Themes</NavLink></Guarded>
                 <Guarded perm="manage_members"><NavLink to="/delivery">Delivery</NavLink></Guarded>
                 <Guarded perm="manage_members"><NavLink to="/usage">Usage</NavLink></Guarded>
+                <Guarded perm="manage_members"><NavLink to="/code">Code</NavLink></Guarded>
                 <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
                 <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
               </nav>
@@ -75,6 +77,7 @@ function SignedIn() {
                 <Route path="/catalog" element={<CatalogPage />} />
                 <Route path="/models" element={<Guarded perm="manage_members" page><ModelsPage /></Guarded>} />
                 <Route path="/usage" element={<Guarded perm="manage_members" page><UsagePage /></Guarded>} />
+                <Route path="/code" element={<Guarded perm="manage_members" page><CodePage /></Guarded>} />
                 <Route path="/members" element={<Guarded perm="manage_members" page><MembersPage /></Guarded>} />
                 <Route path="/organisations" element={<Guarded perm="manage_orgs" page><OrganisationsPage /></Guarded>} />
                 <Route path="/dashboards/:id" element={<DashboardPage />} />

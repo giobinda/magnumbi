@@ -2,6 +2,7 @@ import type { Theme } from './theme'
 import { guestPath } from './guest'
 import { fileNameOf } from './download'
 import type { ModelDef } from './modelEditor'
+import type { Plan } from './code'
 // Typed client for the Magnum BI backend. Types mirror backend/src/schema.rs.
 
 // time = TIMESTAMP (UTC instant); datetime = naive local date-time (e.g. store-local)
@@ -470,6 +471,17 @@ export const api = {
   applyProposal: (conversation: string, proposal: string) =>
     call<Proposal>(`/api/chat/${encodeURIComponent(conversation)}/proposals/${encodeURIComponent(proposal)}`, json('POST', {})),
   setHome: (home: Home | null) => call<{ ok: boolean }>('/api/chat/home', json('PUT', { home })),
+  /** The organisation's setup as files (api/code.rs). */
+  code: () => call<{ files: Record<string, string> }>('/api/code'),
+  codeZip: async () => {
+    const r = await request('/api/code?format=zip')
+    return { blob: await r.blob(), name: fileNameOf(r.headers.get('content-disposition'), 'setup.zip') }
+  },
+  /** The plan for these files (apply: and apply them). Secrets by file path, never in the files. */
+  applyCode: (files: Record<string, string>, secrets: Record<string, string>, prune: boolean, apply: boolean) => {
+    const q = [apply ? '' : 'dry_run=1', prune ? 'prune=1' : ''].filter(Boolean).join('&')
+    return call<Plan>(`/api/code${q ? `?${q}` : ''}`, json('POST', { files, secrets }))
+  },
   chatSettings: () => call<{ settings: ChatSettings | null; has_key: boolean }>('/api/chat/settings'),
   saveChatSettings: (settings: ChatSettings, key?: string) =>
     call<{ ok: boolean }>('/api/chat/settings', json('PUT', { settings, key: key || undefined })),

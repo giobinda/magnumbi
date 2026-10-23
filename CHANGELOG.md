@@ -13,8 +13,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   files would change, and apply them (members, roles, row filters and sign-in rules too):
   `GET /api/code`, `POST /api/code` with `?dry_run=1` for the
   plan and `?prune=1` to delete what the files don't have. Applying goes through the app's own
-  checks; with any problem nothing changes. A read-only token may plan. Secrets never go in the
+  checks; with any problem nothing changes. Secrets never go in the
   files: new ones travel apart, in the request, and are never sent back.
+  In the app: **Code** downloads the files as a zip and applies a folder after showing the plan.
+  From a terminal or CI: `magnum-bi code export|plan|apply <folder>` with an API token
+  (`MAGNUM_URL`, `MAGNUM_TOKEN`), secrets in `MAGNUM_SECRET_<FILE>` variables.
 - Connections, the mail server, webhooks and the sign-in rules take `?dry_run=1`.
 
 ### Changed
@@ -24,6 +27,13 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 - **The chat's dashboard proposals say what you'd get:** whether the dashboard is new or changed,
   its title and each tile ("Revenue by month (line chart)"); once confirmed, a link opens it.
+
+### Security
+
+- **A saved secret no longer follows a changed address.** Changing a connection's host or user,
+  the mail server's host or user name, the chat's provider address, or the single
+  sign-on issuer or client now needs the password, key or client secret again, instead of
+  sending the saved one to the new address.
 
 ### Fixed
 

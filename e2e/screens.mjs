@@ -2,7 +2,9 @@
 // furnishes it (as its system owner, then its Org admin) and photographs each screen the docs
 // show, light theme, into website/assets/screens/. Run through screens.sh (make screenshots).
 import { chromium } from 'playwright'
-import { mkdirSync } from 'fs'
+import { mkdirSync, mkdtempSync, writeFileSync } from 'fs'
+import { tmpdir } from 'os'
+import { dirname, join } from 'path'
 
 const BASE = process.env.SCREENS_BASE
 const OUT = new URL('../website/assets/screens/', import.meta.url).pathname
@@ -235,5 +237,21 @@ await shot('chat-settings', '/chat-settings', {
 await shot('members', '/members', { height: 820 })
 await shot('sign-in', '/members', { el: '.sign-in-settings' })
 await shot('usage', '/usage', { height: 820 })
+await shot('code', '/code', {
+  el: '.page',
+  before: async () => {
+    // the organisation's files, as downloaded, with a dashboard renamed and a new connection
+    const { files } = await api('GET', '/api/code')
+    files['dashboards/sales_overview.yaml'] = files['dashboards/sales_overview.yaml'].replace(/^title: .*$/m, 'title: Sales overview (EMEA)')
+    files['connections/finance.yaml'] = 'type: postgres\nhost: 127.0.0.1\nport: 5432\ndatabase: finance\nuser: bi_reader\n'
+    const dir = join(mkdtempSync(join(tmpdir(), 'screens-')), 'acme-setup')
+    for (const [path, text] of Object.entries(files)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true })
+      writeFileSync(join(dir, path), text)
+    }
+    await page.setInputFiles('.code-page input[type=file]', dir)
+    await page.waitForSelector('.code-changes li')
+  },
+})
 await shot('security', '/', { el: '.security-card', before: async () => page.click('button:has-text("Security")') })
 await browser.close()

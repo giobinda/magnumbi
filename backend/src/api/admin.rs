@@ -222,6 +222,15 @@ pub async fn put_sign_in(
         None => None,
         Some(o) => {
             let issuer = o.issuer.trim().trim_end_matches('/').to_string();
+            // the client secret never goes to another provider (or as another client) on its own
+            let given = o.client_secret.as_deref().is_some_and(|s| !s.trim().is_empty());
+            if !given
+                && existing.oidc.as_ref().is_some_and(|e| {
+                    e.client_secret_sealed.is_some() && (e.issuer != issuer || e.client_id != o.client_id.trim())
+                })
+            {
+                return Err(ApiError::bad_request("the provider changed: give its client secret again"));
+            }
             // reachable, and a real provider: its discovery document must check out
             state
                 .oidc

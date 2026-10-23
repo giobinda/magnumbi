@@ -467,12 +467,21 @@ Whatever an organisation sets up in the app can be kept as YAML files in git, an
 applied back, like terraform: export, review the plan, apply. Org admins only; applying goes
 through the same checks and permissions as the app, and secrets are never in the files.
 
+In the app: **Code** (Org admins) downloads the files as a zip, and applies a folder of them
+after showing the plan. From a terminal or CI, with an API token:
+
 ```bash
-curl -H "Authorization: Bearer $TOKEN" https://bi.example.com/api/code > code.json   # {"files": {path: yaml}}
-curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
-     --data @code.json 'https://bi.example.com/api/code?dry_run=1'                  # the plan
-curl -X POST … --data @code.json https://bi.example.com/api/code                      # apply it
+export MAGNUM_URL=https://bi.example.com MAGNUM_TOKEN=mbi_…
+magnum-bi code export ./setup             # the organisation's setup, as files (commit them)
+magnum-bi code plan ./setup               # what applying would change; nothing is changed
+magnum-bi code apply ./setup [--prune]    # shows the plan, asks, applies (--yes in CI)
 ```
+
+Secrets come from variables named after their file, never from the folder:
+`MAGNUM_SECRET_CONNECTIONS_WAREHOUSE`, `MAGNUM_SECRET_MAIL`, `MAGNUM_SECRET_WEBHOOKS_TEAM`… Only
+new or changed ones are needed; the stored ones are kept. The API underneath: `GET /api/code`
+(`?format=zip`), `POST /api/code` with `{"files": {...}, "secrets": {...}}` (`?dry_run=1` for the
+plan).
 
 The files, applied in this order: `connections/<name>.yaml`, `models/<name>.yaml` (the
 organisation's own models), `formulas/<model>/<name>.yaml`, `blends/<name>.yaml`, `members.yaml`
@@ -486,12 +495,14 @@ organisation as the files will leave it: a model on a connection the same files 
 that connection. With any problem, applying changes nothing. Files that are left out are kept
 unless you add `?prune=1`, which deletes them (never the members or the sign-in rules). Files
 that would leave the organisation without an Org admin are refused, and people stay in one
-organisation: members of another can't be added. A read-only API token may ask for the plan.
+organisation: members of another can't be added. Planning needs a read & write token: checking files may
+connect to the addresses they name.
 
 **Secrets stay out of the files.** A connection's password or key, the single sign-on client
 secret, the mail server's password, a
 webhook's address, the chat's key and a signed report's password go apart, in the request's
-`secrets` (by file path), only when they're new or change: `{"files": {...}, "secrets":
+`secrets` (by file path), only when they're new, change, or their address changes (a saved
+secret never follows a new host on its own): `{"files": {...}, "secrets":
 {"mail.yaml": "…"}}`. They're sealed like everything the app stores and never sent back. A
 report isn't edited: a changed one is replaced, made by whoever applies it, who it then runs as.
 
@@ -914,7 +925,6 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Setup as code, the rest: a `magnum-bi` command and a page in the app.
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
 
 ## License

@@ -545,3 +545,14 @@ label.check.inline { align-items: center; gap: 4px; }
   .chat-side { flex-direction: row; flex-wrap: wrap; }
   .chat-start { margin-top: 0; }
 }
+
+/* setup as code */
+.code-page label { display: flex; flex-direction: column; gap: 6px; margin: 10px 0; }
+.code-page label.check { flex-direction: row; align-items: center; gap: 8px; }
+.code-plan { margin-top: 12px; }
+.code-changes { list-style: none; padding: 0; margin: 8px 0; display: flex; flex-direction: column; gap: 6px; }
+.code-changes li { display: flex; flex-direction: column; gap: 4px; padding: 6px 8px; border-radius: var(--radius); background: var(--surface); }
+.code-changes .sign { display: inline-block; width: 1em; font-weight: 600; }
+.code-changes .create .sign { color: var(--good); }
+.code-changes .delete .sign, .code-changes .error-row .sign { color: var(--danger); }
+.code-changes input { max-width: 420px; }

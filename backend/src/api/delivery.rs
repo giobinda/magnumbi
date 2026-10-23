@@ -112,7 +112,14 @@ pub async fn put_mail(
     };
     let kept = match input.password {
         Some(_) => None,
-        None => store.mail_server(&org).await?.and_then(|(_, sealed)| sealed),
+        None => match store.mail_server(&org).await? {
+            // the password never goes to another server on its own
+            Some((old, Some(_))) if !old.host.eq_ignore_ascii_case(&server.host) || old.username != server.username => {
+                return Err(ApiError::bad_request("the mail server's address changed: give its password again"));
+            }
+            Some((_, sealed)) => sealed,
+            None => None,
+        },
     };
     let sealed = match input.password.as_deref() {
         Some("") => None,
@@ -388,6 +395,13 @@ pub(crate) mod tests {
         assert!(!d.to_string().contains("first-pw"));
         let row = state.store.mail_server(&org).await.unwrap().unwrap();
         assert!(!row.1.unwrap().contains("first-pw"), "sealed at rest");
+        // the password never goes to another server on its own: a new address needs it again
+        let mut moved = tls.clone();
+        moved.as_object_mut().unwrap().remove("password");
+        moved["host"] = json!("smtp.elsewhere.example");
+        let (s, b, _) = send(&app, c, &org, "PUT", "/api/delivery/mail", Some(moved), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+        assert!(b["detail"].as_str().unwrap().contains("again"), "{b}");
         clean_up(&state, &org).await;
     }
 }

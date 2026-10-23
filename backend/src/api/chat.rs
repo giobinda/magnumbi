@@ -113,15 +113,22 @@ pub async fn save_settings(
     if new_key.is_some_and(|k| k.len() > 1000 || k.chars().any(char::is_control)) {
         return Err(ApiError::bad_request("that doesn't look like an API key"));
     }
+    let org = caller.org();
+    let store = state.orgs.store(org).await?;
+    // the key never goes to another provider on its own
+    if new_key.is_none()
+        && let Some((old, Some(_))) = store.chat_settings(org).await?
+        && old.url.trim_end_matches('/') != n.settings.url.trim_end_matches('/')
+    {
+        return Err(ApiError::bad_request("the provider's address changed: give its key again"));
+    }
     if p.dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));
     }
-    let org = caller.org();
     let sealed = match new_key {
         Some(k) => Some(key(&state)?.seal(k, &key_context(org))?),
         None => None,
     };
-    let store = state.orgs.store(org).await?;
     store.put_chat_settings(org, &n.settings, sealed.as_deref(), caller.email()).await?;
     state.usage.record(caller.event("chat_settings_saved"));
     Ok(Json(json!({"ok": true})))
@@ -573,6 +580,12 @@ pub(crate) mod tests {
         send(&app, c, &org, "PUT", "/api/chat/settings", Some(again), None).await;
         let (_, g, _) = send(&app, c, &org, "GET", "/api/chat/settings", None, None).await;
         assert_eq!((&g["settings"]["rows_to_model"], &g["has_key"]), (&json!(50), &json!(true)));
+        // the key never goes to another provider on its own: a new address needs it again
+        let mut moved = json!({"settings": s});
+        moved["settings"]["url"] = json!("https://api.elsewhere.example/v1");
+        let (status, b, _) = send(&app, c, &org, "PUT", "/api/chat/settings", Some(moved), None).await;
+        assert_eq!(status, StatusCode::BAD_REQUEST, "{b}");
+        assert!(b["detail"].as_str().unwrap().contains("again"), "{b}");
         // checked
         for bad in [json!({"format": "gemini"}), json!({"url": "ftp://x"}), json!({"model": ""})] {
             let mut b = json!({"settings": s});
