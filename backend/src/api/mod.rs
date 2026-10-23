@@ -4,6 +4,7 @@ mod admin;
 mod auth;
 mod blends;
 pub(crate) mod chat;
+mod code;
 mod connections;
 mod dashboards;
 pub(crate) mod delivery;
@@ -177,6 +178,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/setup", get(setup::checklist))
         .route("/api/org-models/{name}", axum::routing::put(org_models::save).delete(org_models::delete))
         .route("/api/cache", get(admin::cache_stats).delete(admin::clear_cache))
+        .route("/api/code", get(code::export).post(code::apply))
         .route_layer(from_fn_with_state(state.clone(), require_session));
     Router::new()
         .merge(open)

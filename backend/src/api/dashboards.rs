@@ -63,7 +63,7 @@ pub struct WriteParams {
     pub dry_run: bool,
 }
 
-fn flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
+pub(crate) fn flag<'de, D: serde::Deserializer<'de>>(d: D) -> Result<bool, D::Error> {
     let v = String::deserialize(d)?;
     Ok(matches!(v.as_str(), "1" | "true" | "yes"))
 }

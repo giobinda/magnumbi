@@ -5,7 +5,18 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ## Unreleased
 
+### Added
+
+- **Setup as code.** Org admins export what their organisation set up in the app (its own
+  models, shared formulas, blends, themes, glossary, catalog entries, dashboards) as YAML files,
+  see what applying files would change, and apply them: `GET /api/code`, `POST /api/code` with
+  `?dry_run=1` for the plan and `?prune=1` to delete what the files don't have. Applying goes
+  through the app's own checks; with any problem nothing changes. A read-only token may plan.
+
 ### Changed
+
+- **Blends are checked against the organisation as the person sees it**, so a blend may join a
+  model saved in the same apply.
 
 - **The chat's dashboard proposals say what you'd get:** whether the dashboard is new or changed,
   its title and each tile ("Revenue by month (line chart)"); once confirmed, a link opens it.

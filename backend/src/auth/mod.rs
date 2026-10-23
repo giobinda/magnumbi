@@ -157,8 +157,8 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
                 | ["glossary", _]
         );
     }
-    // a report checked, not made
-    if *method == Method::POST && dry_run && matches!(parts.as_slice(), ["dashboards", _, "schedules"]) {
+    // a report checked, not made; a plan of what applying files would change
+    if *method == Method::POST && dry_run && matches!(parts.as_slice(), ["dashboards", _, "schedules"] | ["code"]) {
         return true;
     }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)
@@ -224,6 +224,7 @@ fn header<'a>(parts: &'a Parts, name: &str) -> Option<&'a str> {
 }
 
 /// A signed-in request: who, in which organisation, as which role.
+#[derive(Clone)]
 pub struct Caller {
     pub session: SessionInfo,
     pub scope: Scope,
@@ -234,6 +235,8 @@ pub struct Caller {
     pub project: Arc<ProjectState>,
     /// asked to bypass the query cache
     pub refresh: bool,
+    /// glossary terms an apply (api/code.rs) adds before what it's checking: they count as there
+    pub planned_terms: Vec<String>,
 }
 
 impl Caller {
@@ -310,7 +313,7 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
     let role = effective_role(scope.role, header(&parts, VIEW_AS_HEADER));
     let refresh = header(&parts, REFRESH_HEADER) == Some("1");
     let project = project_for(&state, &scope, project).await;
-    let caller = Caller { session, scope, role, access, access_errors, project, refresh };
+    let caller = Caller { session, scope, role, access, access_errors, project, refresh, planned_terms: vec![] };
     parts.extensions.insert(Arc::new(caller));
     next.run(Request::from_parts(parts, body)).await
 }
@@ -376,7 +379,7 @@ pub async fn link_caller(
     let token =
         crate::store::TokenInfo { name: link.name, org: org.into(), role: link.cap.as_str().into(), write: false };
     let session = SessionInfo { method: "link".into(), user, granted_role: None, token: Some(token) };
-    Ok(Some(Caller { session, scope, role, access, access_errors, project, refresh: false }))
+    Ok(Some(Caller { session, scope, role, access, access_errors, project, refresh: false, planned_terms: vec![] }))
 }
 
 /// What a link lets its users do: see [`link_caller`].
@@ -414,6 +417,10 @@ mod tests {
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/query", None));
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/export", None), "downloading is reading");
         assert!(ok(Method::POST, "/api/dashboards/d/export", None));
+        assert!(
+            ok(Method::POST, "/api/code", Some("dry_run=1")) && !ok(Method::POST, "/api/code", None),
+            "plan, not apply"
+        );
         // a dry run only where the handler checks without saving
         for path in ["/api/dashboards/d", "/api/dashboards/d/yaml", "/api/blends/b", "/api/members", "/api/org-themes"]
         {

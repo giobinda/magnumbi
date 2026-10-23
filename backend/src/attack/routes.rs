@@ -151,6 +151,8 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("GET", "/api/setup", VIEWER),
     ("GET", "/api/cache", ADMIN),
     ("DELETE", "/api/cache", ADMIN),
+    ("GET", "/api/code", ADMIN),
+    ("POST", "/api/code", ADMIN),
 ];
 
 /// The routes in api/mod.rs, read from its source: (method, path).
@@ -267,6 +269,8 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
         "/api/chat" => json!({"message": "evil question"}),
         "/api/chat/home" => json!({"home": "chat"}),
+        "/api/code" => json!({"files": {"glossary/attack_term.yaml": "name: attack_term\ndefinition: evil\n",
+            "dashboards/attack.yaml": "title: Overwritten\n"}}),
         "/api/chat/settings" => json!({"settings": {"enabled": true, "format": "openai",
             "url": "https://evil.example/v1", "model": "evil"}, "key": "evil-key"}),
         "/api/governance/{model}" => json!({"owner": "evil@evil.example", "status": "certified"}),
