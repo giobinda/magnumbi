@@ -225,9 +225,24 @@ impl Connectors {
         secret: Option<&str>,
         by: Option<&str>,
     ) -> Result<(), ConnError> {
+        let sealed = self.check(store, org, name, &config, secret).await?;
+        store.put_connection(org, name, &config, sealed.as_deref(), by).await?;
+        Ok(())
+    }
+
+    /// Validate a connection as saving it would (nothing stored, nothing connected to), and its
+    /// secret sealed: a new one, or the stored one.
+    pub async fn check(
+        &self,
+        store: &Store,
+        org: &str,
+        name: &str,
+        config: &ConnectionConfig,
+        secret: Option<&str>,
+    ) -> Result<Option<String>, ConnError> {
         check_name(name).map_err(ConnError::Invalid)?;
         config.validate().map_err(ConnError::Invalid)?;
-        self.guard(org, &config).await?;
+        self.guard(org, config).await?;
         let sealed = match secret.filter(|s| !s.is_empty()) {
             Some(s) => {
                 config.validate_secret(s).map_err(ConnError::Invalid)?;
@@ -238,8 +253,7 @@ impl Connectors {
         if sealed.is_none() && config.needs_secret() {
             return Err(ConnError::Invalid(format!("a {} connection needs its key", config.kind())));
         }
-        store.put_connection(org, name, &config, sealed.as_deref(), by).await?;
-        Ok(())
+        Ok(sealed)
     }
 
     /// Check settings (and a new secret, or the stored one) work, without saving them.
@@ -251,6 +265,18 @@ impl Connectors {
         config: &ConnectionConfig,
         secret: Option<&str>,
     ) -> Result<String, ConnError> {
+        self.unsaved(store, org, name, config, secret).await?.test().await.map_err(connect_failure)
+    }
+
+    /// A connector for settings not saved (yet), with a new secret or the stored one.
+    pub async fn unsaved(
+        &self,
+        store: &Store,
+        org: &str,
+        name: &str,
+        config: &ConnectionConfig,
+        secret: Option<&str>,
+    ) -> Result<Arc<dyn Connector>, ConnError> {
         config.validate().map_err(ConnError::Invalid)?;
         let pinned = self.guard(org, config).await?;
         let connector = match secret.filter(|s| !s.is_empty()) {
@@ -263,7 +289,7 @@ impl Connectors {
                 self.build(org, config, stored.as_deref().map(|s| (s, name)), pinned)?
             }
         };
-        connector.test().await.map_err(connect_failure)
+        Ok(connector)
     }
 
     pub async fn delete(&self, store: &Store, org: &str, name: &str) -> Result<bool, ConnError> {

@@ -108,7 +108,7 @@ pub async fn save_docs(
         m.dimensions.iter().map(|d| d.name.as_str()).chain(m.measures.iter().map(|x| x.name.as_str())).collect();
     let store = state.orgs.store(caller.org()).await?;
     let mut terms: Vec<String> = store.glossary(caller.org()).await?.into_iter().map(|(t, ..)| t.name).collect();
-    terms.extend(caller.planned_terms.iter().cloned());
+    terms.extend(caller.planned.terms.iter().cloned());
     docs.check(&fields, &terms).map_err(ApiError::bad_request)?;
     if p.dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));

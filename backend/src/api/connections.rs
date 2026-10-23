@@ -2,11 +2,12 @@
 //! sent when set or changed, never returned.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query as UrlQuery, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Body;
+use super::dashboards::WriteParams;
 use crate::auth::{Auth, Caller};
 use crate::connections::ConnectionConfig;
 use crate::error::{ApiError, ApiResult};
@@ -46,15 +47,22 @@ pub async fn test(
     Ok(Json(json!({"ok": true, "message": message})))
 }
 
+/// Save a connection (`?dry_run=1`: check only, nothing saved or connected to).
 pub async fn save(
     State(state): State<Shared>,
     Auth(caller): Auth,
     Path(name): Path<String>,
+    UrlQuery(p): UrlQuery<WriteParams>,
     Body(b): Body<ConnectionBody>,
 ) -> ApiResult<Json<Value>> {
     let store = store(&state, &caller).await?;
     let kind = b.config.kind();
-    state.connectors.save(&store, caller.org(), &name, b.config, b.secret.as_deref(), Some(caller.email())).await?;
+    if p.dry_run {
+        state.connectors.check(&store, caller.org(), &name, &b.config, b.secret.as_deref()).await?;
+        return Ok(Json(json!({"ok": true, "dry_run": true})));
+    }
+    let by = Some(caller.email());
+    state.connectors.save(&store, caller.org(), &name, b.config, b.secret.as_deref(), by).await?;
     state.usage.record(Event {
         connection: Some(name.clone()),
         detail: Some(json!({"type": kind})),

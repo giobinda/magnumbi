@@ -7,11 +7,14 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
-- **Setup as code.** Org admins export what their organisation set up in the app (its own
-  models, shared formulas, blends, themes, glossary, catalog entries, dashboards) as YAML files,
-  see what applying files would change, and apply them: `GET /api/code`, `POST /api/code` with
-  `?dry_run=1` for the plan and `?prune=1` to delete what the files don't have. Applying goes
-  through the app's own checks; with any problem nothing changes. A read-only token may plan.
+- **Setup as code.** Org admins export what their organisation set up in the app (connections,
+  its own models, shared formulas, blends, themes, glossary, catalog entries, dashboards, the mail
+  server, webhooks, chat settings, scheduled reports and alerts) as YAML files, see what applying
+  files would change, and apply them: `GET /api/code`, `POST /api/code` with `?dry_run=1` for the
+  plan and `?prune=1` to delete what the files don't have. Applying goes through the app's own
+  checks; with any problem nothing changes. A read-only token may plan. Secrets never go in the
+  files: new ones travel apart, in the request, and are never sent back.
+- Connections, the mail server and webhooks take `?dry_run=1`.
 
 ### Changed
 

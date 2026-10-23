@@ -3,11 +3,12 @@
 //! Org admins manage them (system owners in the platform workspace). Secrets are write-only.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query as UrlQuery, State};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
 use super::Body;
+use super::dashboards::WriteParams;
 use crate::auth::{Auth, Caller};
 use crate::crypto::SecretKey;
 use crate::delivery::{Mail, MailServer, Message, WebhookKind, payload, post_webhook, send_mail, webhook_host};
@@ -86,9 +87,11 @@ pub struct MailInput {
     password: Option<String>,
 }
 
+/// Set the mail server (`?dry_run=1`: check only).
 pub async fn put_mail(
     State(state): State<Shared>,
     Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<WriteParams>,
     Body(input): Body<MailInput>,
 ) -> ApiResult<Json<Value>> {
     let (org, store) = tenant(&state, &caller).await?;
@@ -118,6 +121,9 @@ pub async fn put_mail(
     };
     let sealed = if server.username.is_some() { sealed } else { None }; // a password goes with a user name
     server.check(sealed.is_some()).map_err(ApiError::bad_request)?;
+    if p.dry_run {
+        return Ok(Json(json!({"ok": true, "dry_run": true})));
+    }
     store.put_mail_server(&org, &server, sealed.as_deref(), Some(caller.email())).await?;
     Ok(Json(json!({"ok": true})))
 }
@@ -161,10 +167,12 @@ fn kind_name(kind: WebhookKind) -> &'static str {
     }
 }
 
+/// Add or change a webhook (`?dry_run=1`: check only).
 pub async fn put_webhook(
     State(state): State<Shared>,
     Auth(caller): Auth,
     Path(name): Path<String>,
+    UrlQuery(p): UrlQuery<WriteParams>,
     Body(input): Body<WebhookInput>,
 ) -> ApiResult<Json<Value>> {
     let (org, store) = tenant(&state, &caller).await?;
@@ -182,6 +190,9 @@ pub async fn put_webhook(
         }
     };
     let host = webhook_host(&url, state.connectors.net_guard().allow_private).map_err(ApiError::bad_request)?;
+    if p.dry_run {
+        return Ok(Json(json!({"ok": true, "dry_run": true})));
+    }
     let sealed = key.seal(&url, &webhook_context(&org, &name))?;
     store.put_webhook(&org, &name, (kind_name(input.kind), &host, &sealed), Some(caller.email())).await?;
     Ok(Json(json!({"ok": true})))

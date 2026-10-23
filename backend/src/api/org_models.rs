@@ -30,6 +30,11 @@ fn require_org_admin(caller: &Caller) -> ApiResult<()> {
 
 async fn connector(state: &AppState, caller: &Caller, name: &str) -> ApiResult<(Dialect, Arc<dyn Connector>)> {
     let store = state.orgs.store(caller.org()).await?;
+    // a connection the files being applied add or change (api/code.rs), as it will be
+    if let Some((config, secret)) = caller.planned.connections.get(name) {
+        let c = state.connectors.unsaved(&store, caller.org(), name, config, secret.as_deref()).await?;
+        return Ok((config.dialect(), c));
+    }
     Ok(state.connectors.get(&store, caller.org(), name).await?)
 }
 
