@@ -71,6 +71,8 @@ export interface ChatSettings {
 }
 export interface Proposal {
   id: string; tool: string; args: Record<string, unknown>; summary: string
+  /** what it holds, a line each (a dashboard's tiles) */
+  details?: string[]
   status: 'proposed' | 'applied' | 'failed'; check?: unknown; result?: unknown; error?: string
 }
 export type ChatMessage =

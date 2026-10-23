@@ -292,6 +292,15 @@ async fn serve(config: Config) -> Result<()> {
             api::run_scheduled_reports(&reports).await;
         }
     });
+    // the query cache: expired results and each organisation's row budget, every 5 minutes
+    let caches = state.clone();
+    tokio::spawn(async move {
+        let mut every = tokio::time::interval(std::time::Duration::from_secs(300));
+        loop {
+            every.tick().await;
+            api::tidy_caches(&caches).await;
+        }
+    });
     let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
     axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
     Ok(())

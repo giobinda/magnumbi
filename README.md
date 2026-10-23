@@ -308,7 +308,9 @@ stays live). Results are cached in the organisation's own ScramDB, keyed by orga
 connection + compiled SQL. The SQL already contains the person's row filters and the
 (5-minute-rounded) period window, so people share a cached result only when they'd get the
 same rows anyway. Builders can bypass it (`x-magnum-refresh: 1`); Org admins see and clear it
-on **Usage**. Up to 2,000 results per instance, least recently used dropped first.
+on **Usage**. Every 5 minutes expired results are dropped, and each organisation keeps at most
+`MAGNUM_CACHE_MAX_ROWS` rows of results (default 5 million) and 2,000 results per database, least
+recently used dropped first.
 
 Each cached result is a **typed table** (`magnum_cache.r_…`, indexed by
 `magnum_cache.entries`), not a JSON blob: the same mechanism blends use to join sources.
@@ -828,6 +830,7 @@ admins), `DELETE /api/schedules/{id}`, `PUT /api/schedules/{id}/active`, `POST
 | `MAGNUM_SECRET_KEY_FILE` | | read the key from this file instead; created (mode 0600) on first start if missing |
 | `MAGNUM_INITIAL_PASSWORD` | | first start, no accounts yet: the first system owner's one-time password (else generated and logged) |
 | `MAGNUM_USAGE_RETENTION_DAYS` | 400 | how long usage events are kept |
+| `MAGNUM_CACHE_MAX_ROWS` | 5000000 | rows of cached results each organisation keeps (least recently used go first) |
 | `MAGNUM_DUCKDB_DIR` | `data/duckdb` | DuckDB files, one directory per organisation |
 | `MAGNUM_DUCKDB_INSTALL_EXTENSIONS` | 1 | allow downloading DuckDB's `httpfs`, `avro` and `iceberg` extensions |
 | `MAGNUM_ALLOW_PRIVATE_CONNECTIONS` | 1 (0 with `MAGNUM_ENV=production`) | organisations' connections may reach private networks |

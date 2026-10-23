@@ -444,7 +444,7 @@ measures:
       <ul>
         <li><strong>It is the person asking.</strong> It uses the same tools as <a href="#agents">agents (MCP)</a>, run as that person: their role decides what it may do, and their data restrictions apply to every query. A person who can't explore gets no free queries from the chat either.</li>
         <li><strong>Analytics only.</strong> It can search the catalog, query, and prepare dashboards, blends, reports, alerts and formulas. Members, connections, themes and delivery settings stay out of the chat.</li>
-        <li><strong>Changes wait for a yes.</strong> A change is checked first (a mistake goes back to the AI to fix), then shown to the person, and made only when they confirm it, with their permissions at that moment.</li>
+        <li><strong>Changes wait for a yes.</strong> A change is checked first (a mistake goes back to the AI to fix), then shown to the person (for a dashboard, its title and each tile), and made only when they confirm it, with their permissions at that moment; then a link opens what it made.</li>
       </ul>
       <h3>What leaves your servers</h3>
       <ul>
@@ -613,7 +613,7 @@ cache: 1h</code></pre>
       <ul>
         <li><strong>Typed tables, not blobs.</strong> Each result is stored as a real table (<code>magnum_cache.r_…</code>), the same mechanism that powers <a href="#blends">blends</a>.</li>
         <li><strong>Real-world numbers.</strong> On the <a href="#demo">NYC taxi demo</a> (208 million rows), a month takes about 1 s and all five years about 5 s; a cross-engine blend about 2 s. Cached, they're instant.</li>
-        <li><strong>Managed for you.</strong> Up to 2,000 results per instance, least recently used dropped first. Org admins see and clear the cache on <strong>Usage</strong>; builders can bypass it with the <code>x-magnum-refresh: 1</code> header.</li>
+        <li><strong>Managed for you.</strong> Every 5 minutes expired results are dropped, and each organisation keeps at most <code>MAGNUM_CACHE_MAX_ROWS</code> rows of results (5 million by default) and 2,000 results, least recently used dropped first. Org admins see and clear the cache on <strong>Usage</strong>; builders can bypass it with the <code>x-magnum-refresh: 1</code> header.</li>
       </ul>
       <div class="note"><strong>Development tip:</strong> locally, several organisations may share one ScramDB instance (rows carry the organisation id). In production, give each organisation its own instance for full isolation.</div>
     </section>
@@ -963,6 +963,7 @@ helm test bi</code></pre>
             <tr><td><code>MAGNUM_ALLOW_PRIVATE_CONNECTIONS</code></td><td><code>1</code> (<code>0</code> in production)</td><td>Let connections reach private networks</td></tr>
             <tr><td><code>MAGNUM_CONNECTION_ALLOWED_HOSTS</code></td><td></td><td>Private hosts connections may reach anyway</td></tr>
             <tr><td><code>MAGNUM_USAGE_RETENTION_DAYS</code></td><td><code>400</code></td><td>How long usage events are kept</td></tr>
+            <tr><td><code>MAGNUM_CACHE_MAX_ROWS</code></td><td><code>5000000</code></td><td>Rows of cached results each organisation keeps (least recently used go first)</td></tr>
             <tr><td><code>MAGNUM_DB_AUTO_MIGRATE</code></td><td><code>1</code></td><td>Migrate ScramDB at startup</td></tr>
             <tr><td><code>MAGNUM_PROJECT_DIR</code> / <code>MAGNUM_FRONTEND_DIST</code></td><td><code>project</code> / <code>frontend/dist</code></td><td>Paths</td></tr>
             <tr><td><code>MAGNUM_LOG</code></td><td><code>magnum_bi=info</code></td><td>Log filter</td></tr>

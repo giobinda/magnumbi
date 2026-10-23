@@ -52,6 +52,27 @@ pub async fn run_scheduled_reports(state: &AppState) {
     schedules::tick(state, chrono::Utc::now()).await;
 }
 
+/// Expired cached results, leftovers and results over each organisation's row budget go, on the
+/// primary database and every organisation's own (one that can't be reached waits; the others don't).
+pub async fn tidy_caches(state: &AppState) {
+    let mut tenants = vec![String::new()];
+    match state.store.org_databases().await {
+        Ok(dbs) => tenants.extend(dbs.into_keys()),
+        Err(e) => tracing::warn!("cache: organisations unavailable: {e:#}"),
+    }
+    for org in tenants {
+        let result = match state.orgs.store(&org).await {
+            Ok(store) => cache::tidy(&store, state.config.cache_max_rows).await,
+            Err(e) => Err(e.into()),
+        };
+        match result {
+            Ok(0) => {}
+            Ok(n) => tracing::info!(org, "cache: {n} results dropped"),
+            Err(e) => tracing::warn!(org, "cache not tidied: {e:#}"),
+        }
+    }
+}
+
 pub fn router(state: Shared) -> Router {
     let open = Router::new()
         .route("/api/health", get(|| async { axum::Json(json!({"ok": true})) }))

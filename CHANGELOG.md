@@ -3,6 +3,20 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Changed
+
+- **The chat's dashboard proposals say what you'd get:** whether the dashboard is new or changed,
+  its title and each tile ("Revenue by month (line chart)"); once confirmed, a link opens it.
+
+### Fixed
+
+- **The query cache no longer grows without end.** Expired results were dropped only now and
+  then when a new one was cached, so a quiet organisation kept them on disk. The server now drops
+  them every 5 minutes, and keeps each organisation within `MAGNUM_CACHE_MAX_ROWS` rows of cached
+  results (default 5 million), least recently used going first.
+
 ## 0.1.6 (2026-10-22)
 
 ### Added
