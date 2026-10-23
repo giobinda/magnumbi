@@ -642,7 +642,8 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
         "save_connection" => {
             let body = serde_json::from_value(json!({"config": args["config"], "secret": args.get("secret")}))
                 .map_err(|e| ApiError::bad_request(format!("config: {e}")))?;
-            connections::save(s(), a(), Path(arg(&args, "name")?), Body(body)).await?
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            connections::save(s(), a(), Path(arg(&args, "name")?), p, Body(body)).await?
         }
         "delete_connection" => connections::delete(s(), a(), Path(arg(&args, "name")?)).await?,
         "get_members" => admin::get_members(s(), a()).await?,

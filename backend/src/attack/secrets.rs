@@ -102,6 +102,16 @@ async fn no_secret_comes_back_to_anyone() {
     check("testing a connection".into(), &r);
     // what admins see of the activity
     check("GET /api/usage".into(), &w.send(owner, "GET", "/api/usage", None).await);
+    // secrets given to a plan of the organisation's setup as code, some of them wrong: never echoed
+    let given = super::canary("given-to-a-plan");
+    let files = w.send(admin, "GET", "/api/code", None).await.json()["files"].clone();
+    let secrets = json!({"connections/decoy.yaml": given, "mail.yaml": given, "chat.yaml": given,
+                         "webhooks/team.yaml": format!("not an address {given}"), "nowhere.yaml": given});
+    let r = w.send(admin, "POST", "/api/code?dry_run=1", Some(json!({"files": files, "secrets": secrets}))).await;
+    check("POST /api/code?dry_run=1".into(), &r);
+    if r.body.contains(&given) {
+        leaks.push(format!("a plan sent back a secret it was given: {}", r.body));
+    }
     assert!(leaks.is_empty(), "secrets that came back:\n{}", leaks.join("\n"));
 
     let logged = String::from_utf8_lossy(&log().lock().unwrap()).into_owned();

@@ -833,10 +833,10 @@ curl -X POST -H "Authorization: Bearer mbi_…" -H 'content-type: application/js
 curl -X POST … --data @code.json https://bi.example.com/api/code        # apply it</code></pre>
       </div>
       <ul>
-        <li><strong>The files:</strong> <code>models/&lt;name&gt;.yaml</code> (your own models), <code>formulas/&lt;model&gt;/&lt;name&gt;.yaml</code>, <code>blends/&lt;name&gt;.yaml</code>, <code>themes.yaml</code>, <code>glossary/&lt;name&gt;.yaml</code>, <code>catalog/&lt;model&gt;.yaml</code> (owner, stewards, status, documentation) and <code>dashboards/&lt;id&gt;.yaml</code>.</li>
-        <li><strong>The plan</strong> (<code>?dry_run=1</code>) lists what would be created or updated, each checked as if it were saved, in an order that works: a formula on a model the same files add is fine. A read-only token may ask for it.</li>
-        <li><strong>Applying</strong> goes through the same checks and permissions as the app. With any problem, nothing changes. Files you leave out are kept, unless you add <code>?prune=1</code>.</li>
-        <li><strong>Secrets are never in the files.</strong></li>
+        <li><strong>The files</strong>, applied in this order: <code>connections/&lt;name&gt;.yaml</code>, <code>models/&lt;name&gt;.yaml</code> (your own models), <code>formulas/&lt;model&gt;/&lt;name&gt;.yaml</code>, <code>blends/&lt;name&gt;.yaml</code>, <code>themes.yaml</code>, <code>glossary/&lt;name&gt;.yaml</code>, <code>catalog/&lt;model&gt;.yaml</code> (owner, stewards, status, documentation), <code>dashboards/&lt;id&gt;.yaml</code>, <code>mail.yaml</code>, <code>webhooks/&lt;name&gt;.yaml</code>, <code>chat.yaml</code> and <code>reports/&lt;dashboard&gt;/&lt;name&gt;.yaml</code>.</li>
+        <li><strong>The plan</strong> (<code>?dry_run=1</code>) lists what would be created or updated, each checked as if it were saved, against your organisation as the files will leave it: a model on a connection the same files add is checked on that connection. A read-only token may ask for it.</li>
+        <li><strong>Applying</strong> goes through the same checks and permissions as the app. With any problem, nothing changes. Files you leave out are kept, unless you add <code>?prune=1</code>. A changed report is replaced, made by whoever applies it.</li>
+        <li><strong>Secrets are never in the files.</strong> New passwords, keys and webhook addresses travel apart, in the request: <code>{"files": {…}, "secrets": {"mail.yaml": "…"}}</code>. They're sealed like everything the app stores, and never sent back.</li>
       </ul>
     </section>
 

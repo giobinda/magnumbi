@@ -134,7 +134,11 @@ pub async fn create(
         "alert" => {}
         other => return Err(ApiError::bad_request(format!("{other:?}: the format is csv, signed, public or alert"))),
     }
-    let (d, _) = load(&state, &caller, &id).await?;
+    // a dashboard the files being applied add (api/code.rs) counts as there
+    let d = match caller.planned.dashboards.get(&id) {
+        Some(text) => crate::project::parse_dashboard(text).map_err(ApiError::bad_request)?,
+        None => load(&state, &caller, &id).await?.0,
+    };
     let org = caller.org().to_string();
     let store = store_of(&state, &caller).await?;
     let name = n.name.trim().to_string();
@@ -153,10 +157,14 @@ pub async fn create(
         return Err(ApiError::bad_request(format!("at most {MAX_RECIPIENTS} recipients")));
     }
     if !recipients.is_empty() {
-        let (server, _) = store
-            .mail_server(&org)
-            .await?
-            .ok_or_else(|| ApiError::bad_request("set up a mail server first (Delivery) to email reports"))?;
+        let server = match &caller.planned.mail {
+            Some(planned) => planned.clone(),
+            None => store
+                .mail_server(&org)
+                .await?
+                .map(|(m, _)| m)
+                .ok_or_else(|| ApiError::bad_request("set up a mail server first (Delivery) to email reports"))?,
+        };
         let (members, domains) = audience(&caller.access, &org);
         if let Some(r) = recipients.iter().find(|r| !may_receive(r, &members, &domains, &server.allowed_domains)) {
             return Err(ApiError::bad_request(format!(
@@ -164,7 +172,8 @@ pub async fn create(
             )));
         }
     }
-    let hooks: Vec<String> = store.webhooks(&org).await?.into_iter().map(|(name, _, _)| name).collect();
+    let mut hooks: Vec<String> = store.webhooks(&org).await?.into_iter().map(|(name, _, _)| name).collect();
+    hooks.extend(caller.planned.webhooks.iter().cloned());
     if let Some(w) = n.webhooks.iter().find(|w| !hooks.contains(w)) {
         return Err(ApiError::bad_request(format!("no webhook named {w:?} (Delivery)")));
     }

@@ -3,7 +3,8 @@
 //! through the API's own handlers, so the same permissions and checks hold. Secrets are never in
 //! the files: they stay where they're kept, write-only.
 //!
-//! The files, one per thing (the stem is its name):
+//! The files, one per thing (the stem is its name), applied in this order:
+//!   connections/<name>.yaml        data connections (not their passwords or keys)
 //!   models/<name>.yaml             the organisation's own models
 //!   formulas/<model>/<name>.yaml   shared formulas
 //!   blends/<name>.yaml             the organisation's own blends
@@ -11,6 +12,15 @@
 //!   glossary/<name>.yaml           business terms
 //!   catalog/<model>.yaml           a model's owner, stewards, status and documentation
 //!   dashboards/<id>.yaml           dashboards, as their YAML view shows them
+//!   mail.yaml                      the mail server (not its password)
+//!   webhooks/<name>.yaml           webhooks' kinds (not their addresses)
+//!   chat.yaml                      the chat's provider and rules (not its key)
+//!   reports/<dashboard>/<name>.yaml  scheduled reports and alerts (replaced when changed; made
+//!                                  by whoever applies them, who they then run as)
+//!
+//! Secret values travel apart from the files, in the request's `secrets` (by file path): a
+//! connection's password or key, the mail server's password, a webhook's address, the chat's key,
+//! a signed report's password. They're sealed as the app seals them and never sent back.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -22,7 +32,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 use super::dashboards::{WriteParams, flag};
-use super::{Body, blends, dashboards, formulas, governance, org_models, themes};
+use super::{
+    Body, blends, chat, connections, dashboards, delivery, formulas, governance, org_models, schedules, themes,
+};
 use crate::auth::{Auth, Caller};
 use crate::error::{ApiError, ApiResult};
 use crate::governance::{Governance, ModelDocs, Term};
@@ -31,6 +43,7 @@ use crate::state::{AppState, Shared};
 /// Kinds of files, in the order they're applied (each may use the ones before it).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 enum Kind {
+    Connection,
     Model,
     Formula,
     Blend,
@@ -38,6 +51,26 @@ enum Kind {
     Term,
     Catalog,
     Dashboard,
+    Mail,
+    Webhook,
+    Chat,
+    Report,
+}
+
+/// A webhook in a file: its kind (its address is a secret).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Webhook {
+    kind: crate::delivery::WebhookKind,
+}
+
+/// A scheduled report or alert in a file.
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct Report {
+    #[serde(default)]
+    paused: bool,
+    report: crate::schedule::ScheduleConfig,
 }
 
 /// A model's catalog entry: who looks after it, and what the organisation says about it.
@@ -55,16 +88,18 @@ struct Catalog {
 struct Item {
     kind: Kind,
     path: String,
-    /// the names in its path: [name], or [model, name] for a formula
+    /// the names in its path: [name], [model, name] for a formula, [dashboard, name] for a report
     names: Vec<String>,
     value: Value,
     text: String,
+    /// a stored report's id
+    id: Option<String>,
 }
 
 impl Item {
     fn new<T: Serialize>(kind: Kind, path: String, names: Vec<String>, t: &T) -> ApiResult<Item> {
         let text = serde_yaml::to_string(t).map_err(|e| ApiError::Internal(e.into()))?;
-        Ok(Item { kind, path, names, value: json!(t), text })
+        Ok(Item { kind, path, names, value: json!(t), text, id: None })
     }
 
     fn name(&self) -> String {
@@ -72,15 +107,28 @@ impl Item {
     }
 }
 
+/// A report's file name: its name in lower case, words joined by dashes.
+fn slug(name: &str) -> String {
+    let words: Vec<String> =
+        name.split(|c: char| !c.is_alphanumeric()).filter(|w| !w.is_empty()).map(str::to_lowercase).collect();
+    if words.is_empty() { "report".into() } else { words.join("-") }
+}
+
 /// What a path names, or why it isn't one of the files.
 fn kind_of(path: &str) -> Result<(Kind, Vec<String>), String> {
     let unknown = || format!("{path}: not a file Magnum BI knows (see the export for the layout)");
-    if path == "themes.yaml" {
-        return Ok((Kind::Themes, vec![]));
+    match path {
+        "themes.yaml" => return Ok((Kind::Themes, vec![])),
+        "mail.yaml" => return Ok((Kind::Mail, vec![])),
+        "chat.yaml" => return Ok((Kind::Chat, vec![])),
+        _ => {}
     }
     let stem = path.strip_suffix(".yaml").ok_or_else(unknown)?;
     let parts: Vec<&str> = stem.split('/').collect();
     let kind = match parts[0] {
+        "connections" => Kind::Connection,
+        "webhooks" => Kind::Webhook,
+        "reports" => Kind::Report,
         "models" => Kind::Model,
         "formulas" => Kind::Formula,
         "blends" => Kind::Blend,
@@ -90,7 +138,7 @@ fn kind_of(path: &str) -> Result<(Kind, Vec<String>), String> {
         _ => return Err(unknown()),
     };
     let names: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
-    let expected = if kind == Kind::Formula { 2 } else { 1 };
+    let expected = if matches!(kind, Kind::Formula | Kind::Report) { 2 } else { 1 };
     if names.len() != expected || names.iter().any(|n| n.is_empty()) {
         return Err(unknown());
     }
@@ -106,6 +154,11 @@ fn parse(path: &str, text: &str) -> Result<Item, String> {
         if found == name { Ok(()) } else { Err(format!("{path}: its name is {found:?}: name the file after it")) }
     };
     let value = match kind {
+        Kind::Connection => json!(serde_yaml::from_str::<crate::connections::ConnectionConfig>(text).map_err(bad)?),
+        Kind::Mail => json!(serde_yaml::from_str::<crate::delivery::MailServer>(text).map_err(bad)?),
+        Kind::Webhook => json!(serde_yaml::from_str::<Webhook>(text).map_err(bad)?),
+        Kind::Chat => json!(serde_yaml::from_str::<crate::chat::ChatSettings>(text).map_err(bad)?),
+        Kind::Report => json!(serde_yaml::from_str::<Report>(text).map_err(bad)?),
         Kind::Model => {
             let m: crate::schema::Model = serde_yaml::from_str(text).map_err(bad)?;
             named(&m.name)?;
@@ -130,7 +183,7 @@ fn parse(path: &str, text: &str) -> Result<Item, String> {
         Kind::Catalog => json!(serde_yaml::from_str::<Catalog>(text).map_err(bad)?),
         Kind::Dashboard => json!(crate::project::parse_dashboard(text).map_err(|e| format!("{path}: {e}"))?),
     };
-    Ok(Item { kind, path: path.to_string(), names, value, text: text.to_string() })
+    Ok(Item { kind, path: path.to_string(), names, value, text: text.to_string(), id: None })
 }
 
 /// Everything the organisation has, as files.
@@ -138,6 +191,14 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
     let org = caller.org();
     let store = state.orgs.store(org).await?;
     let mut items = vec![];
+    for c in state.connectors.list(&store, org).await? {
+        items.push(Item::new(
+            Kind::Connection,
+            format!("connections/{}.yaml", c.name),
+            vec![c.name.clone()],
+            &c.config,
+        )?);
+    }
     for (m, ..) in store.org_models(org).await? {
         items.push(Item::new(Kind::Model, format!("models/{}.yaml", m.name), vec![m.name.clone()], &m)?);
     }
@@ -169,7 +230,33 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
         let path = format!("dashboards/{id}.yaml");
         // as written (comments and all); one that no longer reads is compared as text
         let value = crate::project::parse_dashboard(&text).map(|d| json!(d)).unwrap_or_else(|_| json!(text));
-        items.push(Item { kind: Kind::Dashboard, path, names: vec![id], value, text });
+        items.push(Item { kind: Kind::Dashboard, path, names: vec![id], value, text, id: None });
+    }
+    if let Some((m, _)) = store.mail_server(org).await? {
+        items.push(Item::new(Kind::Mail, "mail.yaml".into(), vec![], &m)?);
+    }
+    for (name, kind, _) in store.webhooks(org).await? {
+        let w: Webhook = serde_json::from_value(json!({"kind": kind})).map_err(|e| ApiError::Internal(e.into()))?;
+        items.push(Item::new(Kind::Webhook, format!("webhooks/{name}.yaml"), vec![name], &w)?);
+    }
+    if let Some((settings, _)) = store.chat_settings(org).await? {
+        items.push(Item::new(Kind::Chat, "chat.yaml".into(), vec![], &settings)?);
+    }
+    let mut taken = BTreeSet::new();
+    for r in store.schedules(org, None).await? {
+        // named after the report; two of the same name on a dashboard: -2, -3...
+        let base = slug(&r.config.name);
+        let mut stem = base.clone();
+        for n in 2.. {
+            if taken.insert((r.dashboard_id.clone(), stem.clone())) {
+                break;
+            }
+            stem = format!("{base}-{n}");
+        }
+        let path = format!("reports/{}/{stem}.yaml", r.dashboard_id);
+        let file = Report { paused: !r.active, report: r.config };
+        let item = Item::new(Kind::Report, path, vec![r.dashboard_id, stem], &file)?;
+        items.push(Item { id: Some(r.id), ..item });
     }
     Ok(items.into_iter().map(|i| (i.path.clone(), i)).collect())
 }
@@ -185,6 +272,9 @@ pub async fn export(State(state): State<Shared>, Auth(caller): Auth) -> ApiResul
 #[derive(Deserialize)]
 pub struct Bundle {
     files: BTreeMap<String, String>,
+    /// secret values by file path (never in the files, never sent back)
+    #[serde(default)]
+    secrets: BTreeMap<String, String>,
 }
 
 #[derive(Deserialize, Default)]
@@ -225,16 +315,28 @@ pub async fn apply(
             Err(e) => changes.push(Change { path: path.clone(), action: "error", error: Some(e) }),
         }
     }
-    let writes: Vec<&Item> = wanted.values().filter(|i| now.get(&i.path).is_none_or(|n| n.value != i.value)).collect();
+    for path in bundle.secrets.keys() {
+        let holds = wanted.get(path).is_some_and(|i| SECRETS.contains(&i.kind));
+        if !holds {
+            let error = Some(format!("{path}: a secret for a file that isn't here, or that has none"));
+            changes.push(Change { path: path.clone(), action: "error", error });
+        }
+    }
+    // a new secret changes what's there even when the file is the same
+    let writes: Vec<&Item> = wanted
+        .values()
+        .filter(|i| now.get(&i.path).is_none_or(|n| n.value != i.value) || bundle.secrets.contains_key(&i.path))
+        .collect();
     let deletes: Vec<&Item> =
         if p.prune { now.values().filter(|i| !wanted.contains_key(&i.path)).collect() } else { vec![] };
 
     // checked against the organisation as it will be: a formula on a model these files add fits
-    let after = planned(&state, &caller, &now, &wanted, p.prune);
+    let after = planned(&state, &caller, &now, &wanted, &writes, &bundle.secrets, p.prune);
     let mut ordered = writes.clone();
     ordered.sort_by_key(|i| i.kind);
     for item in &ordered {
-        let error = write(&state, &after, item, true).await.err().map(|e| detail(e).1);
+        let secret = bundle.secrets.get(&item.path);
+        let error = write(&state, &after, item, secret, now.get(&item.path), true).await.err().map(|e| detail(e).1);
         let action = if now.contains_key(&item.path) { "update" } else { "create" };
         changes.push(Change { path: item.path.clone(), action, error });
     }
@@ -253,7 +355,8 @@ pub async fn apply(
     }
 
     for item in &ordered {
-        write(&state, &after, item, false).await.map_err(|e| stopped(e, &item.path))?;
+        let secret = bundle.secrets.get(&item.path);
+        write(&state, &after, item, secret, now.get(&item.path), false).await.map_err(|e| stopped(e, &item.path))?;
     }
     let mut deletes = deletes;
     deletes.sort_by_key(|i| std::cmp::Reverse(i.kind));
@@ -287,6 +390,8 @@ fn planned(
     caller: &Caller,
     now: &BTreeMap<String, Item>,
     wanted: &BTreeMap<String, Item>,
+    writes: &[&Item],
+    secrets: &BTreeMap<String, String>,
     prune: bool,
 ) -> Arc<Caller> {
     let mut after: BTreeMap<&str, &Item> =
@@ -306,14 +411,82 @@ fn planned(
         project = project.with_org_themes(&t);
     }
     let terms = of(Kind::Term).map(|i| i.name()).collect::<BTreeSet<_>>().into_iter().collect();
-    Arc::new(Caller { project: Arc::new(project), planned_terms: terms, ..caller.clone() })
+    // what the files add or change that later checks read from the database
+    let written = |kind: Kind| writes.iter().filter(move |i| i.kind == kind);
+    let connections = written(Kind::Connection)
+        .filter_map(|i| {
+            Some((i.name(), (serde_json::from_value(i.value.clone()).ok()?, secrets.get(&i.path).cloned())))
+        })
+        .collect();
+    let dashboards = written(Kind::Dashboard).map(|i| (i.name(), i.text.clone())).collect();
+    let mail = written(Kind::Mail).find_map(|i| serde_json::from_value(i.value.clone()).ok());
+    let webhooks = written(Kind::Webhook).map(|i| i.name()).collect();
+    let planned = crate::auth::Planned { terms, connections, dashboards, mail, webhooks };
+    Arc::new(Caller { project: Arc::new(project), planned: Arc::new(planned), ..caller.clone() })
 }
 
-/// Save one file's content through its handler (`dry_run`: check only).
-async fn write(state: &Shared, caller: &Arc<Caller>, item: &Item, dry_run: bool) -> ApiResult<()> {
+/// The kinds whose files may come with a secret.
+const SECRETS: [Kind; 5] = [Kind::Connection, Kind::Mail, Kind::Webhook, Kind::Chat, Kind::Report];
+
+/// Save one file's content through its handler (`dry_run`: check only), with its secret if
+/// given (none: the stored one is kept). `old`: what's there now.
+async fn write(
+    state: &Shared,
+    caller: &Arc<Caller>,
+    item: &Item,
+    secret: Option<&String>,
+    old: Option<&Item>,
+    dry_run: bool,
+) -> ApiResult<()> {
     let (s, a) = (|| State(state.clone()), || Auth(caller.clone()));
     let q = || UrlQuery(WriteParams { dry_run });
+    // the file's fields plus the secret's, when there is one
+    let with = |extra: Value| {
+        let mut v = item.value.clone();
+        if let (Some(o), Some(e)) = (v.as_object_mut(), extra.as_object()) {
+            o.extend(e.iter().filter(|(_, x)| !x.is_null()).map(|(k, x)| (k.clone(), x.clone())));
+        }
+        v
+    };
     let _ = match item.kind {
+        Kind::Connection => {
+            let body = typed(&item.path, json!({"config": item.value, "secret": secret}), secret)?;
+            connections::save(s(), a(), Path(item.name()), q(), Body(body)).await?
+        }
+        Kind::Mail => {
+            delivery::put_mail(s(), a(), q(), Body(typed(&item.path, with(json!({"password": secret})), secret)?))
+                .await?
+        }
+        Kind::Webhook => {
+            let body = typed(&item.path, json!({"kind": item.value["kind"], "url": secret}), secret)?;
+            delivery::put_webhook(s(), a(), Path(item.name()), q(), Body(body)).await?
+        }
+        Kind::Chat => {
+            let body = typed(&item.path, json!({"settings": item.value, "key": secret}), secret)?;
+            chat::save_settings(s(), a(), q(), Body(body)).await?
+        }
+        Kind::Report => {
+            let r: Report = from(item)?;
+            let mut new = json!(r.report);
+            new["password"] = json!(secret);
+            let body = typed(&item.path, new, secret)?;
+            let dashboard = item.names[0].clone();
+            if dry_run {
+                schedules::create(s(), a(), Path(dashboard), q(), Body(body)).await?
+            } else {
+                // a report isn't edited: the one there goes, the file's is made
+                if let Some(id) = old.and_then(|o| o.id.clone()) {
+                    let _ = schedules::delete(s(), a(), Path(id)).await?;
+                }
+                let Json(made) = schedules::create(s(), a(), Path(dashboard), q(), Body(body)).await?;
+                if r.paused {
+                    let id = made["id"].as_str().unwrap_or_default().to_string();
+                    let body = typed(&item.path, json!({"active": false}), None)?;
+                    let _ = schedules::set_active(s(), a(), Path(id), Body(body)).await?;
+                }
+                Json(made)
+            }
+        }
         Kind::Model => org_models::save(s(), a(), Path(item.name()), q(), Body(from(item)?)).await?,
         Kind::Formula => {
             formulas::save(s(), a(), Path((item.names[0].clone(), item.name())), q(), Body(from(item)?)).await?
@@ -333,11 +506,27 @@ async fn write(state: &Shared, caller: &Arc<Caller>, item: &Item, dry_run: bool)
     Ok(())
 }
 
+/// A handler's body from JSON; a mistake in it is reported without the secret.
+fn typed<T: serde::de::DeserializeOwned>(path: &str, v: Value, secret: Option<&String>) -> ApiResult<T> {
+    serde_json::from_value(v).map_err(|e| {
+        let mut why = e.to_string();
+        if let Some(secret) = secret.filter(|s| !s.is_empty()) {
+            why = why.replace(secret.as_str(), "(the secret)");
+        }
+        ApiError::bad_request(format!("{path}: {why}"))
+    })
+}
+
 /// Delete what one file was (a model's catalog entry and the themes go back to none).
 async fn remove(state: &Shared, caller: &Arc<Caller>, item: &Item) -> ApiResult<()> {
     let (s, a) = (|| State(state.clone()), || Auth(caller.clone()));
     let q = || UrlQuery(WriteParams { dry_run: false });
     let _ = match item.kind {
+        Kind::Connection => connections::delete(s(), a(), Path(item.name())).await?,
+        Kind::Mail => delivery::delete_mail(s(), a()).await?,
+        Kind::Webhook => delivery::delete_webhook(s(), a(), Path(item.name())).await?,
+        Kind::Chat => chat::delete_settings(s(), a()).await?,
+        Kind::Report => schedules::delete(s(), a(), Path(item.id.clone().unwrap_or_default())).await?,
         Kind::Model => org_models::delete(s(), a(), Path(item.name())).await?,
         Kind::Formula => formulas::delete(s(), a(), Path((item.names[0].clone(), item.name()))).await?,
         Kind::Blend => blends::delete(s(), a(), Path(item.name())).await?,
@@ -390,18 +579,10 @@ mod tests {
         let c = Some(cookie.as_str());
         for org in [&a, &b] {
             state.orgs.pin(org, state.store.clone());
-            let (s, r, _) = send(
-                &app,
-                c,
-                org,
-                "PUT",
-                "/api/connections/warehouse",
-                Some(json!({"config": scramdb_config()})),
-                None,
-            )
-            .await;
-            assert_eq!(s, StatusCode::OK, "{r}");
         }
+        let connection = Some(json!({"config": scramdb_config()}));
+        let (s, r, _) = send(&app, c, &a, "PUT", "/api/connections/warehouse", connection, None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
 
         // A: a model of its own, a formula on it, a blend, a term, its catalog entry, a dashboard
         let name = format!("my_sales_{}", id());
@@ -458,8 +639,9 @@ mod tests {
         assert_eq!((s, &plan["ok"]), (StatusCode::OK, &json!(true)), "{plan}");
         let actions: Vec<&str> =
             plan["changes"].as_array().unwrap().iter().map(|c| c["action"].as_str().unwrap()).collect();
-        assert_eq!(actions, ["create"; 6], "{plan}");
-        assert_eq!(plan["changes"][0]["path"], json!(format!("models/{name}.yaml")), "models first: {plan}");
+        assert_eq!(actions, ["create"; 7], "{plan}");
+        assert_eq!(plan["changes"][0]["path"], json!("connections/warehouse.yaml"), "{plan}");
+        assert_eq!(plan["changes"][1]["path"], json!(format!("models/{name}.yaml")), "then models: {plan}");
         assert_eq!(export(&app, &cookie, &b).await, json!({}), "a plan changes nothing");
 
         // applied, B has what A has; applying again changes nothing
@@ -467,7 +649,7 @@ mod tests {
         assert_eq!(s, StatusCode::OK, "{r}");
         assert_eq!(export(&app, &cookie, &b).await, files);
         let (_, again, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(json!({"files": files})), None).await;
-        assert_eq!((&again["changes"], &again["unchanged"]), (&json!([]), &json!(6)), "{again}");
+        assert_eq!((&again["changes"], &again["unchanged"]), (&json!([]), &json!(7)), "{again}");
 
         // a change is an update; a mistake is shown, and stops everything
         let mut changed = files.clone();
@@ -498,6 +680,98 @@ mod tests {
         let (s, _, _) =
             send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(json!({"files": files})), Some("power_user")).await;
         assert_eq!(s, StatusCode::FORBIDDEN);
+        for org in [&a, &b] {
+            clean_up(&state, org).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn settings_go_to_code_without_their_secrets() {
+        let Some((app, state, cookie)) = app().await else { return };
+        let id = || uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
+        let (a, b) = (format!("codea{}", id()), format!("codeb{}", id()));
+        let orgs = json!({a.clone(): {"name": "From", "models": ["*"]}, b.clone(): {"name": "To", "models": ["*"]}});
+        let access = json!({"system_owners": [OWNER], "organisations": orgs});
+        state.access.pin(crate::access::AccessConfig::from_document(access).unwrap());
+        for org in [&a, &b] {
+            state.orgs.pin(org, state.store.clone());
+        }
+        let c = Some(cookie.as_str());
+
+        // A: a connection, a model on it, email, a webhook, the chat, a dashboard and a paused report
+        let name = format!("my_sales_{}", id());
+        let connection = json!({"config": scramdb_config(), "secret": "canary-connection"});
+        let mail = json!({"host": "mail.example.com", "port": 587, "security": "starttls", "username": "bi",
+                          "from": "bi@example.com", "allowed_domains": ["example.com"], "password": "canary-mail"});
+        let hook = json!({"kind": "slack", "url": "https://hooks.example.com/canary-hook"});
+        let chat = json!({"settings": {"enabled": true, "format": "openai", "url": "https://api.example.com/v1",
+                                       "model": "m"}, "key": "canary-chat"});
+        for (path, body) in [
+            ("/api/connections/warehouse".to_string(), connection),
+            ("/api/delivery/mail".into(), mail),
+            ("/api/delivery/webhooks/team".into(), hook),
+            ("/api/chat/settings".into(), chat),
+        ] {
+            let (s, r, _) = send(&app, c, &a, "PUT", &path, Some(body), None).await;
+            assert_eq!(s, StatusCode::OK, "{path}: {r}");
+        }
+        let proposal = format!("/api/connections/warehouse/tables/sample_sales/model?name={name}");
+        let (_, p, _) = send(&app, c, &a, "GET", &proposal, None, None).await;
+        let (s, r, _) =
+            send(&app, c, &a, "PUT", &format!("/api/org-models/{name}"), Some(p["model"].clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        put_yaml(&app, &cookie, &a, "code_test", "title: Code test\ntiles: []\n").await;
+        let report = json!({"name": "Monday numbers", "format": "csv", "webhooks": ["team"],
+                            "when": {"every": "weekly", "day": 1, "at": "08:00", "timezone": "UTC"}});
+        let (s, r, _) = send(&app, c, &a, "POST", "/api/dashboards/code_test/schedules", Some(report), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let paused = json!({"active": false});
+        let at = format!("/api/schedules/{}/active", r["id"].as_str().unwrap());
+        assert_eq!(send(&app, c, &a, "PUT", &at, Some(paused), None).await.0, StatusCode::OK);
+
+        // the files hold the settings, never a secret
+        let files = export(&app, &cookie, &a).await;
+        for path in [
+            "connections/warehouse.yaml",
+            "mail.yaml",
+            "webhooks/team.yaml",
+            "chat.yaml",
+            "reports/code_test/monday-numbers.yaml",
+        ] {
+            assert!(files.get(path).is_some(), "{path} in {files}");
+        }
+        assert!(!files.to_string().contains("canary"), "{files}");
+        assert!(files["mail.yaml"].as_str().unwrap().contains("example.com"), "{files}");
+
+        // B, empty: the webhook needs its address, which isn't in the files
+        let plan = |secrets: Value| json!({"files": files, "secrets": secrets});
+        let (_, r, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(plan(json!({}))), None).await;
+        let mut errors: Vec<&str> = r["changes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c.get("error").is_some())
+            .map(|c| c["path"].as_str().unwrap())
+            .collect();
+        errors.sort();
+        assert_eq!(errors, ["mail.yaml", "webhooks/team.yaml"], "{r}");
+
+        // with the secrets given apart, the plan works, the model checked on the connection it adds
+        let secrets = json!({"webhooks/team.yaml": "https://hooks.example.com/canary-b", "mail.yaml": "canary-mail-b",
+                             "chat.yaml": "canary-chat-b"});
+        let (s, r, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(plan(secrets.clone())), None).await;
+        assert_eq!((s, &r["ok"]), (StatusCode::OK, &json!(true)), "{r}");
+        assert_eq!(r["changes"][0]["path"], json!("connections/warehouse.yaml"), "connections first: {r}");
+        let (s, r, _) = send(&app, c, &b, "POST", "/api/code", Some(plan(secrets)), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        assert!(!r.to_string().contains("canary"), "secrets aren't sent back: {r}");
+        assert_eq!(export(&app, &cookie, &b).await, files);
+        let (_, d, _) = send(&app, c, &b, "GET", "/api/delivery", None, None).await;
+        assert_eq!(
+            (&d["mail"]["has_password"], &d["webhooks"][0]["host"]),
+            (&json!(true), &json!("hooks.example.com")),
+            "{d}"
+        );
         for org in [&a, &b] {
             clean_up(&state, org).await;
         }

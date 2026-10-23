@@ -474,12 +474,22 @@ curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/jso
 curl -X POST … --data @code.json https://bi.example.com/api/code                      # apply it
 ```
 
-The files: `models/<name>.yaml` (the organisation's own models), `formulas/<model>/<name>.yaml`,
-`blends/<name>.yaml`, `themes.yaml`, `glossary/<name>.yaml`, `catalog/<model>.yaml` (owner,
-stewards, status, documentation) and `dashboards/<id>.yaml`. The plan lists what would be created
-or updated, each checked as if saved; with any problem, applying changes nothing. Files that are
-left out are kept unless you add `?prune=1`, which deletes them. A read-only API token may ask
-for the plan.
+The files, applied in this order: `connections/<name>.yaml`, `models/<name>.yaml` (the
+organisation's own models), `formulas/<model>/<name>.yaml`, `blends/<name>.yaml`, `themes.yaml`,
+`glossary/<name>.yaml`, `catalog/<model>.yaml` (owner, stewards, status, documentation),
+`dashboards/<id>.yaml`, `mail.yaml`, `webhooks/<name>.yaml`, `chat.yaml` and
+`reports/<dashboard>/<name>.yaml` (scheduled reports and alerts).
+
+The plan lists what would be created or updated, each checked as if saved, against the
+organisation as the files will leave it: a model on a connection the same files add is checked on
+that connection. With any problem, applying changes nothing. Files that are left out are kept
+unless you add `?prune=1`, which deletes them. A read-only API token may ask for the plan.
+
+**Secrets stay out of the files.** A connection's password or key, the mail server's password, a
+webhook's address, the chat's key and a signed report's password go apart, in the request's
+`secrets` (by file path), only when they're new or change: `{"files": {...}, "secrets":
+{"mail.yaml": "…"}}`. They're sealed like everything the app stores and never sent back. A
+report isn't edited: a changed one is replaced, made by whoever applies it, who it then runs as.
 
 ## Organisations and roles
 
@@ -900,8 +910,7 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Setup as code, the rest: connections, email and webhooks, chat settings, scheduled reports
-  and alerts, members and sign-in rules (secrets stay out of the files), a `magnum-bi` command
+- Setup as code, the rest: members, roles, row filters and sign-in rules, a `magnum-bi` command
   and a page in the app.
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
 
