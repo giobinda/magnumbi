@@ -262,7 +262,14 @@ pub fn for_provider(result: &Value, sensitive: &[String], max_rows: usize) -> Va
 pub fn summary(tool: &str, args: &Value) -> String {
     let s = |k: &str| args[k].as_str().unwrap_or("?").to_string();
     match tool {
-        "save_dashboard" => format!("Save the dashboard {}", s("id")),
+        "save_dashboard" => {
+            let title = dashboard_yaml(args).and_then(|d| d["title"].as_str().map(str::to_string));
+            match (title, args["version"].as_str()) {
+                (Some(t), Some("none")) => format!("Create the dashboard \"{t}\""),
+                (Some(t), Some(_)) => format!("Change the dashboard \"{t}\""),
+                _ => format!("Save the dashboard {}", s("id")),
+            }
+        }
         "delete_dashboard" => format!("Delete the dashboard {}", s("id")),
         "save_blend" => format!("Save the blend {}", args["blend"]["name"].as_str().unwrap_or("?")),
         "create_report" => {
@@ -283,6 +290,32 @@ pub fn summary(tool: &str, args: &Value) -> String {
         "delete_formula" => format!("Remove the shared formula {} from {}", s("name"), s("model")),
         other => format!("Run {other}"),
     }
+}
+
+/// What a proposal holds, a line each, for the card: a dashboard's tiles.
+pub fn details(tool: &str, args: &Value) -> Vec<String> {
+    let Some(d) = dashboard_yaml(args).filter(|_| tool == "save_dashboard") else { return vec![] };
+    let tiles = d["tiles"].as_array().cloned().unwrap_or_default();
+    tiles
+        .iter()
+        .map(|t| {
+            let kind = match t["type"].as_str().unwrap_or_default() {
+                "text" => return "Text".to_string(),
+                "kpi" => "number".to_string(),
+                "table" => "table".to_string(),
+                "hbar" => "bar chart".to_string(),
+                other => format!("{other} chart"),
+            };
+            match t["title"].as_str().filter(|t| !t.trim().is_empty()) {
+                Some(title) => format!("{title} ({kind})"),
+                None => format!("A {kind}"),
+            }
+        })
+        .collect()
+}
+
+fn dashboard_yaml(args: &Value) -> Option<Value> {
+    serde_yaml::from_str(args["yaml"].as_str()?).ok()
 }
 
 #[cfg(test)]
@@ -443,5 +476,23 @@ mod tests {
             "Share the formula per_sale on sales"
         );
         assert_eq!(summary("delete_dashboard", &json!({"id": "old"})), "Delete the dashboard old");
+    }
+
+    #[test]
+    fn a_dashboard_proposal_shows_what_the_dashboard_will_hold() {
+        let yaml = "title: Sales overview\ntiles:\n\
+            - {id: a, title: Revenue by month, type: line, query: {model: sales, measures: [revenue]}}\n\
+            - {id: b, type: bar, query: {model: sales, measures: [revenue], dimensions: [region]}}\n\
+            - {id: c, type: text, text: '# Notes'}\n";
+        let new = json!({"id": "sales_overview", "yaml": yaml, "version": "none"});
+        assert_eq!(summary("save_dashboard", &new), "Create the dashboard \"Sales overview\"");
+        assert_eq!(details("save_dashboard", &new), ["Revenue by month (line chart)", "A bar chart", "Text"]);
+        let changed = json!({"id": "sales_overview", "yaml": yaml, "version": "v3"});
+        assert_eq!(summary("save_dashboard", &changed), "Change the dashboard \"Sales overview\"");
+        // YAML it can't read (the check would have refused it) still says what it is
+        let odd = json!({"id": "x", "yaml": ": ["});
+        assert_eq!(summary("save_dashboard", &odd), "Save the dashboard x");
+        assert!(details("save_dashboard", &odd).is_empty());
+        assert!(details("delete_dashboard", &json!({"id": "x"})).is_empty());
     }
 }

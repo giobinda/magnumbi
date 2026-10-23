@@ -533,6 +533,7 @@ label.check.inline { align-items: center; gap: 4px; }
 .chat-based .status { margin-left: 6px; }
 .chat-proposal { border: 1px dashed var(--accent); border-radius: var(--radius); padding: 10px 14px; background: var(--surface); display: flex; flex-direction: column; gap: 6px; align-items: flex-start; }
 .chat-proposal p { margin: 0; }
+.chat-details { margin: 0; padding-left: 18px; }
 .chat-proposal.applied { border-style: solid; border-color: var(--good); }
 .chat-ask { display: flex; gap: 8px; align-items: flex-end; border-top: 1px solid var(--border); padding-top: 10px; }
 .chat-ask textarea { flex: 1; resize: none; font: inherit; }

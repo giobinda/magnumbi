@@ -333,8 +333,9 @@ async fn run(
         }
         let id = random_token(6);
         let summary = crate::chat::summary(tool.name, &args);
-        proposals.push(json!({"id": id, "tool": tool.name, "args": args, "summary": summary, "status": "proposed",
-                              "check": check.and_then(Result::ok)}));
+        let details = crate::chat::details(tool.name, &args);
+        proposals.push(json!({"id": id, "tool": tool.name, "args": args, "summary": summary, "details": details,
+                              "status": "proposed", "check": check.and_then(Result::ok)}));
         return format!(
             "Proposed to the person as a change to confirm ({summary}; proposal {id}). Nothing is changed unless they \
              confirm it in the chat: don't call this again."

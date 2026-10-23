@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { basedOn, chartTile, suggestions } from './chat'
-import type { ModelInfo } from './api'
+import { basedOn, chartTile, madeLink, suggestions } from './chat'
+import type { ModelInfo, Proposal } from './api'
 
 const sales = {
   name: 'sales', label: 'Store sales', connection: 'w', connection_type: 'scramdb', hierarchies: {},
@@ -11,6 +11,14 @@ const sales = {
 const old = { ...sales, name: 'old', label: 'Old sales', governance: { ...sales.governance, status: 'deprecated' } } as ModelInfo
 
 describe('chat', () => {
+  it('links to a dashboard once the person has saved it', () => {
+    const p: Proposal = { id: 'p', tool: 'save_dashboard', args: { id: 'sales overview' }, summary: '', details: [], status: 'applied' }
+    expect(madeLink(p)).toBe('/dashboards/sales%20overview')
+    expect(madeLink({ ...p, status: 'proposed' })).toBeNull()
+    expect(madeLink({ ...p, tool: 'delete_dashboard' })).toBeNull()
+    expect(madeLink({ ...p, tool: 'create_report', args: { dashboard: 'd' } })).toBe('/dashboards/d')
+  })
+
   it('suggests questions from certified models and the glossary', () => {
     expect(suggestions([old, sales], [{ name: 'Net revenue' }])).toEqual([
       'How has Revenue changed over the last 3 months?',

@@ -44,6 +44,8 @@ pub struct Config {
     /// seals each organisation's ScramDB connection string (crypto.rs)
     pub secret_key: Option<crate::crypto::SecretKey>,
     pub usage_retention_days: i64,
+    /// rows of cached results each organisation may keep (MAGNUM_CACHE_MAX_ROWS; cache.rs)
+    pub cache_max_rows: i64,
     /// DuckDB connections: one directory per organisation (and _extensions)
     pub duckdb_dir: PathBuf,
     /// download DuckDB's httpfs extension when an organisation first reads object storage
@@ -117,6 +119,7 @@ impl Config {
                 (None, None) => None,
             },
             usage_retention_days: env("MAGNUM_USAGE_RETENTION_DAYS").map(|d| d.parse()).transpose()?.unwrap_or(400),
+            cache_max_rows: env("MAGNUM_CACHE_MAX_ROWS").map(|n| n.parse()).transpose()?.unwrap_or(5_000_000),
             duckdb_dir: env("MAGNUM_DUCKDB_DIR").unwrap_or_else(|| "data/duckdb".into()).into(),
             duckdb_install_extensions: flag("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", true),
             allow_private_connections: flag("MAGNUM_ALLOW_PRIVATE_CONNECTIONS", !deployed),
@@ -125,6 +128,9 @@ impl Config {
         };
         if config.usage_retention_days < 1 {
             bail!("MAGNUM_USAGE_RETENTION_DAYS: at least 1");
+        }
+        if config.cache_max_rows < 0 {
+            bail!("MAGNUM_CACHE_MAX_ROWS: 0 or more");
         }
         if !(1..=24 * 30).contains(&config.session_hours) {
             bail!("MAGNUM_SESSION_HOURS: between 1 and 720");
@@ -235,6 +241,13 @@ mod tests {
         let g = allowed.connection_guard();
         assert!(g.allow_private);
         assert_eq!(g.allowed_hosts, ["warehouse.corp", "10.0.0.5"]);
+    }
+
+    #[test]
+    fn the_cache_has_a_row_budget_per_organisation() {
+        assert_eq!(config(&[]).cache_max_rows, 5_000_000);
+        assert_eq!(config(&[("MAGNUM_CACHE_MAX_ROWS", "200000")]).cache_max_rows, 200_000);
+        assert!(Config::from_lookup(|k| (k == "MAGNUM_CACHE_MAX_ROWS").then(|| "-1".into())).is_err());
     }
 
     #[test]

@@ -7,7 +7,9 @@
 //!
 //! Each result is a typed table `magnum_cache.r_<key>_<unix time>_<random>` (materialize.rs), indexed by
 //! `magnum_cache.entries`. The index row is written last, so a reader never sees a half-written
-//! result. The cache is best-effort: any failure is logged and the query runs uncached.
+//! result. Every 5 minutes the server drops expired results, then keeps each organisation within
+//! MAGNUM_CACHE_MAX_ROWS rows (least recently used go first). The cache is best-effort: any
+//! failure is logged and the query runs uncached.
 //!
 //! ScramDB infers some parameter types as text (e.g. in INSERTs into schema-qualified tables),
 //! so non-text parameters carry explicit casts.
@@ -101,9 +103,6 @@ pub async fn put(store: &Store, p: Put<'_>) -> Result<()> {
     if let Some(old) = old.filter(|o| *o != table) {
         materialize::drop(&store.pool, SCHEMA, &old).await?;
     }
-    if rand::random::<u8>() < 16 {
-        sweep(store).await?;
-    }
     Ok(())
 }
 
@@ -153,6 +152,45 @@ pub async fn sweep(store: &Store) -> Result<usize> {
         // tables of the last minutes may be filling right now: leave them for a later sweep
         if created_at(&name).is_some_and(|t| t < cutoff) {
             materialize::drop(&store.pool, SCHEMA, &name).await?;
+            dropped += 1;
+        }
+    }
+    Ok(dropped)
+}
+
+/// What the server does every few minutes on each database: expired results and leftovers go,
+/// then each organisation is kept within its row budget. Returns how many tables went.
+pub async fn tidy(store: &Store, max_rows: i64) -> Result<usize> {
+    let mut dropped = sweep(store).await?;
+    let orgs = store.pool.get().await?.query("SELECT DISTINCT org FROM magnum_cache.entries", &[]).await?;
+    for r in &orgs {
+        dropped += trim(store, &r.get::<_, String>(0), max_rows).await?;
+    }
+    Ok(dropped)
+}
+
+/// Keep an organisation's cached results within `max_rows` in all: the most recently used stay,
+/// the rest go (MAGNUM_CACHE_MAX_ROWS, so a busy organisation can't fill the disk). Returns how many.
+pub async fn trim(store: &Store, org: &str, max_rows: i64) -> Result<usize> {
+    let c = store.pool.get().await?;
+    let entries = c
+        .query(
+            "SELECT key, row_count FROM magnum_cache.entries WHERE org = $1
+             ORDER BY COALESCE(last_hit_at, created_at) DESC",
+            &[&org],
+        )
+        .await?;
+    let mut total = 0;
+    let mut dropped = 0;
+    for e in &entries {
+        total += e.get::<_, i64>(1);
+        if total <= max_rows {
+            continue;
+        }
+        let key: String = e.get(0);
+        let gone = c.query_opt("DELETE FROM magnum_cache.entries WHERE key = $1 RETURNING table_name", &[&key]).await?;
+        if let Some(r) = gone {
+            materialize::drop(&store.pool, SCHEMA, &r.get::<_, String>(0)).await?;
             dropped += 1;
         }
     }
@@ -226,5 +264,91 @@ mod tests {
         assert!(t.starts_with("r_") && t.len() <= 63, "{t}");
         assert!(t.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '_'), "{t}");
         assert_eq!(created_at(&t), Some(now.timestamp()));
+    }
+
+    async fn test_store() -> Option<Store> {
+        let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
+        let pool = crate::db::make_pool(&url, 2).unwrap();
+        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
+        Some(Store::new(pool))
+    }
+
+    async fn cache(store: &Store, org: &str, rows: usize, ttl_seconds: u64) -> String {
+        let key = key(org, "c", &uuid::Uuid::new_v4().to_string());
+        let rows: Vec<Vec<Value>> = (0..rows).map(|i| vec![json!(i)]).collect();
+        let names = ["n".to_string()];
+        let p = Put {
+            key: &key,
+            org,
+            model: "m",
+            connection: "c",
+            ttl_seconds,
+            names: &names,
+            types: &[ColType::Numeric],
+            rows: &rows,
+        };
+        put(store, p).await.unwrap();
+        key
+    }
+
+    async fn tables(store: &Store, org: &str) -> Vec<String> {
+        let c = store.pool.get().await.unwrap();
+        let rows = c.query("SELECT table_name FROM magnum_cache.entries WHERE org = $1", &[&org]).await.unwrap();
+        rows.iter().map(|r| r.get(0)).collect()
+    }
+
+    async fn exists(store: &Store, table: &str) -> bool {
+        let c = store.pool.get().await.unwrap();
+        let sql = "SELECT 1 FROM information_schema.tables WHERE table_schema = 'magnum_cache' AND table_name = $1";
+        c.query_opt(sql, &[&table]).await.unwrap().is_some()
+    }
+
+    #[tokio::test]
+    async fn a_sweep_drops_expired_results_and_their_tables() {
+        let Some(store) = test_store().await else { return };
+        let org = format!("t-{}", uuid::Uuid::new_v4().simple());
+        cache(&store, &org, 2, 0).await;
+        let expired = tables(&store, &org).await;
+        cache(&store, &org, 2, 3600).await;
+        sweep(&store).await.unwrap();
+        let left = tables(&store, &org).await;
+        assert_eq!(left.len(), 1);
+        assert!(!left.contains(&expired[0]) && !exists(&store, &expired[0]).await);
+        clear(&store, &org, None).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn an_organisation_keeps_its_most_recent_rows_within_its_budget() {
+        let Some(store) = test_store().await else { return };
+        let (org, other) =
+            (format!("t-{}", uuid::Uuid::new_v4().simple()), format!("t-{}", uuid::Uuid::new_v4().simple()));
+        let oldest = cache(&store, &org, 3, 3600).await;
+        let older = cache(&store, &org, 3, 3600).await;
+        let newest = cache(&store, &org, 3, 3600).await;
+        cache(&store, &other, 3, 3600).await;
+        let old_tables = tables(&store, &org).await;
+
+        assert_eq!(trim(&store, &org, 7).await.unwrap(), 1);
+        let keys = keys(&store, &org).await;
+        assert!(keys.contains(&older) && keys.contains(&newest) && !keys.contains(&oldest), "{keys:?}");
+        let gone: Vec<_> = old_tables.iter().filter(|t| !tables_contains(&keys, t)).collect();
+        assert_eq!(gone.len(), 1);
+        assert!(!exists(&store, gone[0]).await);
+        assert_eq!(tables(&store, &other).await.len(), 1, "another organisation's budget is its own");
+
+        // with a budget for none of them, everything goes
+        assert_eq!(trim(&store, &org, 0).await.unwrap(), 2);
+        assert!(tables(&store, &org).await.is_empty());
+        clear(&store, &other, None).await.unwrap();
+    }
+
+    async fn keys(store: &Store, org: &str) -> Vec<String> {
+        let c = store.pool.get().await.unwrap();
+        let rows = c.query("SELECT key FROM magnum_cache.entries WHERE org = $1", &[&org]).await.unwrap();
+        rows.iter().map(|r| r.get(0)).collect()
+    }
+
+    fn tables_contains(keys: &[String], table: &str) -> bool {
+        keys.iter().any(|k| table.starts_with(&format!("r_{}_", &k[..16])))
     }
 }

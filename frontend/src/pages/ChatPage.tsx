@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import type { ChartTile, ChatMessage, ChatState, DashboardSummary, Proposal } from '../api'
 import { useCan } from '../auth'
-import { basedOn, chartTile, suggestions } from '../chat'
+import { basedOn, chartTile, madeLink, suggestions } from '../chat'
 import TileView from '../components/TileView'
 import { useModels } from '../hooks'
 import { addTile } from '../pin'
@@ -134,11 +134,12 @@ export default function ChatPage() {
                 {m.proposals.map(p => (
                   <div key={p.id} className={`chat-proposal ${p.status}`}>
                     <div><b>{p.summary}</b></div>
+                    {!!p.details?.length && <ul className="chat-details small">{p.details.map((d, k) => <li key={k}>{d}</li>)}</ul>}
                     {p.status === 'proposed' && <>
                       <p className="small muted">Nothing changes until you confirm.</p>
                       <button className="primary" onClick={() => confirm(p)}>Confirm</button>
                     </>}
-                    {p.status === 'applied' && <p className="small">✓ Done.</p>}
+                    {p.status === 'applied' && <p className="small">✓ Done.{made(p)}</p>}
                     {p.status === 'failed' && <p className="small error">{p.error}</p>}
                   </div>
                 ))}
@@ -159,6 +160,12 @@ export default function ChatPage() {
       {pinning && <PinDialog tile={pinning} onClose={() => setPinning(null)} />}
     </div>
   )
+}
+
+/** The link to what a confirmed proposal made, if it made something to look at. */
+function made(p: Proposal) {
+  const to = madeLink(p)
+  return to && <> <Link to={to}>Open the dashboard</Link></>
 }
 
 function PinDialog({ tile, onClose }: { tile: ChartTile; onClose: () => void }) {

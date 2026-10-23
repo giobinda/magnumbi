@@ -1,6 +1,6 @@
 // The in-app chat's helpers: what to suggest asking, and how an answer's queries are shown.
 import { fieldLabel } from './api'
-import type { ChartTile, ModelInfo, Query } from './api'
+import type { ChartTile, ModelInfo, Proposal, Query } from './api'
 import { suggestChart } from './suggest'
 
 const temporal = (t: string) => t === 'date' || t === 'time' || t === 'datetime'
@@ -36,4 +36,11 @@ export function basedOn(query: Query, models: ModelInfo[]) {
   const m = models.find(x => x.name === query.model)
   const refs = [...(query.dimensions ?? []), ...(query.measures ?? [])]
   return { model: m?.label ?? query.model, status: m?.governance?.status ?? null, fields: refs.map(r => fieldLabel(m, r)) }
+}
+
+/** Where to see what a confirmed proposal made: the dashboard it saved, or its report's dashboard. */
+export function madeLink(p: Proposal): string | null {
+  if (p.status !== 'applied') return null
+  const id = p.tool === 'save_dashboard' ? p.args.id : p.tool === 'create_report' ? p.args.dashboard : null
+  return typeof id === 'string' ? `/dashboards/${encodeURIComponent(id)}` : null
 }
