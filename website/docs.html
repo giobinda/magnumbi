@@ -824,6 +824,20 @@ radius: 10</code></pre>
         <li><strong>Dry runs.</strong> Add <code>?dry_run=1</code> when saving a dashboard, blend, members list or organisation themes: everything is checked and warnings come back (for example, a tile on a field that doesn't exist), but nothing is saved.</li>
         <li><strong>Versions.</strong> Reads return a <code>version</code>. Send it back as <code>If-Match</code> and a save is refused (409, with the current version) if someone changed it meanwhile, instead of silently overwriting their work. Overwritten and deleted dashboards stay in their history.</li>
       </ul>
+      <h3 id="as-code">Your setup as code</h3>
+      <p>What your organisation sets up in the app can live in git as YAML files, and files can be applied back, like terraform: export, review the plan, apply. Org admins only.</p>
+      <div class="code">
+<pre><code>curl -H "Authorization: Bearer mbi_…" https://bi.example.com/api/code &gt; code.json
+curl -X POST -H "Authorization: Bearer mbi_…" -H 'content-type: application/json' \
+     --data @code.json 'https://bi.example.com/api/code?dry_run=1'    # the plan
+curl -X POST … --data @code.json https://bi.example.com/api/code        # apply it</code></pre>
+      </div>
+      <ul>
+        <li><strong>The files:</strong> <code>models/&lt;name&gt;.yaml</code> (your own models), <code>formulas/&lt;model&gt;/&lt;name&gt;.yaml</code>, <code>blends/&lt;name&gt;.yaml</code>, <code>themes.yaml</code>, <code>glossary/&lt;name&gt;.yaml</code>, <code>catalog/&lt;model&gt;.yaml</code> (owner, stewards, status, documentation) and <code>dashboards/&lt;id&gt;.yaml</code>.</li>
+        <li><strong>The plan</strong> (<code>?dry_run=1</code>) lists what would be created or updated, each checked as if it were saved, in an order that works: a formula on a model the same files add is fine. A read-only token may ask for it.</li>
+        <li><strong>Applying</strong> goes through the same checks and permissions as the app. With any problem, nothing changes. Files you leave out are kept, unless you add <code>?prune=1</code>.</li>
+        <li><strong>Secrets are never in the files.</strong></li>
+      </ul>
     </section>
 
     <section id="organisations">

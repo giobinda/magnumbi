@@ -363,6 +363,8 @@ pub(crate) mod tests {
             "mail_servers",
             "webhooks",
             "schedules",
+            "blends",
+            "theme_settings",
         ] {
             c.execute(&format!("DELETE FROM {table} WHERE org = $1"), &[&org]).await.unwrap();
         }

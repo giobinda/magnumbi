@@ -461,6 +461,26 @@ Two safety nets for changes made by agents (and people):
   only if it doesn't exist yet. The dashboard editor does this too. Deleted and overwritten
   dashboards stay in their history.
 
+## Setup as code
+
+Whatever an organisation sets up in the app can be kept as YAML files in git, and files can be
+applied back, like terraform: export, review the plan, apply. Org admins only; applying goes
+through the same checks and permissions as the app, and secrets are never in the files.
+
+```bash
+curl -H "Authorization: Bearer $TOKEN" https://bi.example.com/api/code > code.json   # {"files": {path: yaml}}
+curl -X POST -H "Authorization: Bearer $TOKEN" -H 'content-type: application/json' \
+     --data @code.json 'https://bi.example.com/api/code?dry_run=1'                  # the plan
+curl -X POST … --data @code.json https://bi.example.com/api/code                      # apply it
+```
+
+The files: `models/<name>.yaml` (the organisation's own models), `formulas/<model>/<name>.yaml`,
+`blends/<name>.yaml`, `themes.yaml`, `glossary/<name>.yaml`, `catalog/<model>.yaml` (owner,
+stewards, status, documentation) and `dashboards/<id>.yaml`. The plan lists what would be created
+or updated, each checked as if saved; with any problem, applying changes nothing. Files that are
+left out are kept unless you add `?prune=1`, which deletes them. A read-only API token may ask
+for the plan.
+
 ## Organisations and roles
 
 | role         | can                                                                   |
@@ -880,9 +900,9 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Apply from git: `plan` / `apply` of organisations (members, connections, sign-in rules) and
-  dashboards to a running server. Models, dashboards and blends are already YAML in git, and
-  API tokens already cover automation.
+- Setup as code, the rest: connections, email and webhooks, chat settings, scheduled reports
+  and alerts, members and sign-in rules (secrets stay out of the files), a `magnum-bi` command
+  and a page in the app.
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
 
 ## License
