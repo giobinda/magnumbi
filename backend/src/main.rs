@@ -327,6 +327,8 @@ async fn serve(config: Config) -> Result<()> {
     let reports = state.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval(std::time::Duration::from_secs(60));
+        // a slow round (many organisations, a slow mail server) isn't followed by a burst of them
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             every.tick().await;
             api::run_scheduled_reports(&reports).await;
@@ -336,6 +338,8 @@ async fn serve(config: Config) -> Result<()> {
     let caches = state.clone();
     tokio::spawn(async move {
         let mut every = tokio::time::interval(std::time::Duration::from_secs(300));
+        // a slow round (many organisations, big caches) isn't followed by a burst of them
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
             every.tick().await;
             api::tidy_caches(&caches).await;

@@ -37,6 +37,13 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Fixed
 
+- **Stability under load.** The cache no longer holds a database connection while asking for
+  another (a pool of requests each waiting for a second one could stop the server); scheduled
+  reports, the cache clean-up and the usage clean-up wait a full interval after a slow round
+  instead of catching up in a burst; a table another server dropped at the same moment no longer
+  stops a clean-up; time, number and true/false values are typed for ScramDB everywhere.
+- **Applying files that stops partway says what was applied and what wasn't** (`applied`,
+  `not_applied`), so it's clear what to fix before applying again.
 - **The query cache no longer grows without end.** Expired results were dropped only now and
   then when a new one was cached, so a quiet organisation kept them on disk. The server now drops
   them every 5 minutes, and keeps each organisation within `MAGNUM_CACHE_MAX_ROWS` rows of cached

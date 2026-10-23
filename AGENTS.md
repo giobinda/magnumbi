@@ -90,7 +90,8 @@ the `sample_sales` table: `make seed`):
 - `MAGNUM_TEST_POSTGRES_URL` for a real PostgreSQL;
 - `MAGNUM_TEST_DUCKDB_EXTENSIONS=$PWD/data/duckdb/_extensions` for DuckDB extensions.
 
-Run the full suite with all three before calling something done; CI (`.github/workflows/ci.yml`)
+Run the full suite with all three before calling something done (`make test-db` runs 8 tests at
+once, `TEST_THREADS=n` to change it: more queue up on ScramDB and time out); CI (`.github/workflows/ci.yml`)
 runs it too, with `cargo fmt --check`, `clippy -D warnings` and `check`. Clippy must be clean. The
 frontend runs `npx tsc -b`, `npx vitest run`, `npx oxlint src` and `npm run build`.
 

@@ -243,9 +243,7 @@ mod tests {
 
     #[tokio::test]
     async fn decimals_survive_the_round_trip() {
-        let Ok(url) = std::env::var("MAGNUM_TEST_DATABASE_URL") else { return };
-        let pool = crate::db::make_pool(&url, 2).unwrap();
-        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
+        let Some(pool) = crate::db::test_pool(2).await else { return };
         let (a, b) = (format!("t_{}", uuid::Uuid::new_v4().simple()), format!("t_{}", uuid::Uuid::new_v4().simple()));
         let rows = vec![
             vec![json!("AMER"), json!(2528809.61)],

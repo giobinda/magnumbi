@@ -460,15 +460,17 @@ pub async fn apply(
         };
     }
 
-    for item in &ordered {
-        let secret = bundle.secrets.get(&item.path);
-        write(&state, &after, item, secret, now.get(&item.path), false).await.map_err(|e| stopped(e, &item.path))?;
-    }
     let mut deletes = deletes;
     deletes.sort_by_key(|i| std::cmp::Reverse(i.kind));
+    let all: Vec<&str> = ordered.iter().chain(&deletes).map(|i| i.path.as_str()).collect();
+    for (n, item) in ordered.iter().enumerate() {
+        let secret = bundle.secrets.get(&item.path);
+        let made = write(&state, &after, item, secret, now.get(&item.path), false).await;
+        made.map_err(|e| stopped(e, &all, n))?;
+    }
     let caller = Arc::new(caller);
-    for item in &deletes {
-        remove(&state, &caller, item).await.map_err(|e| stopped(e, &item.path))?;
+    for (n, item) in deletes.iter().enumerate() {
+        remove(&state, &caller, item).await.map_err(|e| stopped(e, &all, ordered.len() + n))?;
     }
     state.usage.record(crate::usage::Event {
         detail: Some(json!({"changes": changes.len()})),
@@ -483,10 +485,12 @@ fn detail(e: ApiError) -> (axum::http::StatusCode, String) {
     (status, body["detail"].as_str().unwrap_or("failed").to_string())
 }
 
-/// A change that failed while applying: which, and that the ones before it were made.
-fn stopped(e: ApiError, path: &str) -> ApiError {
+/// Applying stopped at change `at` of `all` (the database can't undo what came before): what
+/// failed, what was made, what wasn't. Fix it and apply again: the plan picks up from there.
+fn stopped(e: ApiError, all: &[&str], at: usize) -> ApiError {
     let (status, why) = detail(e);
-    ApiError::Status(status, format!("{path}: {why}; the changes before it were made, the rest weren't"))
+    let detail = format!("{}: {why}. The changes before it were made; apply again once it's fixed", all[at]);
+    ApiError::Body(status, json!({"detail": detail, "applied": &all[..at], "not_applied": &all[at..]}))
 }
 
 /// The caller, seeing the organisation as the files will leave it: its models, formulas, blends,
@@ -686,6 +690,16 @@ mod tests {
 
     use crate::api::share::tests::{clean_up, send};
     use crate::api::tests::{OWNER, app, scramdb_config};
+
+    #[test]
+    fn a_stop_says_what_was_applied_and_what_wasnt() {
+        let all = ["connections/w.yaml", "models/m.yaml", "dashboards/d.yaml"];
+        let (status, body) = super::stopped(crate::error::ApiError::bad_request("no table t"), &all, 1).into_parts();
+        assert_eq!(status, StatusCode::BAD_REQUEST);
+        assert!(body["detail"].as_str().unwrap().starts_with("models/m.yaml: no table t"), "{body}");
+        assert_eq!(body["applied"], json!(["connections/w.yaml"]));
+        assert_eq!(body["not_applied"], json!(["models/m.yaml", "dashboards/d.yaml"]));
+    }
 
     #[test]
     fn files_are_named_after_what_they_hold() {

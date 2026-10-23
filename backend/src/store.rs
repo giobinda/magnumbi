@@ -250,7 +250,7 @@ impl Store {
         let default_name = email.split('@').next().unwrap_or_default().to_string();
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO users (email, name, password_hash, owner_org, must_change_password) VALUES ($1, $2, $3, $4, $5)
+            "INSERT INTO users (email, name, password_hash, owner_org, must_change_password) VALUES ($1, $2, $3, $4, $5::BOOLEAN)
              ON CONFLICT (email) DO UPDATE SET password_hash = EXCLUDED.password_hash, owner_org = EXCLUDED.owner_org,
                must_change_password = EXCLUDED.must_change_password, updated_at = now(),
                name = CASE WHEN $6::BOOLEAN THEN EXCLUDED.name ELSE users.name END",
@@ -299,7 +299,7 @@ impl Store {
         let c = self.pool.get().await?;
         let n = c
             .execute(
-                "UPDATE users SET disabled = $2, updated_at = now() WHERE email = $1",
+                "UPDATE users SET disabled = $2::BOOLEAN, updated_at = now() WHERE email = $1",
                 &[&email.to_lowercase(), &disabled],
             )
             .await?;
@@ -351,7 +351,7 @@ impl Store {
         let token = random_token(32);
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO sessions (id_hash, user_email, method, expires_at, granted_role) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO sessions (id_hash, user_email, method, expires_at, granted_role) VALUES ($1, $2, $3, $4::TIMESTAMPTZ, $5)",
             &[&sha256_hex(&token), &email.to_lowercase(), &method, &(Utc::now() + ttl), &granted_role],
         )
         .await?;
@@ -456,7 +456,7 @@ impl Store {
         let ticket = random_token(24);
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO login_challenges (ticket_hash, user_email, expires_at) VALUES ($1, $2, $3)",
+            "INSERT INTO login_challenges (ticket_hash, user_email, expires_at) VALUES ($1, $2, $3::TIMESTAMPTZ)",
             &[&sha256_hex(&ticket), &email.to_lowercase(), &(Utc::now() + Duration::minutes(5))],
         )
         .await?;
@@ -648,7 +648,7 @@ impl Store {
         let ticket = random_token(24);
         let c = self.pool.get().await?;
         c.execute(
-            "INSERT INTO webauthn_states (ticket_hash, user_email, kind, state, expires_at) VALUES ($1, $2, $3, $4, $5)",
+            "INSERT INTO webauthn_states (ticket_hash, user_email, kind, state, expires_at) VALUES ($1, $2, $3, $4, $5::TIMESTAMPTZ)",
             &[&sha256_hex(&ticket), &email.to_lowercase(), &kind, &state, &(Utc::now() + Duration::minutes(5))],
         )
         .await?;
@@ -725,7 +725,7 @@ impl Store {
         let c = self.pool.get().await?;
         c.execute(
             "INSERT INTO oauth_states (state_hash, verifier, nonce, redirect_uri, next_url, expires_at, provider)
-             VALUES ($1, $2, $3, $4, $5, $6, $7)",
+             VALUES ($1, $2, $3, $4, $5, $6::TIMESTAMPTZ, $7)",
             &[
                 &sha256_hex(state),
                 &verifier,
@@ -766,6 +766,7 @@ impl Store {
     pub async fn seed_dashboards(&self, folder: &Path) -> Result<usize> {
         let c = self.pool.get().await?;
         let n: i64 = c.query_one("SELECT COUNT(*) FROM dashboards", &[]).await?.get(0);
+        drop(c); // writing each dashboard takes a connection of its own
         if n > 0 {
             return Ok(0);
         }
@@ -1588,7 +1589,7 @@ impl Store {
         c.execute(
             "INSERT INTO schedules (org, id, dashboard_id, created_by, config, password_hash, active, next_run_at, last_run_at,
                last_status, failures, created_at, firing)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8::TIMESTAMPTZ, $9::TIMESTAMPTZ, $10, $11::BIGINT, $12::TIMESTAMPTZ, $13)
+             VALUES ($1, $2, $3, $4, $5, $6, $7::BOOLEAN, $8::TIMESTAMPTZ, $9::TIMESTAMPTZ, $10, $11::BIGINT, $12::TIMESTAMPTZ, $13::BOOLEAN)
              ON CONFLICT (org, id) DO UPDATE SET config = EXCLUDED.config, active = EXCLUDED.active,
                next_run_at = EXCLUDED.next_run_at, last_run_at = EXCLUDED.last_run_at,
                last_status = EXCLUDED.last_status, failures = EXCLUDED.failures, firing = EXCLUDED.firing",
