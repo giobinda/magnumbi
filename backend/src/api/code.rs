@@ -8,6 +8,10 @@
 //!   models/<name>.yaml             the organisation's own models
 //!   formulas/<model>/<name>.yaml   shared formulas
 //!   blends/<name>.yaml             the organisation's own blends
+//!   members.yaml                   its people: roles and row filters (never left without an
+//!                                  Org admin; never deleted by pruning)
+//!   sign_in.yaml                   how they sign in, and its single sign-on (not the client
+//!                                  secret; never deleted by pruning)
 //!   themes.yaml                    its themes and defaults
 //!   glossary/<name>.yaml           business terms
 //!   catalog/<model>.yaml           a model's owner, stewards, status and documentation
@@ -19,7 +23,7 @@
 //!                                  by whoever applies them, who they then run as)
 //!
 //! Secret values travel apart from the files, in the request's `secrets` (by file path): a
-//! connection's password or key, the mail server's password, a webhook's address, the chat's key,
+//! connection's password or key, the single sign-on client secret, the mail server's password, a webhook's address, the chat's key,
 //! a signed report's password. They're sealed as the app seals them and never sent back.
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -33,7 +37,7 @@ use serde_json::{Value, json};
 
 use super::dashboards::{WriteParams, flag};
 use super::{
-    Body, blends, chat, connections, dashboards, delivery, formulas, governance, org_models, schedules, themes,
+    Body, admin, blends, chat, connections, dashboards, delivery, formulas, governance, org_models, schedules, themes,
 };
 use crate::auth::{Auth, Caller};
 use crate::error::{ApiError, ApiResult};
@@ -47,6 +51,8 @@ enum Kind {
     Model,
     Formula,
     Blend,
+    Members,
+    SignIn,
     Themes,
     Term,
     Catalog,
@@ -55,6 +61,16 @@ enum Kind {
     Webhook,
     Chat,
     Report,
+}
+
+/// How the organisation's people sign in, in a file (the client secret is a secret).
+#[derive(Debug, Clone, Default, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+struct SignIn {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    sign_in: Option<crate::auth::policy::SignInPolicy>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    oidc: Option<crate::access::OidcSettings>,
 }
 
 /// A webhook in a file: its kind (its address is a secret).
@@ -121,6 +137,8 @@ fn kind_of(path: &str) -> Result<(Kind, Vec<String>), String> {
         "themes.yaml" => return Ok((Kind::Themes, vec![])),
         "mail.yaml" => return Ok((Kind::Mail, vec![])),
         "chat.yaml" => return Ok((Kind::Chat, vec![])),
+        "members.yaml" => return Ok((Kind::Members, vec![])),
+        "sign_in.yaml" => return Ok((Kind::SignIn, vec![])),
         _ => {}
     }
     let stem = path.strip_suffix(".yaml").ok_or_else(unknown)?;
@@ -159,6 +177,23 @@ fn parse(path: &str, text: &str) -> Result<Item, String> {
         Kind::Webhook => json!(serde_yaml::from_str::<Webhook>(text).map_err(bad)?),
         Kind::Chat => json!(serde_yaml::from_str::<crate::chat::ChatSettings>(text).map_err(bad)?),
         Kind::Report => json!(serde_yaml::from_str::<Report>(text).map_err(bad)?),
+        Kind::Members => {
+            let m: crate::access::Members = serde_yaml::from_str(text).map_err(bad)?;
+            if m.sign_in.is_some() || m.oidc.is_some() {
+                return Err(format!("{path}: how people sign in goes in sign_in.yaml"));
+            }
+            if !m.users.values().any(|u| u.role == crate::access::Role::OrgAdmin) {
+                return Err(format!("{path}: it would leave the organisation without an Org admin"));
+            }
+            json!(m)
+        }
+        Kind::SignIn => {
+            let f: SignIn = serde_yaml::from_str(text).map_err(bad)?;
+            if f.oidc.as_ref().is_some_and(|o| o.client_secret_sealed.is_some()) {
+                return Err(format!("{path}: the client secret goes in the request's secrets, not in a file"));
+            }
+            json!(f)
+        }
         Kind::Model => {
             let m: crate::schema::Model = serde_yaml::from_str(text).map_err(bad)?;
             named(&m.name)?;
@@ -191,6 +226,21 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
     let org = caller.org();
     let store = state.orgs.store(org).await?;
     let mut items = vec![];
+    // an organisation's people (the platform workspace has system owners instead)
+    if let Some(oid) = &caller.scope.org {
+        let m = caller.access.members_of(oid);
+        let rules = SignIn {
+            sign_in: m.sign_in.clone(),
+            oidc: m.oidc.clone().map(|o| crate::access::OidcSettings { client_secret_sealed: None, ..o }),
+        };
+        let people = crate::access::Members { sign_in: None, oidc: None, ..m };
+        if people != crate::access::Members::default() {
+            items.push(Item::new(Kind::Members, "members.yaml".into(), vec![], &people)?);
+        }
+        if rules != SignIn::default() {
+            items.push(Item::new(Kind::SignIn, "sign_in.yaml".into(), vec![], &rules)?);
+        }
+    }
     for c in state.connectors.list(&store, org).await? {
         items.push(Item::new(
             Kind::Connection,
@@ -327,8 +377,10 @@ pub async fn apply(
         .values()
         .filter(|i| now.get(&i.path).is_none_or(|n| n.value != i.value) || bundle.secrets.contains_key(&i.path))
         .collect();
+    // the people and how they sign in are always there: changed, never deleted
+    let kept = |i: &Item| matches!(i.kind, Kind::Members | Kind::SignIn);
     let deletes: Vec<&Item> =
-        if p.prune { now.values().filter(|i| !wanted.contains_key(&i.path)).collect() } else { vec![] };
+        if p.prune { now.values().filter(|i| !wanted.contains_key(&i.path) && !kept(i)).collect() } else { vec![] };
 
     // checked against the organisation as it will be: a formula on a model these files add fits
     let after = planned(&state, &caller, &now, &wanted, &writes, &bundle.secrets, p.prune);
@@ -422,11 +474,21 @@ fn planned(
     let mail = written(Kind::Mail).find_map(|i| serde_json::from_value(i.value.clone()).ok());
     let webhooks = written(Kind::Webhook).map(|i| i.name()).collect();
     let planned = crate::auth::Planned { terms, connections, dashboards, mail, webhooks };
-    Arc::new(Caller { project: Arc::new(project), planned: Arc::new(planned), ..caller.clone() })
+    // the people as the files leave them (owners, stewards and report recipients are members)
+    let mut access = (*caller.access).clone();
+    if let (Some(oid), Some(m)) = (
+        caller.scope.org.as_ref(),
+        written(Kind::Members).find_map(|i| serde_json::from_value::<crate::access::Members>(i.value.clone()).ok()),
+    ) {
+        let now = access.members_of(oid);
+        access.members.insert(oid.clone(), crate::access::Members { sign_in: now.sign_in, oidc: now.oidc, ..m });
+    }
+    let (project, planned, access) = (Arc::new(project), Arc::new(planned), Arc::new(access));
+    Arc::new(Caller { project, planned, access, ..caller.clone() })
 }
 
 /// The kinds whose files may come with a secret.
-const SECRETS: [Kind; 5] = [Kind::Connection, Kind::Mail, Kind::Webhook, Kind::Chat, Kind::Report];
+const SECRETS: [Kind; 6] = [Kind::Connection, Kind::SignIn, Kind::Mail, Kind::Webhook, Kind::Chat, Kind::Report];
 
 /// Save one file's content through its handler (`dry_run`: check only), with its secret if
 /// given (none: the stored one is kept). `old`: what's there now.
@@ -452,6 +514,14 @@ async fn write(
         Kind::Connection => {
             let body = typed(&item.path, json!({"config": item.value, "secret": secret}), secret)?;
             connections::save(s(), a(), Path(item.name()), q(), Body(body)).await?
+        }
+        Kind::Members => admin::put_members(s(), a(), q(), HeaderMap::new(), Body(from(item)?)).await?,
+        Kind::SignIn => {
+            let mut body = item.value.clone();
+            if let Some(o) = body.get_mut("oidc").and_then(Value::as_object_mut) {
+                o.insert("client_secret".into(), json!(secret));
+            }
+            admin::put_sign_in(s(), a(), q(), HeaderMap::new(), Body(typed(&item.path, body, secret)?)).await?
         }
         Kind::Mail => {
             delivery::put_mail(s(), a(), q(), Body(typed(&item.path, with(json!({"password": secret})), secret)?))
@@ -523,6 +593,7 @@ async fn remove(state: &Shared, caller: &Arc<Caller>, item: &Item) -> ApiResult<
     let q = || UrlQuery(WriteParams { dry_run: false });
     let _ = match item.kind {
         Kind::Connection => connections::delete(s(), a(), Path(item.name())).await?,
+        Kind::Members | Kind::SignIn => return Err(ApiError::bad_request(format!("{} isn't deleted", item.path))),
         Kind::Mail => delivery::delete_mail(s(), a()).await?,
         Kind::Webhook => delivery::delete_webhook(s(), a(), Path(item.name())).await?,
         Kind::Chat => chat::delete_settings(s(), a()).await?,
@@ -772,6 +843,66 @@ mod tests {
             (&json!(true), &json!("hooks.example.com")),
             "{d}"
         );
+        for org in [&a, &b] {
+            clean_up(&state, org).await;
+        }
+    }
+
+    #[tokio::test]
+    async fn people_and_sign_in_rules_go_to_code() {
+        let Some((app, state, cookie)) = app().await else { return };
+        let id = || uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
+        let (a, b) = (format!("codea{}", id()), format!("codeb{}", id()));
+        let (alice, bob) = (format!("alice{}@a.example", id()), format!("bob{}@a.example", id()));
+        let emea = json!({"model": "sales", "dimension": "region", "values": ["EMEA"]});
+        let people = json!({"users": {alice.clone(): {"role": "org_admin"}, bob.clone(): {"role": "viewer", "filters": [emea]}},
+                            "sign_in": {"require_two_factor": true}});
+        let orgs = json!({a.clone(): {"name": "From", "models": ["*"], "members": people},
+                          b.clone(): {"name": "To", "models": ["*"]}});
+        let access = json!({"system_owners": [OWNER], "organisations": orgs});
+        state.access.pin(crate::access::AccessConfig::from_document(access).unwrap());
+        for org in [&a, &b] {
+            state.orgs.pin(org, state.store.clone());
+        }
+        let c = Some(cookie.as_str());
+
+        // the people, their roles and row filters, and how they sign in, each in its file
+        let files = export(&app, &cookie, &a).await;
+        let members = files["members.yaml"].as_str().unwrap();
+        assert!(members.contains(&bob) && members.contains("EMEA") && !members.contains("sign_in"), "{members}");
+        assert!(files["sign_in.yaml"].as_str().unwrap().contains("require_two_factor: true"), "{files}");
+
+        // changed in the files, saved as the app saves them
+        let mut changed = files.clone();
+        changed["members.yaml"] = json!(format!("users:\n  {alice}: org_admin\n"));
+        changed["sign_in.yaml"] = json!("{}\n");
+        let (_, plan, _) =
+            send(&app, c, &a, "POST", "/api/code?dry_run=1", Some(json!({"files": changed})), None).await;
+        let paths: Vec<&str> =
+            plan["changes"].as_array().unwrap().iter().map(|c| c["path"].as_str().unwrap()).collect();
+        assert_eq!(paths, ["members.yaml", "sign_in.yaml"], "{plan}");
+        let (s, r, _) = send(&app, c, &a, "POST", "/api/code", Some(json!({"files": changed})), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let saved = state.store.setting(&format!("members:{a}")).await.unwrap().unwrap();
+        assert!(saved["users"].get(&alice).is_some() && saved["users"].get(&bob).is_none(), "{saved}");
+        assert!(saved.get("sign_in").is_none_or(Value::is_null), "{saved}");
+
+        // people belong to one organisation: not copied into another
+        let (_, plan, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(json!({"files": files})), None).await;
+        let error = plan["changes"][0]["error"].as_str().unwrap_or_default();
+        assert!(error.contains("another organisation"), "{plan}");
+
+        // files that would leave no Org admin are refused; pruning never empties the members
+        let mut nobody = files.clone();
+        nobody["members.yaml"] = json!(format!("users:\n  {bob}: viewer\n"));
+        let (s, r, _) = send(&app, c, &a, "POST", "/api/code", Some(json!({"files": nobody})), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
+        assert!(r.to_string().contains("without an Org admin"), "{r}");
+        let empty = Some(json!({"files": {}}));
+        let (_, plan, _) = send(&app, c, &a, "POST", "/api/code?dry_run=1&prune=1", empty, None).await;
+        let paths: Vec<&str> =
+            plan["changes"].as_array().unwrap().iter().map(|c| c["path"].as_str().unwrap()).collect();
+        assert!(!paths.contains(&"members.yaml") && !paths.contains(&"sign_in.yaml"), "{plan}");
         for org in [&a, &b] {
             clean_up(&state, org).await;
         }

@@ -210,6 +210,7 @@ pub struct SignInBody {
 pub async fn put_sign_in(
     State(state): State<Shared>,
     Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<super::dashboards::WriteParams>,
     headers: HeaderMap,
     Body(body): Body<SignInBody>,
 ) -> ApiResult<Json<Value>> {
@@ -254,6 +255,11 @@ pub async fn put_sign_in(
         .map_err(ApiError::bad_request)?;
     let mut next = (**cfg).clone();
     next.members.insert(oid.clone(), candidate);
+    if p.dry_run {
+        let mut out = sign_in_response(&state, &caller, &next, &headers).await?;
+        out["dry_run"] = json!(true);
+        return Ok(Json(out));
+    }
     store_access(&state, &next, Some(&oid), Some(caller.email())).await?;
     state.usage.record(caller.event("sign_in_changed"));
     Ok(Json(sign_in_response(&state, &caller, &next, &headers).await?))
