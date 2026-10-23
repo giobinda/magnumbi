@@ -218,6 +218,7 @@ pub async fn clear(store: &Store, org: &str, model: Option<&str>) -> Result<usiz
         }
         None => c.query("DELETE FROM magnum_cache.entries WHERE org = $1 RETURNING table_name", &[&org]).await?,
     };
+    drop(c); // the sweep takes connections of its own
     for r in &rows {
         materialize::drop(&store.pool, SCHEMA, &r.get::<_, String>(0)).await?;
     }

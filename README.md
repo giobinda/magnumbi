@@ -475,7 +475,8 @@ curl -X POST … --data @code.json https://bi.example.com/api/code              
 ```
 
 The files, applied in this order: `connections/<name>.yaml`, `models/<name>.yaml` (the
-organisation's own models), `formulas/<model>/<name>.yaml`, `blends/<name>.yaml`, `themes.yaml`,
+organisation's own models), `formulas/<model>/<name>.yaml`, `blends/<name>.yaml`, `members.yaml`
+(people, roles and row filters), `sign_in.yaml` (sign-in rules and single sign-on), `themes.yaml`,
 `glossary/<name>.yaml`, `catalog/<model>.yaml` (owner, stewards, status, documentation),
 `dashboards/<id>.yaml`, `mail.yaml`, `webhooks/<name>.yaml`, `chat.yaml` and
 `reports/<dashboard>/<name>.yaml` (scheduled reports and alerts).
@@ -483,9 +484,12 @@ organisation's own models), `formulas/<model>/<name>.yaml`, `blends/<name>.yaml`
 The plan lists what would be created or updated, each checked as if saved, against the
 organisation as the files will leave it: a model on a connection the same files add is checked on
 that connection. With any problem, applying changes nothing. Files that are left out are kept
-unless you add `?prune=1`, which deletes them. A read-only API token may ask for the plan.
+unless you add `?prune=1`, which deletes them (never the members or the sign-in rules). Files
+that would leave the organisation without an Org admin are refused, and people stay in one
+organisation: members of another can't be added. A read-only API token may ask for the plan.
 
-**Secrets stay out of the files.** A connection's password or key, the mail server's password, a
+**Secrets stay out of the files.** A connection's password or key, the single sign-on client
+secret, the mail server's password, a
 webhook's address, the chat's key and a signed report's password go apart, in the request's
 `secrets` (by file path), only when they're new or change: `{"files": {...}, "secrets":
 {"mail.yaml": "…"}}`. They're sealed like everything the app stores and never sent back. A
@@ -910,8 +914,7 @@ Next, in rough order:
 
 - More **connectors** (Snowflake, MySQL, ...): a `ConnectionConfig` variant (`connections.rs`),
   a `Dialect` where SQL differs (`compiler.rs`), and a `Connector` (`connectors/`).
-- Setup as code, the rest: members, roles, row filters and sign-in rules, a `magnum-bi` command
-  and a page in the app.
+- Setup as code, the rest: a `magnum-bi` command and a page in the app.
 - TLS to the primary and organisation ScramDB instances (data connections already support it).
 
 ## License
