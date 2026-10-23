@@ -144,7 +144,15 @@ async fn answer(r: reqwest::Response) -> Result<Value> {
     if status.is_success() || body.get("changes").is_some() {
         return Ok(body);
     }
-    bail!("{status}: {}", body["detail"].as_str().unwrap_or("the server refused"))
+    let mut why = format!("{status}: {}", body["detail"].as_str().unwrap_or("the server refused"));
+    // applying stopped partway: what was made, what wasn't
+    for (key, label) in [("applied", "applied"), ("not_applied", "not applied")] {
+        if let Some(paths) = body[key].as_array().filter(|p| !p.is_empty()) {
+            let paths: Vec<&str> = paths.iter().filter_map(Value::as_str).collect();
+            why.push_str(&format!("\n{label}: {}", paths.join(", ")));
+        }
+    }
+    bail!(why)
 }
 
 pub async fn export(remote: &Remote, dir: &Path) -> Result<usize> {

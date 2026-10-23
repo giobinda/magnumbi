@@ -325,10 +325,7 @@ mod tests {
     /// A real ScramDB (e.g. the dev primary: postgresql://scramdb@127.0.0.1:55432/scramdb);
     /// these tests are skipped without MAGNUM_TEST_DATABASE_URL.
     async fn store() -> Option<Store> {
-        let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
-        let pool = crate::db::make_pool(&url, 4).unwrap();
-        crate::db::migrate(&pool, crate::db::ORG).await.unwrap();
-        Some(Store::new(pool))
+        Some(Store::new(crate::db::test_pool(4).await?))
     }
 
     fn registry() -> Connectors {

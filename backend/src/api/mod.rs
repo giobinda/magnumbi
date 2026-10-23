@@ -535,16 +535,12 @@ pub mod tests {
         ];
         let config =
             crate::config::Config::from_lookup(|k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone())).unwrap();
-        let pool = crate::db::make_pool(&url, 8).unwrap();
-        let store = Store::new(pool);
+        let store = Store::new(crate::db::test_pool(8).await?);
         // once per test run: on a new database, tests starting together would race to create
         // the owner's account
         static SETUP: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
         SETUP
             .get_or_init(|| async {
-                crate::db::migrate(&store.pool, crate::db::PRIMARY).await.unwrap();
-                // tests give organisations this database too (state.orgs.pin): their tables as well
-                crate::db::migrate(&store.pool, crate::db::ORG).await.unwrap();
                 if store.user(OWNER).await.unwrap().is_none() {
                     let hash = crate::auth::password::hash("test-only-password").unwrap();
                     store.set_password(OWNER, Some("Owner"), &hash, None, false).await.unwrap();

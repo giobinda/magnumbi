@@ -103,6 +103,24 @@ fn statements(sql: &str) -> Vec<String> {
     without_comments.split(';').map(str::trim).filter(|s| !s.is_empty()).map(String::from).collect()
 }
 
+/// Tests: a pool on the test database (MAGNUM_TEST_DATABASE_URL; None: the test is skipped),
+/// migrated once per test run for every test. Run by tests starting together, migrations race on
+/// ScramDB's locks and time out.
+#[cfg(test)]
+pub async fn test_pool(max_size: usize) -> Option<Pool> {
+    static MIGRATED: tokio::sync::OnceCell<()> = tokio::sync::OnceCell::const_new();
+    let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
+    let pool = make_pool(&url, max_size).unwrap();
+    MIGRATED
+        .get_or_init(|| async {
+            migrate(&pool, PRIMARY).await.unwrap();
+            // tests give organisations this database too (state.orgs.pin): their tables as well
+            migrate(&pool, ORG).await.unwrap();
+        })
+        .await;
+    Some(pool)
+}
+
 pub async fn migrate(pool: &Pool, migrations: Migrations) -> Result<usize> {
     let client = pool.get().await.context("can't connect to ScramDB")?;
     // the lock comes first: on a new database, replicas (or tests) starting together would

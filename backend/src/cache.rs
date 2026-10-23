@@ -96,12 +96,13 @@ pub async fn put(store: &Store, p: Put<'_>) -> Result<()> {
         &[&p.key, &p.org, &p.model, &p.connection, &table, &Value::Array(columns).to_string(), &(p.rows.len() as i64), &expires],
     )
     .await;
+    drop(c); // dropping a table takes a connection of its own
     if let Err(e) = indexed {
         let _ = materialize::drop(&store.pool, SCHEMA, &table).await; // nothing points to it
         return Err(e.into());
     }
     if let Some(old) = old.filter(|o| *o != table) {
-        materialize::drop(&store.pool, SCHEMA, &old).await?;
+        gone_now(store, SCHEMA, &old).await; // the result is saved: a table left behind, a sweep drops
     }
     Ok(())
 }
@@ -120,10 +121,6 @@ pub async fn sweep(store: &Store) -> Result<usize> {
             &[],
         )
         .await?;
-    let mut dropped = 0;
-    for r in &gone {
-        dropped += usize::from(gone_now(store, SCHEMA, &r.get::<_, String>(0)).await);
-    }
     let orphans = c
         .query(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'magnum_cache' AND table_name LIKE 'r\\_%'
@@ -139,18 +136,20 @@ pub async fn sweep(store: &Store) -> Result<usize> {
             &[],
         )
         .await?;
-    for r in &work {
-        let name: String = r.get(0);
-        if materialize::work_table_created(&name).is_some_and(|t| t < cutoff) {
-            dropped += usize::from(gone_now(store, "public", &name).await);
-        }
-    }
-    for r in &orphans {
-        let name: String = r.get(0);
-        // tables of the last minutes may be filling right now: leave them for a later sweep
-        if created_at(&name).is_some_and(|t| t < cutoff) {
-            dropped += usize::from(gone_now(store, SCHEMA, &name).await);
-        }
+    drop(c); // dropping a table takes a connection of its own
+    let mut tables: Vec<(&str, String)> = gone.iter().map(|r| (SCHEMA, r.get(0))).collect();
+    let old = |name: &String, at: Option<i64>| at.is_some_and(|t| t < cutoff).then(|| name.clone());
+    tables.extend(
+        work.iter()
+            .filter_map(|r| old(&r.get(0), materialize::work_table_created(&r.get::<_, String>(0))))
+            .map(|n| ("public", n)),
+    );
+    // tables of the last minutes may be filling right now: leave them for a later sweep
+    tables
+        .extend(orphans.iter().filter_map(|r| old(&r.get(0), created_at(&r.get::<_, String>(0)))).map(|n| (SCHEMA, n)));
+    let mut dropped = 0;
+    for (schema, name) in &tables {
+        dropped += usize::from(gone_now(store, schema, name).await);
     }
     Ok(dropped)
 }
@@ -190,7 +189,7 @@ pub async fn trim(store: &Store, org: &str, max_rows: i64) -> Result<usize> {
         )
         .await?;
     let mut total = 0;
-    let mut dropped = 0;
+    let mut tables = vec![];
     for e in &entries {
         total += e.get::<_, i64>(1);
         if total <= max_rows {
@@ -198,10 +197,12 @@ pub async fn trim(store: &Store, org: &str, max_rows: i64) -> Result<usize> {
         }
         let key: String = e.get(0);
         let gone = c.query_opt("DELETE FROM magnum_cache.entries WHERE key = $1 RETURNING table_name", &[&key]).await?;
-        if let Some(r) = gone {
-            materialize::drop(&store.pool, SCHEMA, &r.get::<_, String>(0)).await?;
-            dropped += 1;
-        }
+        tables.extend(gone.map(|r| r.get::<_, String>(0)));
+    }
+    drop(c); // dropping a table takes a connection of its own
+    let mut dropped = 0;
+    for t in &tables {
+        dropped += usize::from(gone_now(store, SCHEMA, t).await);
     }
     Ok(dropped)
 }
@@ -229,7 +230,7 @@ pub async fn clear(store: &Store, org: &str, model: Option<&str>) -> Result<usiz
     };
     drop(c); // the sweep takes connections of its own
     for r in &rows {
-        materialize::drop(&store.pool, SCHEMA, &r.get::<_, String>(0)).await?;
+        gone_now(store, SCHEMA, &r.get::<_, String>(0)).await;
     }
     sweep(store).await?; // expired results and abandoned tables too
     Ok(rows.len())
@@ -277,10 +278,38 @@ mod tests {
     }
 
     async fn test_store() -> Option<Store> {
-        let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
-        let pool = crate::db::make_pool(&url, 2).unwrap();
-        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
-        Some(Store::new(pool))
+        Some(Store::new(crate::db::test_pool(2).await?))
+    }
+
+    #[tokio::test]
+    async fn the_cache_works_on_a_single_connection() {
+        // nothing holds its connection while asking for another: under load, a pool full of
+        // requests each waiting for a second connection waits forever
+        let Some(pool) = crate::db::test_pool(1).await else { return };
+        let store = Store::new(pool);
+        let org = format!("t-{}", uuid::Uuid::new_v4().simple());
+        let work = async {
+            let key = cache(&store, &org, 2, 3600).await;
+            cache(&store, &org, 2, 0).await;
+            let p = Put {
+                key: &key,
+                org: &org,
+                model: "m",
+                connection: "c",
+                ttl_seconds: 3600,
+                names: &["n".to_string()],
+                types: &[ColType::Numeric],
+                rows: &[vec![json!(1)]],
+            };
+            put(&store, p).await.unwrap(); // replacing a result drops the old table
+            assert!(get(&store, &key).await.unwrap().is_some());
+            trim(&store, &org, 1).await.unwrap();
+            sweep(&store).await.unwrap();
+            tidy(&store, 5_000_000).await.unwrap();
+            clear(&store, &org, None).await.unwrap();
+        };
+        // slow on a busy shared database (the sweep goes through every test's results), never stuck
+        tokio::time::timeout(std::time::Duration::from_secs(600), work).await.expect("waiting for a second connection");
     }
 
     async fn cache(store: &Store, org: &str, rows: usize, ttl_seconds: u64) -> String {

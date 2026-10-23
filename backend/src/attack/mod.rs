@@ -303,7 +303,40 @@ impl World {
             .unwrap();
         let (status, headers) = (resp.status(), resp.headers().clone());
         let bytes = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
+        if status == axum::http::StatusCode::UNAUTHORIZED
+            && let Who::Person(email) = &who.who
+        {
+            self.why_signed_out(email, &format!("{method} {path}")).await;
+        }
         Reply { status, headers, body: String::from_utf8_lossy(&bytes).into_owned() }
+    }
+
+    /// A person of this world was told to sign in again: what the database holds of them then (a
+    /// session that vanished mid-run once failed the suite; this tells a deleted session, a deleted
+    /// account and a read that missed rows that are there apart).
+    async fn why_signed_out(&self, email: &str, request: &str) {
+        let token = self.cookie(email).trim_start_matches("magnum_session=").to_string();
+        let c = self.state.store.pool.get().await.unwrap();
+        let session = c
+            .query_opt(
+                "SELECT expires_at::TEXT, now()::TEXT FROM sessions WHERE id_hash = $1::TEXT",
+                &[&crate::store::sha256_hex(&token)],
+            )
+            .await
+            .map(|r| r.map(|r| (r.get::<_, String>(0), r.get::<_, String>(1))));
+        let user = c
+            .query_opt("SELECT disabled FROM users WHERE email = $1::TEXT", &[&email])
+            .await
+            .map(|r| r.map(|r| r.get::<_, bool>(0)));
+        let again = self.state.store.session(&token).await.map(|s| s.is_some());
+        let sessions = c
+            .query_one("SELECT COUNT(*) FROM sessions WHERE user_email = $1::TEXT", &[&email])
+            .await
+            .map(|r| r.get::<_, i64>(0));
+        eprintln!(
+            "SIGNED OUT {email} on {request}: session (expires, now) {session:?}; account disabled? {user:?}; \
+             looked up again: {again:?}; their sessions: {sessions:?}"
+        );
     }
 
     /// Remove what the world made in the shared database.

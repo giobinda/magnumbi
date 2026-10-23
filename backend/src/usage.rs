@@ -58,6 +58,8 @@ impl Usage {
         tokio::spawn(writer(store.clone(), rx));
         tokio::spawn(async move {
             let mut every = tokio::time::interval(Duration::from_secs(24 * 3600));
+            // a slow clean-up isn't followed by another straight away
+            every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
             loop {
                 every.tick().await;
                 if let Err(e) = purge(&store, retention_days).await {
@@ -137,7 +139,7 @@ async fn insert(store: &Store, events: &[Event]) -> Result<()> {
 
 async fn purge(store: &Store, retention_days: i64) -> Result<()> {
     let cutoff = Utc::now() - chrono::Duration::days(retention_days);
-    let n = store.pool.get().await?.execute("DELETE FROM usage_events WHERE at < $1", &[&cutoff]).await?;
+    let n = store.pool.get().await?.execute("DELETE FROM usage_events WHERE at < $1::TIMESTAMPTZ", &[&cutoff]).await?;
     if n > 0 {
         tracing::info!("usage: removed {n} event(s) older than {retention_days} days");
     }
@@ -226,7 +228,7 @@ pub async fn summary(store: &Store, org: Option<&str>, days: i64) -> Result<Valu
             .query(
                 "SELECT org, COUNT(DISTINCT user_email), COUNT(CASE WHEN kind = 'query' THEN 1 END),
                    COUNT(CASE WHEN kind = 'dashboard_view' THEN 1 END)
-                 FROM usage_events WHERE at >= $1 GROUP BY 1 ORDER BY 3 DESC",
+                 FROM usage_events WHERE at >= $1::TIMESTAMPTZ GROUP BY 1 ORDER BY 3 DESC",
                 &[&since],
             )
             .await?;
@@ -278,21 +280,30 @@ mod tests {
     /// Needs a ScramDB (MAGNUM_TEST_DATABASE_URL); skipped without it.
     #[tokio::test]
     async fn events_keep_being_written_after_quiet_periods() {
-        let Ok(url) = std::env::var("MAGNUM_TEST_DATABASE_URL") else { return };
-        let pool = crate::db::make_pool(&url, 4).unwrap();
-        crate::db::migrate(&pool, crate::db::PRIMARY).await.unwrap();
+        let Some(pool) = crate::db::test_pool(4).await else { return };
         let store = Store::new(pool);
         let usage = Usage::start(store.clone(), 400);
         let kind: &'static str = Box::leak(format!("test_{}", uuid::Uuid::new_v4().simple()).into_boxed_str());
         for _ in 0..3 {
             usage.record(Event::new(kind));
         }
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        assert_eq!(count(&store, kind).await, 3);
+        assert_eq!(written(&store, kind, 3).await, 3);
         // quiet for longer than a flush interval, then more events
         tokio::time::sleep(FLUSH_EVERY * 3).await;
         usage.record(Event::new(kind));
-        tokio::time::sleep(Duration::from_secs(3)).await;
-        assert_eq!(count(&store, kind).await, 4, "the writer must survive quiet periods");
+        assert_eq!(written(&store, kind, 4).await, 4, "the writer must survive quiet periods");
+    }
+
+    /// How many events of `kind` are written, once there are `n` (or after 30 s: a busy database
+    /// takes its time, a stopped writer never gets there).
+    async fn written(store: &Store, kind: &str, n: i64) -> i64 {
+        let deadline = std::time::Instant::now() + Duration::from_secs(30);
+        loop {
+            let got = count(store, kind).await;
+            if got >= n || std::time::Instant::now() > deadline {
+                return got;
+            }
+            tokio::time::sleep(Duration::from_millis(200)).await;
+        }
     }
 }
