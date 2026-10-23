@@ -138,7 +138,12 @@ async fn explore_and_agents_never_see_past_a_restriction() {
         with_formulas += usize::from(q.get("formulas").is_some());
         let got = w.send(&b, "POST", "/api/query", Some(q.clone())).await.json();
         if let Some(d) = differs(&format!("query {i} {q}"), &got, &expected.json()) {
-            leaks.push(d);
+            // date windows are rounded to 5 minutes: asked across a boundary, the comparison may
+            // have moved on. Asked again, a leak still differs; a moved window doesn't.
+            let again = w.send(&owner, "POST", "/api/query", Some(restricted(&q))).await.json();
+            if differs("", &got, &again).is_some() {
+                leaks.push(d);
+            }
         }
         if i % 4 == 0 {
             // the same through MCP, with B's API token

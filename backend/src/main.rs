@@ -9,6 +9,7 @@ mod auth;
 mod blend;
 mod cache;
 mod chat;
+mod code_cli;
 mod compiler;
 mod config;
 mod connections;
@@ -93,6 +94,40 @@ enum Command {
         #[command(subcommand)]
         command: OrgCommand,
     },
+    /// An organisation's setup as code, from a running server (an API token in MAGNUM_TOKEN;
+    /// secrets in MAGNUM_SECRET_<FILE>, e.g. MAGNUM_SECRET_CONNECTIONS_WAREHOUSE)
+    Code {
+        #[command(subcommand)]
+        command: CodeCommand,
+        /// the server, e.g. https://bi.example.com
+        #[arg(long, env = "MAGNUM_URL", global = true)]
+        url: Option<String>,
+        /// the organisation (default: the token's)
+        #[arg(long, env = "MAGNUM_ORG", global = true)]
+        org: Option<String>,
+    },
+}
+
+#[derive(Subcommand)]
+enum CodeCommand {
+    /// Write the organisation's setup into a folder, as YAML files
+    Export { dir: std::path::PathBuf },
+    /// Show what applying the folder would change (nothing is changed)
+    Plan {
+        dir: std::path::PathBuf,
+        /// also delete what the folder doesn't have
+        #[arg(long)]
+        prune: bool,
+    },
+    /// Apply the folder, after showing the plan and asking
+    Apply {
+        dir: std::path::PathBuf,
+        #[arg(long)]
+        prune: bool,
+        /// don't ask (scripts and CI)
+        #[arg(long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -128,6 +163,10 @@ async fn main() -> Result<()> {
         )
         .init();
     let cli = Cli::parse();
+    // a client of another server: none of this one's settings
+    if let Some(Command::Code { command, url, org }) = cli.command {
+        return code(command, url, org).await;
+    }
     let config = Config::from_env()?;
     match cli.command.unwrap_or(Command::Serve) {
         Command::Serve => serve(config).await,
@@ -156,6 +195,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Check => check(&config),
+        Command::Code { .. } => unreachable!("handled above"),
         Command::Demo { org, months } => {
             let state = app_state(config).await?;
             let progress = state.demo.clone();
@@ -427,4 +467,51 @@ async fn shutdown() {
     #[cfg(not(unix))]
     let term = std::future::pending::<()>();
     tokio::select! { _ = ctrl_c => {}, _ = term => {} }
+}
+
+/// `magnum-bi code …`: export, plan or apply through the server's API.
+async fn code(command: CodeCommand, url: Option<String>, org: Option<String>) -> Result<()> {
+    let url = url.context("which server? --url or MAGNUM_URL")?;
+    let token = std::env::var("MAGNUM_TOKEN").ok().filter(|t| !t.is_empty());
+    let token = token.context("an API token in MAGNUM_TOKEN (Security › API tokens; Org admins)")?;
+    let remote = code_cli::Remote { url, token, org };
+    match command {
+        CodeCommand::Export { dir } => {
+            let n = code_cli::export(&remote, &dir).await?;
+            println!("{n} files in {}", dir.display());
+        }
+        CodeCommand::Plan { dir, prune } => {
+            let plan = code_cli::send(&remote, &dir, prune, false).await?;
+            println!("{}", code_cli::describe(&plan));
+            if plan["ok"] == false {
+                bail!("the plan has problems: fix them, then plan again");
+            }
+        }
+        CodeCommand::Apply { dir, prune, yes } => {
+            let plan = code_cli::send(&remote, &dir, prune, false).await?;
+            println!("{}", code_cli::describe(&plan));
+            if plan["ok"] == false {
+                bail!("the plan has problems: nothing was changed");
+            }
+            if plan["changes"].as_array().is_none_or(|c| c.is_empty()) {
+                return Ok(());
+            }
+            if !yes {
+                use std::io::IsTerminal;
+                if !std::io::stdin().is_terminal() {
+                    bail!("not applied: pass --yes to apply without asking");
+                }
+                print!("Apply these changes? Type yes: ");
+                std::io::Write::flush(&mut std::io::stdout())?;
+                let mut answer = String::new();
+                std::io::stdin().read_line(&mut answer)?;
+                if answer.trim() != "yes" {
+                    bail!("not applied");
+                }
+            }
+            code_cli::send(&remote, &dir, prune, true).await?;
+            println!("Applied.");
+        }
+    }
+    Ok(())
 }

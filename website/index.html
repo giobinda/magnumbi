@@ -298,7 +298,7 @@
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="2.5"/><circle cx="6" cy="18" r="2.5"/><circle cx="18" cy="9" r="2.5"/><path d="M6 8.5v7M18 11.5c0 3-3 3.5-9.5 5"/></svg></div>
           <h3>Versioned as code</h3>
-          <p>Models, dashboards, blends and themes are plain YAML in a <code>project/</code> folder. Review them in pull requests and validate them in CI with <code>magnum-bi check</code>.</p>
+          <p>Everything set up in the app (models, dashboards, members and row filters, connections, reports) exports to plain YAML and applies back after a plan, like terraform: <code>magnum-bi code plan</code>. Review it in pull requests; secrets never go in the files.</p>
         </div>
         <div class="card">
           <div class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 9l-4 3 4 3M16 9l4 3-4 3M13.5 6l-3 12"/></svg></div>

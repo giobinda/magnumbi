@@ -157,8 +157,8 @@ pub fn read_only_request(method: &axum::http::Method, path: &str, query: Option<
                 | ["glossary", _]
         );
     }
-    // a report checked, not made; a plan of what applying files would change
-    if *method == Method::POST && dry_run && matches!(parts.as_slice(), ["dashboards", _, "schedules"] | ["code"]) {
+    // a report checked, not made (a plan of files isn't: it may reach the addresses they name)
+    if *method == Method::POST && dry_run && matches!(parts.as_slice(), ["dashboards", _, "schedules"]) {
         return true;
     }
     // MCP: its tools are read-only or not one by one (api/mcp.rs)
@@ -439,10 +439,8 @@ mod tests {
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/query", None));
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/export", None), "downloading is reading");
         assert!(ok(Method::POST, "/api/dashboards/d/export", None));
-        assert!(
-            ok(Method::POST, "/api/code", Some("dry_run=1")) && !ok(Method::POST, "/api/code", None),
-            "plan, not apply"
-        );
+        // a plan may connect to the addresses its files name, which reading never does
+        assert!(!ok(Method::POST, "/api/code", Some("dry_run=1")) && !ok(Method::POST, "/api/code", None));
         // a dry run only where the handler checks without saving
         for path in ["/api/dashboards/d", "/api/dashboards/d/yaml", "/api/blends/b", "/api/members", "/api/org-themes"]
         {

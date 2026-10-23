@@ -826,17 +826,27 @@ radius: 10</code></pre>
       </ul>
       <h3 id="as-code">Your setup as code</h3>
       <p>What your organisation sets up in the app can live in git as YAML files, and files can be applied back, like terraform: export, review the plan, apply. Org admins only.</p>
-      <div class="code">
-<pre><code>curl -H "Authorization: Bearer mbi_…" https://bi.example.com/api/code &gt; code.json
-curl -X POST -H "Authorization: Bearer mbi_…" -H 'content-type: application/json' \
-     --data @code.json 'https://bi.example.com/api/code?dry_run=1'    # the plan
-curl -X POST … --data @code.json https://bi.example.com/api/code        # apply it</code></pre>
+      <div class="tabs" data-tabs>
+        <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Code</strong> downloads your setup as a zip of files. To apply files, choose their folder: the plan shows what would be created (+), changed (~) or deleted (−), with any problem next to its file and a field for a secret where one belongs. Apply when it's right.</p>
+          <figure class="shot"><a href="assets/screens/code.jpg"><img src="assets/screens/code.jpg" alt="The Code page: download as a zip, and the plan of a folder of files with one change and one new connection" width="860" height="560" loading="lazy"></a><figcaption>The plan comes first; nothing changes until you apply.</figcaption></figure>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
+<div class="code">
+<pre><code>export MAGNUM_URL=https://bi.example.com MAGNUM_TOKEN=mbi_…
+magnum-bi code export ./setup          # your setup, as files: commit them
+magnum-bi code plan ./setup            # what applying would change
+magnum-bi code apply ./setup --prune   # shows the plan, asks, applies (--yes in CI)</code></pre>
+      </div>
+          <p>Secrets come from variables named after their file: <code>MAGNUM_SECRET_CONNECTIONS_WAREHOUSE</code>, <code>MAGNUM_SECRET_MAIL</code>… The API underneath: <code>GET /api/code</code> (<code>?format=zip</code>) and <code>POST /api/code</code> with <code>{"files": {…}, "secrets": {…}}</code> (<code>?dry_run=1</code> for the plan).</p>
+        </div>
       </div>
       <ul>
         <li><strong>The files</strong>, applied in this order: <code>connections/&lt;name&gt;.yaml</code>, <code>models/&lt;name&gt;.yaml</code> (your own models), <code>formulas/&lt;model&gt;/&lt;name&gt;.yaml</code>, <code>blends/&lt;name&gt;.yaml</code>, <code>members.yaml</code> (people, roles and row filters), <code>sign_in.yaml</code> (sign-in rules and single sign-on), <code>themes.yaml</code>, <code>glossary/&lt;name&gt;.yaml</code>, <code>catalog/&lt;model&gt;.yaml</code> (owner, stewards, status, documentation), <code>dashboards/&lt;id&gt;.yaml</code>, <code>mail.yaml</code>, <code>webhooks/&lt;name&gt;.yaml</code>, <code>chat.yaml</code> and <code>reports/&lt;dashboard&gt;/&lt;name&gt;.yaml</code>.</li>
-        <li><strong>The plan</strong> (<code>?dry_run=1</code>) lists what would be created or updated, each checked as if it were saved, against your organisation as the files will leave it: a model on a connection the same files add is checked on that connection. A read-only token may ask for it.</li>
+        <li><strong>The plan</strong> (<code>?dry_run=1</code>) lists what would be created or updated, each checked as if it were saved, against your organisation as the files will leave it: a model on a connection the same files add is checked on that connection. It needs a read &amp; write token: checking files may connect to the addresses they name.</li>
         <li><strong>Applying</strong> goes through the same checks and permissions as the app. With any problem, nothing changes. Files you leave out are kept, unless you add <code>?prune=1</code> (never the members or the sign-in rules). Files that would leave your organisation without an Org admin are refused, and people stay in one organisation. A changed report is replaced, made by whoever applies it.</li>
-        <li><strong>Secrets are never in the files.</strong> New passwords, keys and webhook addresses travel apart, in the request: <code>{"files": {…}, "secrets": {"mail.yaml": "…"}}</code>. They're sealed like everything the app stores, and never sent back.</li>
+        <li><strong>Secrets are never in the files.</strong> New passwords, keys and webhook addresses travel apart (a field on the plan, or a variable); the saved ones are kept otherwise, but never sent to a new address: change a host and its password is needed again. They're sealed like everything the app stores, and never sent back.</li>
       </ul>
     </section>
 

@@ -81,6 +81,23 @@ pub struct Connectors {
     live: Mutex<HashMap<(String, String), Live>>,
 }
 
+/// The connection's stored secret, for settings that keep its address (a secret never follows a
+/// changed address: it has to be given again).
+async fn stored_secret(
+    store: &Store,
+    org: &str,
+    name: &str,
+    config: &ConnectionConfig,
+) -> Result<Option<String>, ConnError> {
+    match store.connection(org, name).await? {
+        Some(c) if c.secret_sealed.is_some() && !c.config.same_destination(config) => {
+            Err(ConnError::Invalid("the connection's address changed: give its password or key again".into()))
+        }
+        Some(c) => Ok(c.secret_sealed),
+        None => Ok(None),
+    }
+}
+
 /// What a connection failure says: the same for a closed port, a timeout or an unknown host, so
 /// trying settings can't be used to map a network. Credentials refused by the server are named.
 fn connect_failure(e: ConnectorError) -> ConnError {
@@ -242,17 +259,17 @@ impl Connectors {
     ) -> Result<Option<String>, ConnError> {
         check_name(name).map_err(ConnError::Invalid)?;
         config.validate().map_err(ConnError::Invalid)?;
-        self.guard(org, config).await?;
         let sealed = match secret.filter(|s| !s.is_empty()) {
             Some(s) => {
                 config.validate_secret(s).map_err(ConnError::Invalid)?;
                 Some(self.key()?.seal(s, &seal_context(org, name))?)
             }
-            None => store.connection(org, name).await?.and_then(|c| c.secret_sealed),
+            None => stored_secret(store, org, name, config).await?,
         };
         if sealed.is_none() && config.needs_secret() {
             return Err(ConnError::Invalid(format!("a {} connection needs its key", config.kind())));
         }
+        self.guard(org, config).await?;
         Ok(sealed)
     }
 
@@ -278,16 +295,15 @@ impl Connectors {
         secret: Option<&str>,
     ) -> Result<Arc<dyn Connector>, ConnError> {
         config.validate().map_err(ConnError::Invalid)?;
+        let given = secret.filter(|s| !s.is_empty());
+        if let Some(s) = given {
+            config.validate_secret(s).map_err(ConnError::Invalid)?;
+        }
+        let stored = if given.is_none() { stored_secret(store, org, name, config).await? } else { None };
         let pinned = self.guard(org, config).await?;
-        let connector = match secret.filter(|s| !s.is_empty()) {
-            Some(s) => {
-                config.validate_secret(s).map_err(ConnError::Invalid)?;
-                self.build_plain(org, config, Some(s.to_string()), pinned)?
-            }
-            None => {
-                let stored = store.connection(org, name).await?.and_then(|c| c.secret_sealed);
-                self.build(org, config, stored.as_deref().map(|s| (s, name)), pinned)?
-            }
+        let connector = match given {
+            Some(s) => self.build_plain(org, config, Some(s.to_string()), pinned)?,
+            None => self.build(org, config, stored.as_deref().map(|s| (s, name)), pinned)?,
         };
         Ok(connector)
     }
@@ -357,6 +373,18 @@ mod tests {
         assert_eq!(reg.list(&store, &acme).await.unwrap()[0].public()["has_secret"], json!(true));
         let (_, c2) = reg.get(&store, &acme, "warehouse").await.unwrap();
         assert!(!Arc::ptr_eq(&c, &c2), "rebuilt after a change");
+
+        // the stored secret never goes to another server: a new address needs it again
+        let mut moved = scramdb(&url);
+        if let ConnectionConfig::Scramdb(s) = &mut moved {
+            s.host = "elsewhere.example".into();
+        }
+        let e = reg.check(&store, &acme, "warehouse", &moved, None).await.unwrap_err().to_string();
+        assert!(e.contains("again"), "{e}");
+        let e = reg.try_out(&store, &acme, "warehouse", &moved, None).await.unwrap_err().to_string();
+        assert!(e.contains("again"), "{e}");
+        let e = reg.save(&store, &acme, "warehouse", moved, None, Some("test")).await.unwrap_err().to_string();
+        assert!(e.contains("again"), "{e}");
 
         reg.delete(&store, &acme, "warehouse").await.unwrap();
         assert!(matches!(reg.get(&store, &acme, "warehouse").await, Err(ConnError::Missing(_))));

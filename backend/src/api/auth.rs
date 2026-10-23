@@ -1202,6 +1202,10 @@ mod tests {
             c.members.insert("pol".into(), serde_json::from_value(saved.clone()).unwrap());
             c
         });
+        // the client secret never goes to another provider on its own: a new issuer needs it again
+        let moved = json!({"label": "x", "issuer": "https://login.elsewhere.example", "client_id": "magnum"});
+        let (s, body) = send(req("PUT", Some(json!({"sign_in": {"methods": ["oidc"]}, "oidc": moved})))).await;
+        assert!(s == StatusCode::BAD_REQUEST && body["detail"].as_str().unwrap().contains("again"), "{body}");
         let members = json!({"default_role": "viewer", "users": {}});
         let put = axum::http::Request::builder()
             .method("PUT")

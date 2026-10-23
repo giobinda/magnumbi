@@ -31,7 +31,8 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::{Path, Query as UrlQuery, State};
-use axum::http::HeaderMap;
+use axum::http::{HeaderMap, header};
+use axum::response::{IntoResponse, Response};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
@@ -123,6 +124,37 @@ impl Item {
     }
 }
 
+/// A name as one plain file name: letters, digits, _ and - as they are, anything else as %XX
+/// (a glossary term may be "Net / gross", or "../x": never a folder, never outside one).
+fn segment(name: &str) -> String {
+    let mut out = String::new();
+    for b in name.bytes() {
+        if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' {
+            out.push(b as char);
+        } else {
+            out.push_str(&format!("%{b:02X}"));
+        }
+    }
+    out
+}
+
+/// The name a file name stands for (None: not one `segment` makes).
+fn unsegment(s: &str) -> Option<String> {
+    let mut bytes = vec![];
+    let mut rest = s.bytes();
+    while let Some(b) = rest.next() {
+        match b {
+            b'%' => {
+                let hex = [rest.next()?, rest.next()?];
+                bytes.push(u8::from_str_radix(std::str::from_utf8(&hex).ok()?, 16).ok()?);
+            }
+            b if b.is_ascii_alphanumeric() || b == b'_' || b == b'-' => bytes.push(b),
+            _ => return None,
+        }
+    }
+    String::from_utf8(bytes).ok()
+}
+
 /// A report's file name: its name in lower case, words joined by dashes.
 fn slug(name: &str) -> String {
     let words: Vec<String> =
@@ -155,7 +187,7 @@ fn kind_of(path: &str) -> Result<(Kind, Vec<String>), String> {
         "dashboards" => Kind::Dashboard,
         _ => return Err(unknown()),
     };
-    let names: Vec<String> = parts[1..].iter().map(|s| s.to_string()).collect();
+    let names: Vec<String> = parts[1..].iter().map(|s| unsegment(s)).collect::<Option<_>>().ok_or_else(unknown)?;
     let expected = if matches!(kind, Kind::Formula | Kind::Report) { 2 } else { 1 };
     if names.len() != expected || names.iter().any(|n| n.is_empty()) {
         return Err(unknown());
@@ -244,27 +276,27 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
     for c in state.connectors.list(&store, org).await? {
         items.push(Item::new(
             Kind::Connection,
-            format!("connections/{}.yaml", c.name),
+            format!("connections/{}.yaml", segment(&c.name)),
             vec![c.name.clone()],
             &c.config,
         )?);
     }
     for (m, ..) in store.org_models(org).await? {
-        items.push(Item::new(Kind::Model, format!("models/{}.yaml", m.name), vec![m.name.clone()], &m)?);
+        items.push(Item::new(Kind::Model, format!("models/{}.yaml", segment(&m.name)), vec![m.name.clone()], &m)?);
     }
     for (model, f, ..) in store.formulas(org).await? {
-        let path = format!("formulas/{model}/{}.yaml", f.name);
+        let path = format!("formulas/{}/{}.yaml", segment(&model), segment(&f.name));
         items.push(Item::new(Kind::Formula, path, vec![model, f.name.clone()], &f)?);
     }
     for (b, ..) in store.blends(org).await? {
-        items.push(Item::new(Kind::Blend, format!("blends/{}.yaml", b.name), vec![b.name.clone()], &b)?);
+        items.push(Item::new(Kind::Blend, format!("blends/{}.yaml", segment(&b.name)), vec![b.name.clone()], &b)?);
     }
     let t = store.org_themes(org).await?;
     if json!(t) != json!(crate::themes::OrgThemes::default()) {
         items.push(Item::new(Kind::Themes, "themes.yaml".into(), vec![], &t)?);
     }
     for (t, ..) in store.glossary(org).await? {
-        items.push(Item::new(Kind::Term, format!("glossary/{}.yaml", t.name), vec![t.name.clone()], &t)?);
+        items.push(Item::new(Kind::Term, format!("glossary/{}.yaml", segment(&t.name)), vec![t.name.clone()], &t)?);
     }
     let mut catalog: BTreeMap<String, Catalog> = BTreeMap::new();
     for (model, g, ..) in store.governance(org).await? {
@@ -274,10 +306,10 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
         catalog.entry(model).or_default().docs = d;
     }
     for (model, c) in catalog.into_iter().filter(|(_, c)| *c != Catalog::default()) {
-        items.push(Item::new(Kind::Catalog, format!("catalog/{model}.yaml"), vec![model], &c)?);
+        items.push(Item::new(Kind::Catalog, format!("catalog/{}.yaml", segment(&model)), vec![model], &c)?);
     }
     for (id, text) in store.all_dashboards(org).await? {
-        let path = format!("dashboards/{id}.yaml");
+        let path = format!("dashboards/{}.yaml", segment(&id));
         // as written (comments and all); one that no longer reads is compared as text
         let value = crate::project::parse_dashboard(&text).map(|d| json!(d)).unwrap_or_else(|_| json!(text));
         items.push(Item { kind: Kind::Dashboard, path, names: vec![id], value, text, id: None });
@@ -287,7 +319,7 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
     }
     for (name, kind, _) in store.webhooks(org).await? {
         let w: Webhook = serde_json::from_value(json!({"kind": kind})).map_err(|e| ApiError::Internal(e.into()))?;
-        items.push(Item::new(Kind::Webhook, format!("webhooks/{name}.yaml"), vec![name], &w)?);
+        items.push(Item::new(Kind::Webhook, format!("webhooks/{}.yaml", segment(&name)), vec![name], &w)?);
     }
     if let Some((settings, _)) = store.chat_settings(org).await? {
         items.push(Item::new(Kind::Chat, "chat.yaml".into(), vec![], &settings)?);
@@ -303,7 +335,7 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
             }
             stem = format!("{base}-{n}");
         }
-        let path = format!("reports/{}/{stem}.yaml", r.dashboard_id);
+        let path = format!("reports/{}/{}.yaml", segment(&r.dashboard_id), segment(&stem));
         let file = Report { paused: !r.active, report: r.config };
         let item = Item::new(Kind::Report, path, vec![r.dashboard_id, stem], &file)?;
         items.push(Item { id: Some(r.id), ..item });
@@ -311,12 +343,31 @@ async fn current(state: &AppState, caller: &Caller) -> ApiResult<BTreeMap<String
     Ok(items.into_iter().map(|i| (i.path.clone(), i)).collect())
 }
 
+#[derive(Deserialize, Default)]
+pub struct ExportParams {
+    /// zip: the files in a zip archive, to download
+    #[serde(default)]
+    format: Option<String>,
+}
+
 /// `GET /api/code`: the organisation's setup as files (Org admins).
-pub async fn export(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
+pub async fn export(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<ExportParams>,
+) -> ApiResult<Response> {
     caller.require("manage_members")?;
     let files: BTreeMap<String, String> =
         current(&state, &caller).await?.into_values().map(|i| (i.path, i.text)).collect();
-    Ok(Json(json!({"files": files})))
+    if p.format.as_deref() != Some("zip") {
+        return Ok(Json(json!({"files": files})).into_response());
+    }
+    let files: Vec<(String, String)> = files.into_iter().collect();
+    let bytes = crate::export::zip(&files).map_err(|e| ApiError::Internal(e.into()))?;
+    let name = if caller.org().is_empty() { "platform" } else { caller.org() };
+    let disposition = format!("attachment; filename=\"{}-setup.zip\"", crate::export::file_name(name, "setup"));
+    Ok(([(header::CONTENT_TYPE, "application/zip".to_string()), (header::CONTENT_DISPOSITION, disposition)], bytes)
+        .into_response())
 }
 
 #[derive(Deserialize)]
@@ -354,6 +405,9 @@ pub async fn apply(
     Body(bundle): Body<Bundle>,
 ) -> ApiResult<Json<Value>> {
     caller.require("manage_members")?;
+    if bundle.files.len() > MAX_FILES {
+        return Err(ApiError::bad_request(format!("at most {MAX_FILES} files at once")));
+    }
     let now = current(&state, &caller).await?;
     let mut changes = vec![];
     let mut wanted: BTreeMap<String, Item> = BTreeMap::new();
@@ -487,6 +541,9 @@ fn planned(
     Arc::new(Caller { project, planned, access, ..caller.clone() })
 }
 
+/// Files in one request, at most: each is checked, some on the organisation's own databases.
+pub(crate) const MAX_FILES: usize = 5000;
+
 /// The kinds whose files may come with a secret.
 const SECRETS: [Kind; 6] = [Kind::Connection, Kind::SignIn, Kind::Mail, Kind::Webhook, Kind::Chat, Kind::Report];
 
@@ -537,6 +594,12 @@ async fn write(
         }
         Kind::Report => {
             let r: Report = from(item)?;
+            // made again from the file, a signed report's guests would get a password nobody knows
+            if r.report.format == "signed" && secret.is_none() {
+                return Err(ApiError::bad_request(
+                    "a signed report needs its guests' password, given apart (it's never in the file)",
+                ));
+            }
             let mut new = json!(r.report);
             new["password"] = json!(secret);
             let body = typed(&item.path, new, secret)?;
@@ -635,6 +698,14 @@ mod tests {
         }
         let e = super::parse("models/other.yaml", "name: sales\nconnection: w\ntable: t\n").unwrap_err();
         assert!(e.contains("name the file after it"), "{e}");
+        // any name stays one plain file name (a zip of the files can't reach outside its folder)
+        for name in ["../../etc/x", "a/b", ".hidden", "Net revenue", "50%"] {
+            let s = super::segment(name);
+            assert!(s.chars().all(|c| c.is_ascii_alphanumeric() || "_-%".contains(c)), "{name} -> {s}");
+            let (_, names) = super::kind_of(&format!("glossary/{s}.yaml")).unwrap();
+            assert_eq!(names, [name]);
+        }
+        assert!(super::kind_of("glossary/%zz.yaml").is_err());
     }
 
     #[tokio::test]
@@ -704,6 +775,20 @@ mod tests {
             assert!(files.get(&path).is_some(), "{path} in {files}");
         }
         assert_eq!(files["dashboards/code_test.yaml"], json!(dashboard), "dashboards as written");
+        // or the same files in a zip, to download
+        let req = axum::http::Request::get("/api/code?format=zip")
+            .header("cookie", &cookie)
+            .header("x-magnum-org", &a)
+            .body(axum::body::Body::empty())
+            .unwrap();
+        let resp = tower::ServiceExt::oneshot(app.clone(), req).await.unwrap();
+        assert_eq!(resp.headers()["content-type"], "application/zip");
+        let bytes = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
+        let mut zip = zip::ZipArchive::new(std::io::Cursor::new(bytes.to_vec())).unwrap();
+        assert_eq!(zip.len(), files.as_object().unwrap().len());
+        let mut text = String::new();
+        std::io::Read::read_to_string(&mut zip.by_name("dashboards/code_test.yaml").unwrap(), &mut text).unwrap();
+        assert_eq!(text, dashboard);
 
         // B: the plan creates everything (in an order that works) and changes nothing
         let (s, plan, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(json!({"files": files})), None).await;
@@ -746,6 +831,12 @@ mod tests {
         let (s, r, _) = send(&app, c, &b, "POST", "/api/code?prune=1", Some(json!({"files": fewer})), None).await;
         assert_eq!(r["changes"], json!([{"path": format!("blends/{blend}.yaml"), "action": "delete"}]), "{s} {r}");
         assert_eq!(export(&app, &cookie, &b).await, fewer);
+
+        // a request holds a bounded number of files
+        let many: serde_json::Map<String, Value> =
+            (0..=super::MAX_FILES).map(|i| (format!("glossary/t{i}.yaml"), json!("name: x\n"))).collect();
+        let (s, r, _) = send(&app, c, &b, "POST", "/api/code?dry_run=1", Some(json!({"files": many})), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{r}");
 
         // power users can't apply
         let (s, _, _) =
@@ -826,6 +917,15 @@ mod tests {
             .collect();
         errors.sort();
         assert_eq!(errors, ["mail.yaml", "webhooks/team.yaml"], "{r}");
+
+        // a signed report's guests need a password nobody would know unless it's given
+        let mut signed = files.clone();
+        signed["reports/code_test/for-guests.yaml"] = json!(
+            "report:\n  name: For guests\n  format: signed\n  webhooks: [team]\n  when: {every: daily, at: '08:00', timezone: UTC}\n"
+        );
+        let (_, r, _) = send(&app, c, &a, "POST", "/api/code?dry_run=1", Some(json!({"files": signed})), None).await;
+        let error = r["changes"].as_array().unwrap().iter().find(|c| c["path"] == "reports/code_test/for-guests.yaml");
+        assert!(error.is_some_and(|c| c["error"].as_str().unwrap_or_default().contains("password")), "{r}");
 
         // with the secrets given apart, the plan works, the model checked on the connection it adds
         let secrets = json!({"webhooks/team.yaml": "https://hooks.example.com/canary-b", "mail.yaml": "canary-mail-b",
