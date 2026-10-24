@@ -410,7 +410,8 @@ that password it can never act as a system owner or in another organisation, bec
 could have created it for an email they don't own. Other methods, or a password set by a
 system owner or on the server, aren't bound.
 
-Disable an account with `magnum-bi user disable <email>`; this also ends its sessions.
+Disable an account with `magnum-bi user disable <email>`; this also ends its sessions
+(`magnum-bi user enable <email>` lets it in again).
 
 ## Agents and automation
 
@@ -442,8 +443,8 @@ Tools (`api/mcp.rs`): `list_models`, `describe_model`, `search_catalog`, `get_gl
 `resume_report`, `send_report_now`, `delete_report`, `list_blends`, `save_blend`, `delete_blend`,
 `list_connections`, `save_connection`, `delete_connection`, `get_members`, `save_members`,
 `list_themes`, `export_theme_css`, `import_theme_css`, `get_org_themes`, `save_org_themes`,
-`usage_summary`. Writes that change what others see take `dry_run` (dashboards, blends, members,
-reports, shared formulas). Each calls the API handler
+`usage_summary`. Writes that change what others see take `dry_run` (dashboards through `validate_dashboard`,
+blends, members, connections, reports, shared formulas, organisation themes). Each calls the API handler
 a browser would, as the token's person, so permissions, row filters, dry runs and version checks
 are the API's own. Agents see only the tools they may use; read-only tokens get no writing tools.
 Every tool call is in the usage log. The endpoint is stateless JSON-RPC (streamable HTTP transport
@@ -453,7 +454,8 @@ Inspector.
 Two safety nets for changes made by agents (and people):
 
 - **Dry runs**: `?dry_run=1` on `PUT /api/dashboards/{id}` (JSON), `PUT /api/dashboards/{id}/yaml`,
-  `PUT /api/blends/{name}` and `PUT /api/members` checks everything and reports warnings (e.g. a
+  `PUT /api/blends/{name}`, `PUT /api/members` and the other writes agents use (connections,
+  org models, formulas, governance, org themes, chat settings, delivery, schedules, `POST /api/code`) checks everything and reports warnings (e.g. a
   tile on a field that doesn't exist) without saving. Read-only tokens may make them.
 - **Versions**: reads of a dashboard or of the members return a `version`; send it back as
   `If-Match: <version>` and the save is refused with 409 (and the current version) if someone
@@ -828,7 +830,7 @@ API: `GET /api/delivery`, `PUT`/`DELETE /api/delivery/mail` (`{"host", "port", "
 
 ## Scheduled reports and alerts
 
-**Schedule…** on a dashboard (Users and up) sends it every day, week (on a weekday) or month (on
+**Schedule…** on a dashboard (Users and up) sends it every hour, day, week (on a weekday) or month (on
 a day from 1 to 28), at a local time in a time zone, with the filters and period on screen. It
 goes through the tenant's own mail server and webhooks, as one of three things:
 
@@ -836,7 +838,7 @@ goes through the tenant's own mail server and webhooks, as one of three things:
   email links to the dashboard). Webhooks get a link to the dashboard.
 - **A guest link with a password** (Power users and up, in an organisation): each run makes a
   fresh guest link that works until the next report (never more than 14 days), with the
-  password set when scheduling. The password is never in the email: send it once, separately.
+  password set when scheduling (or one made up and shown once). The password is never in the email: send it once, separately.
 - **A public link** (Org admins): one of the dashboard's public links.
 
 Who and how:
@@ -894,7 +896,8 @@ admins), `DELETE /api/schedules/{id}`, `PUT /api/schedules/{id}/active`, `POST
 | `MAGNUM_HOST` / `MAGNUM_PORT` | 127.0.0.1 / 8000 | listen address |
 | `MAGNUM_PROJECT_DIR` / `MAGNUM_FRONTEND_DIST` | `project` / `frontend/dist` | paths |
 | `MAGNUM_DB_AUTO_MIGRATE` | 1 | migrate ScramDB at startup |
-| `MAGNUM_LOG` | `magnum_bi=info` | log filter |
+| `MAGNUM_LOG` | `magnum_bi=info` | log filter (`magnum_bi` is the crate's module name) |
+| `MAGNUM_URL` / `MAGNUM_TOKEN` | | for `magnum-bi code`: the server's address and an API token |
 
 ## Security
 
