@@ -161,6 +161,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const visible = onTab(dash.tiles, tabs, tab)
   const layout: Layout[] = phone ? phoneLayout(visible) : visible.map(t => ({ i: t.id, ...t.layout, minW: 2, minH: 2 }))
   const showFilters = !embed || new URLSearchParams(location.search).get('filters') !== '0'
+  const firstChart = visible.findIndex(isChart)  // the welcome tour points at it
 
   return (
     <div className={embed ? 'page embed' : 'page'}>
@@ -195,11 +196,11 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             </> : <>
               {can('download') && <DownloadButton dashboard={id} request={tileRequest} />}
               {isTemplate && <button title="Copy this template into organisations" onClick={() => setShowPublish(true)}>Publish…</button>}
-              {can('share') && <button onClick={() => setShowSchedules(true)}>Schedule…</button>}
+              {can('share') && <button data-tour="schedule" onClick={() => setShowSchedules(true)}>Schedule…</button>}
               {can('share') && <button onClick={() => setShowEmbed(true)}>Embed</button>}
               {can('edit') && auth?.org && <button onClick={() => setShowGuests(true)}>Share with guests</button>}
               {can('manage_members') && auth?.org && <button onClick={() => setShowShare(true)}>Share publicly</button>}
-              {can('edit') && <button onClick={() => setEditing(true)}>Edit</button>}
+              {can('edit') && <button data-tour="edit" onClick={() => setEditing(true)}>Edit</button>}
               {can('edit') && <button className="danger" title="Delete dashboard" onClick={async () => {
                 if (confirm(`Delete dashboard "${dash.title}"? Its history is kept.`)) { await api.deleteDashboard(id); navigate('/') }
               }}>🗑</button>}
@@ -227,7 +228,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       ) : (
         <>
           {showFilters && period && (
-            <div className="period-bar">
+            <div className="period-bar" data-tour="period">
               <PeriodControl model={models.find(m => m.name === period.model)} period={period}
                 onChange={p => changePeriod(p ? { ...p, model: period.model } : null)} />
               {editing && <button className="link" onClick={() => changePeriod(null)}>Remove period</button>}
@@ -243,11 +244,11 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
           <Grid className={editing ? 'grid editing' : 'grid'} layout={layout} cols={12} rowHeight={64} margin={[12, 12]}
             isDraggable={editing && !phone} isResizable={editing && !phone} draggableHandle=".tile-head" draggableCancel="button,select,input"
             onLayoutChange={onLayoutChange} compactType="vertical">
-            {visible.map(t => {
+            {visible.map((t, i) => {
               const remove = () => update(d => ({ ...d, tiles: d.tiles.filter(x => x.id !== t.id) }))
               const move = editing && tabs.length > 1 ? <MoveTab tabs={tabs} current={tab} onMove={to => moveTile(t.id, to)} /> : null
               return (
-                <div key={t.id}>
+                <div key={t.id} data-tour={i === firstChart ? 'tiles' : undefined}>
                   {isChart(t)
                     ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
                         period={period && period.model === t.query.model ? tilePeriod : null}

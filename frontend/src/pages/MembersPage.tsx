@@ -127,7 +127,7 @@ export default function MembersPage() {
             </div>
           )
         })}
-        <button className="link" onClick={() => setPeople([...people, { who: '', role: 'viewer', filters: [] }])}>+ Add person</button>
+        <button className="link" data-tour="add-person" onClick={() => setPeople([...people, { who: '', role: 'viewer', filters: [] }])}>+ Add person</button>
       </div>
 
       {data.org.domains.length > 0 && (<>
@@ -144,7 +144,7 @@ export default function MembersPage() {
       {msg && <div className={msg.kind === 'error' ? 'error' : 'ok'}>{msg.text}</div>}
       <div className="row"><button className="primary" disabled={busy} onClick={save}>{busy ? 'Saving…' : 'Save'}</button></div>
 
-      <h2 className="section">Sign-in</h2>
+      <h2 className="section" data-tour="sign-in">Sign-in</h2>
       <SignInSettings />
     </div>
   )

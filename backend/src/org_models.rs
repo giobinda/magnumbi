@@ -316,4 +316,35 @@ mod tests {
         assert_eq!(dims, [("pickup_hour", "number"), ("year", "number"), ("weekday", "number")]);
         assert_eq!(m.measures.iter().map(|x| x.name.as_str()).collect::<Vec<_>>(), ["count", "fare"]);
     }
+
+    #[test]
+    fn the_platforms_app_models_are_the_platforms_and_an_organisations_own_come_first() {
+        let columns = cols(&[("region", ColType::Text), ("amount", ColType::Numeric)]);
+        let (sales, _) = propose("sales", "warehouse", "sample_sales", Dialect::Postgres, &columns);
+        let (shared, _) = propose("shared", "warehouse", "public.sample_sales", Dialect::Postgres, &columns);
+        let (clash, _) = propose("sales", "warehouse", "other", Dialect::Postgres, &columns);
+        let project =
+            crate::project::ProjectState { models: [("sales".to_string(), sales)].into(), ..Default::default() };
+        let p = project.with_platform_models(&[shared.clone(), clash], &[]);
+        assert!(p.models.contains_key("shared") && !p.org_models.contains("shared"));
+        assert!(p.errors.contains_key("model sales"), "a YAML model keeps its name: {:?}", p.errors);
+        // like the platform's YAML models, they follow each organisation's list of models
+        let scope = crate::access::Scope {
+            role: Some(crate::access::Role::Viewer),
+            org: Some("acme".into()),
+            models: Some(["sales".to_string()].into()),
+            ..Default::default()
+        };
+        assert!(!crate::access::model_available(&scope, &p, "shared"));
+        // restrictions on the table's data cover them, however the table is written
+        let rule =
+            crate::access::RowRule { model: "sales".into(), dimension: "region".into(), values: vec!["EMEA".into()] };
+        let scope = crate::access::Scope { models: None, personal_filters: vec![rule], ..scope };
+        assert_eq!(crate::access::row_filters_for(&scope, &p, "shared").unwrap().len(), 1);
+        // an organisation's own model of the same name stays its own (the platform's is left out there)
+        let (mine, _) = propose("shared", "warehouse", "mine", Dialect::Postgres, &columns);
+        let p = project.with_platform_models(&[shared], &["shared".to_string()]).with_org_models(&[mine]);
+        assert_eq!(p.models["shared"].table.as_deref(), Some("mine"));
+        assert!(p.org_models.contains("shared"));
+    }
 }

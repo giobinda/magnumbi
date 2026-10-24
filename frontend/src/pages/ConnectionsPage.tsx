@@ -117,7 +117,7 @@ export default function ConnectionsPage() {
         </table>
       )}
       {list?.length === 0 && <p className="muted small">No connections yet.</p>}
-      {!editing && <div className="row"><button className="primary" onClick={() => setEditing('new')}>+ Add connection</button></div>}
+      {!editing && <div className="row"><button className="primary" data-tour="add-connection" onClick={() => setEditing('new')}>+ Add connection</button></div>}
       {editing && <ConnectionForm initial={editing === 'new' ? null : editing} suggested={needed[0]}
         onDone={() => { setEditing(null); load() }} onCancel={() => setEditing(null)} />}
     </div>

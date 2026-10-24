@@ -59,6 +59,7 @@
         <li><a href="#databases">Give it its own database</a></li>
         <li><a href="#org-admins">Name its Org admins</a></li>
         <li><a href="#sign-in">Sign-in rules</a></li>
+        <li><a href="#shared-models">Shared models</a></li>
         <li><a href="#templates">Templates and the demo</a></li>
         <li><a href="#usage">Usage, sharing and keeping watch</a></li>
         <li><a href="#delivery">Email and webhooks</a></li>
@@ -75,13 +76,13 @@
     <section id="role">
       <h2>What a platform owner does</h2>
 <p>System owners run Magnum BI for everyone: they create <strong>organisations</strong> (a company, a department, a customer), give each its own database, decide what each may use, and name each one's admins. Inside an organisation, its <a href="org-admin.html">Org admins</a> take over: data, models, dashboards, people.</p>
-      <p>The first system owners are named by the server's setting (<code>MAGNUM_SYSTEM_OWNERS</code>, or the <code>admin</code> email in Compose and Helm); after that, on <strong>Organisations › System owners</strong>. The home page's <strong>Get started</strong> list shows what's left to do.</p>
+      <p>The first system owners are named by the server's setting (<code>MAGNUM_SYSTEM_OWNERS</code>, or the <code>admin</code> email in Compose and Helm); after that, on <strong>Settings › Organisations › System owners</strong>. The home page's <strong>Get started</strong> list shows what's left to do; <strong>Show me</strong> on a step points at the control to use. The top bar groups the pages: <strong>Discover</strong>, <strong>Data</strong> and <strong>Settings</strong>.</p>
     </section>
 
     <section id="organisations">
       <h2>Create an organisation</h2>
 <ol>
-        <li>Open <strong>Organisations</strong>, then <strong>+ Add organisation</strong>.</li>
+        <li>Open <strong>Settings › Organisations</strong>, then <strong>+ Add organisation</strong>.</li>
         <li>Give it an <strong>id</strong> (lowercase, permanent, e.g. <code>acme</code>) and a name.</li>
         <li><strong>Email domains</strong> (optional): anyone from those domains joins it automatically, with its default role.</li>
         <li><strong>Models</strong>: the platform's models it may use (or all). Its own models, made by its Org admins, are always its own.</li>
@@ -96,7 +97,7 @@
 <p>Each organisation keeps its dashboards, connections, models, themes and cache in <strong>its own ScramDB</strong>. Until it has one, its people can't open dashboards.</p>
       <ol>
         <li>Start a ScramDB for it (on a server, or <code>make org-db ORG=acme PORT=55433</code> on a development machine).</li>
-        <li>On <strong>Organisations</strong>, its card, <strong>Database › Set…</strong>: paste its address (<code>postgresql://user:password@host:5432/scramdb</code>). Magnum BI tests it, sets it up and moves the organisation's dashboards there.</li>
+        <li>On <strong>Settings › Organisations</strong>, its card, <strong>Database › Set…</strong>: paste its address (<code>postgresql://user:password@host:5432/scramdb</code>). Magnum BI tests it, sets it up and moves the organisation's dashboards there.</li>
       </ol>
       <p>The address is stored encrypted with the <a href="infrastructure.html#secret-key">secret key</a>. From the server's command line: <code>echo "postgresql://…" | magnum-bi org set-database acme</code>. If an organisation's database is down, only that organisation is affected.</p>
     </section>
@@ -104,8 +105,8 @@
     <section id="org-admins">
       <h2>Name its Org admins</h2>
 <ol>
-        <li>On <strong>Organisations</strong>, its card, <strong>Open</strong>: you're now inside the organisation (the picker at the top says which).</li>
-        <li><strong>Members › People</strong>: add the person's email with the role <strong>Org admin</strong>, and <strong>Save</strong>.</li>
+        <li>On <strong>Settings › Organisations</strong>, its card, <strong>Open</strong>: you're now inside the organisation (the picker at the top says which).</li>
+        <li><strong>Settings › Members › People</strong>: add the person's email with the role <strong>Org admin</strong>, and <strong>Save</strong>.</li>
         <li>If they'll sign in with a password: <strong>One-time password…</strong> makes one to hand over; they choose their own at their first sign-in. With Google or the organisation's single sign-on, nothing else is needed.</li>
       </ol>
       <p>From there, the <a href="org-admin.html">Org admin guide</a> is theirs.</p>
@@ -113,21 +114,32 @@
 
     <section id="sign-in">
       <h2>Sign-in rules</h2>
-<p>On <strong>Organisations › Sign-in</strong>, choose how everyone may sign in (passwords, authenticator codes, passkeys, Google, organisations' own single sign-on, API tokens), and on each organisation's card, stricter rules for that organisation. Its Org admins can only tighten them further, never loosen them. Stricter rules sign out sessions that no longer meet them.</p>
+<p>On <strong>Settings › Organisations › Sign-in</strong>, choose how everyone may sign in (passwords, authenticator codes, passkeys, Google, organisations' own single sign-on, API tokens), and on each organisation's card, stricter rules for that organisation. Its Org admins can only tighten them further, never loosen them. Stricter rules sign out sessions that no longer meet them.</p>
+    </section>
+
+    <section id="shared-models">
+      <h2>Shared models</h2>
+<p>Models made in the platform workspace are the platform's: shared master data, for example, that several organisations read from their own databases.</p>
+      <ol>
+        <li>In the platform workspace (no organisation chosen), add the connection on <strong>Data › Connections</strong>, under the name organisations use for theirs (e.g. <code>warehouse</code>).</li>
+        <li><strong>Data › Models › + New model</strong>: pick the connection and a table; Magnum BI proposes the fields from its columns. Adjust them and <strong>Save model</strong>.</li>
+        <li>On <strong>Settings › Organisations</strong>, tick it under each organisation's <strong>Models</strong> (or give them all).</li>
+      </ol>
+      <p>Each organisation then reads it on <em>its own</em> connection of that name, with its own credentials and its organisation filters. An organisation's own model with the same name keeps it there. Models in <code>project/models</code> (YAML in git) work the same way.</p>
     </section>
 
     <section id="templates">
       <h2>Templates and the demo</h2>
 <ul>
         <li><strong>The platform workspace</strong> (no organisation chosen) has the platform's dashboards: templates. <strong>Publish…</strong> on one copies it into organisations.</li>
-        <li><strong>Demo data</strong> at the bottom of <strong>Organisations</strong> loads the NYC taxi × weather demo into an organisation (about 60 MB a month of trips): a quick way to show Magnum BI.</li>
+        <li><strong>Demo data</strong> at the bottom of <strong>Settings › Organisations</strong> loads the NYC taxi × weather demo into an organisation (about 60 MB a month of trips): a quick way to show Magnum BI.</li>
       </ul>
     </section>
 
     <section id="usage">
       <h2>Usage, sharing and keeping watch</h2>
 <ul>
-        <li><strong>Usage</strong> shows the whole platform (or one organisation): who looks at what, queries, how long they take, failures, and admin actions.</li>
+        <li><strong>Settings › Usage</strong> shows the whole platform (or one organisation): who looks at what, queries, how long they take, failures, and admin actions.</li>
         <li>Org admins can share dashboards publicly (from a cache) and Power users with guests (link + password, at most 14 days). <code>MAGNUM_PUBLIC_LINKS=0</code> turns public links off for the server.</li>
         <li>System owners can open any organisation and work inside it, with every permission.</li>
       </ul>
@@ -136,8 +148,8 @@
     <section id="delivery">
       <h2>Email and webhooks</h2>
 <ul>
-        <li><strong>Delivery</strong>, in the platform workspace, sets the platform workspace's own mail server and webhooks, for reports on its dashboards.</li>
-        <li><strong>They aren't shared.</strong> Each organisation sets up its own on its <strong>Delivery</strong> page, kept in its own database; an organisation without one can't send email, and nothing falls back to the platform's.</li>
+        <li><strong>Settings › Email &amp; webhooks</strong>, in the platform workspace, sets the platform workspace's own mail server and webhooks, for reports on its dashboards.</li>
+        <li><strong>They aren't shared.</strong> Each organisation sets up its own on its <strong>Settings › Email &amp; webhooks</strong> page, kept in its own database; an organisation without one can't send email, and nothing falls back to the platform's.</li>
         <li>Mail servers and webhooks go through the same network guard as connections: private addresses only where the server allows them (<code>MAGNUM_ALLOW_PRIVATE_CONNECTIONS</code>, <code>MAGNUM_CONNECTION_ALLOWED_HOSTS</code>).</li>
       </ul>
     </section>

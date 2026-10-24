@@ -579,10 +579,10 @@ pub fn same_data(project: &ProjectState, rule_model: &str, model_name: &str) -> 
     }
     match (source(project, &ra), source(project, &rb)) {
         (Some(x), Some(y)) if x == y => true,
-        // an organisation's model names its table as it likes (`sales`, `public.sales`): the same
+        // a model made in the app names its table as it likes (`sales`, `public.sales`): the same
         // table name on the same connection is the same data, so its restrictions apply (at worst
         // more than needed, never less)
-        (Some((cx, tx)), Some((cy, ty))) if project.org_models.contains(&ra) || project.org_models.contains(&rb) => {
+        (Some((cx, tx)), Some((cy, ty))) if project.app_models.contains(&ra) || project.app_models.contains(&rb) => {
             let last = |t: &str| t.rsplit('.').next().unwrap_or_default().to_string();
             cx == cy && last(&tx) == last(&ty)
         }

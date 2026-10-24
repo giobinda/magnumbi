@@ -1,7 +1,8 @@
-import { useEffect, useState } from 'react'
-import { BrowserRouter, NavLink, Route, Routes } from 'react-router-dom'
+import { useEffect, useRef, useState } from 'react'
+import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthGate, useAuth, useCan } from './auth'
 import { SecurityCard } from './components/Security'
+import { TourProvider, WelcomeOffer, useWelcomeTour } from './components/Tour'
 import { api, getOrg, getViewAs, setOrg, setViewAs } from './api'
 import type { Role } from './api'
 import MembersPage from './pages/MembersPage'
@@ -46,22 +47,18 @@ function SignedIn() {
         <Routes>
           <Route path="/embed/:id" element={<DashboardPage embed />} />
           <Route path="*" element={
+            <TourProvider>
             <div className="app">
               <nav className="topnav">
                 <NavLink to="/" className="brand">Magnum<span>BI</span></NavLink>
                 <ChatLink />
-                <NavLink to="/dashboards">Dashboards</NavLink>
-                <Guarded perm="explore"><NavLink to="/explore">Explore</NavLink></Guarded>
-                <Guarded perm="explore"><NavLink to="/blends">Blends</NavLink></Guarded>
-                <MembersLink />
-                <Guarded perm="manage_members"><NavLink to="/connections">Connections</NavLink></Guarded>
-                <OrgOnly><Guarded perm="manage_members"><NavLink to="/models">Models</NavLink></Guarded></OrgOnly>
-                <NavLink to="/catalog">Catalog</NavLink>
-                <Guarded perm="manage_members"><NavLink to="/themes">Themes</NavLink></Guarded>
-                <Guarded perm="manage_members"><NavLink to="/delivery">Delivery</NavLink></Guarded>
-                <Guarded perm="manage_members"><NavLink to="/usage">Usage</NavLink></Guarded>
-                <Guarded perm="manage_members"><NavLink to="/code">Code</NavLink></Guarded>
-                <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
+                <NavMenu label="Discover" tour="nav-discover" paths={['/dashboards', '/explore', '/catalog']}>
+                  <NavLink to="/dashboards">Dashboards</NavLink>
+                  <Guarded perm="explore"><NavLink to="/explore">Explore</NavLink></Guarded>
+                  <NavLink to="/catalog">Catalog</NavLink>
+                </NavMenu>
+                <DataMenu />
+                <SettingsMenu />
                 <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
               </nav>
               <Routes>
@@ -83,7 +80,9 @@ function SignedIn() {
                 <Route path="/dashboards/:id" element={<DashboardPage />} />
               </Routes>
               <Credit />
+              <WelcomeOffer />
             </div>
+            </TourProvider>
           } />
         </Routes>
       </AuthGate>
@@ -95,16 +94,59 @@ function Credit() {
   return <footer className="app-credit">Powered by Magnum BI · © Giovanni Andrea Binda · AGPL-3.0</footer>
 }
 
-/** Members are managed inside an organisation (system owners: after choosing one). */
-/** Only inside an organisation (not the platform workspace). */
-function OrgOnly({ children }: { children: React.ReactNode }) {
-  const { auth } = useAuth()
-  return auth?.org ? <>{children}</> : null
+/** A group of the top bar's links: a button that opens them (closes on a pick, a click elsewhere
+ *  or Escape). Hidden when the role can see none of them. */
+function NavMenu({ label, paths, tour, children }: { label: string; paths: string[]; tour?: string; children: React.ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const ref = useRef<HTMLDivElement>(null)
+  const { pathname } = useLocation()
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => { if (!ref.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  const active = paths.some(p => pathname === p || pathname.startsWith(p + '/'))
+  return (
+    <div className="nav-menu" ref={ref} data-tour={tour}>
+      <button type="button" className={active ? 'active' : ''} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+        {label} <span aria-hidden>▾</span>
+      </button>
+      <div className="nav-menu-list" hidden={!open} onClick={() => setOpen(false)}>{children}</div>
+    </div>
+  )
 }
 
-function MembersLink() {
+/** Data: where it comes from and what it means (Org admins; system owners, for the platform). */
+function DataMenu() {
+  const can = useCan()
+  if (!can('explore') && !can('manage_members')) return null
+  return (
+    <NavMenu label="Data" tour="nav-data" paths={['/connections', '/models', '/blends']}>
+      <Guarded perm="manage_members"><NavLink to="/connections">Connections</NavLink></Guarded>
+      <Guarded perm="manage_members"><NavLink to="/models">Models</NavLink></Guarded>
+      <Guarded perm="explore"><NavLink to="/blends">Blends</NavLink></Guarded>
+    </NavMenu>
+  )
+}
+
+/** Settings: people, look, delivery, usage, code and (system owners) organisations. */
+function SettingsMenu() {
+  const can = useCan()
   const { auth } = useAuth()
-  return auth?.org ? <Guarded perm="manage_members"><NavLink to="/members">Members</NavLink></Guarded> : null
+  if (!can('manage_members')) return null
+  return (
+    <NavMenu label="Settings" tour="nav-settings" paths={['/members', '/themes', '/delivery', '/usage', '/code', '/organisations', '/chat-settings']}>
+      {auth?.org && <NavLink to="/members">Members</NavLink>}
+      <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
+      <NavLink to="/themes">Themes</NavLink>
+      <NavLink to="/delivery">Email &amp; webhooks</NavLink>
+      <NavLink to="/chat-settings">Chat settings</NavLink>
+      <NavLink to="/usage">Usage</NavLink>
+      <NavLink to="/code">Code</NavLink>
+    </NavMenu>
+  )
 }
 
 /** System owners: work in the platform workspace (templates, every model) or inside an organisation. */
@@ -169,6 +211,7 @@ function UserMenu() {
       {roleBadge}
       <span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span>
       <span className="user-name" title={auth.user?.email ?? undefined}>{name}</span>
+      <TourButton />
       <button className="link" onClick={() => setChanging(true)}>Security</button>
       <button className="link" onClick={signOut}>Sign out</button>
       {changing && (
@@ -178,6 +221,14 @@ function UserMenu() {
       )}
     </div>
   )
+}
+
+/** The welcome tour again, on request. */
+function TourButton() {
+  const welcome = useWelcomeTour()
+  const [none, setNone] = useState(false)
+  return <button className="link" data-tour="tour-again" title={none ? 'There is no dashboard to show you around yet' : 'A short tour of a dashboard'}
+    onClick={async () => setNone(!(await welcome()))}>Tour</button>
 }
 
 /** Where people start: the chat or the dashboards (their choice, or their organisation's). */
@@ -193,5 +244,5 @@ function ChatLink() {
   const can = useCan()
   const [on, setOn] = useState(false)
   useEffect(() => { api.chat().then(c => setOn(c.enabled), () => setOn(false)) }, [])
-  return on || can('manage_members') ? <NavLink to="/chat">Chat</NavLink> : null
+  return on || can('manage_members') ? <NavLink to="/chat" data-tour={on ? 'nav-chat' : undefined}>Chat</NavLink> : null
 }

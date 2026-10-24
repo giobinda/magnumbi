@@ -202,7 +202,7 @@ AGENTS.md             <span class="c"># the guide for coding agents (CLAUDE.md i
         <table>
           <thead><tr><th>Object</th><th>Web UI</th><th>YAML in git</th><th>API / CLI</th></tr></thead>
           <tbody>
-            <tr><td>Models</td><td>✓ Org admins: Models page (no SQL)</td><td>✓ <code>project/models/</code> (the platform's); <a href="#as-code">setup as code</a> for your own</td><td>✓ <code>/api/org-models/{name}</code>; read: <code>GET /api/models</code></td></tr>
+            <tr><td>Models</td><td>✓ Data › Models (no SQL): Org admins their own, system owners the platform's</td><td>✓ <code>project/models/</code> (the platform's); <a href="#as-code">setup as code</a> for your own</td><td>✓ <code>/api/org-models/{name}</code>; read: <code>GET /api/models</code></td></tr>
             <tr><td>Dashboards</td><td>✓ Designer + YAML view</td><td>✓ <code>dashboards/</code> (seeded on first start)</td><td>✓ <code>/api/dashboards/{id}</code>, <code>…/yaml</code>, <code>…/history</code></td></tr>
             <tr><td>Blends</td><td>✓ Blends page</td><td>✓ <code>blends/</code></td><td>✓ <code>/api/blends/{name}</code></td></tr>
             <tr><td>Themes</td><td>✓ Pick; Org admins: <em>Themes</em> editor, CSS export/import</td><td>✓ <code>project/themes/</code>; an organisation's: <code>themes.yaml</code></td><td>✓ <code>/api/org-themes</code>; read: <code>GET /api/themes</code></td></tr>
@@ -240,11 +240,11 @@ curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview
 
     <section id="models">
       <h2>Models</h2>
-      <p>A model describes one table: which columns you group by (<strong>dimensions</strong>), which numbers you add up (<strong>measures</strong>), and how to drill (<strong>hierarchies</strong>). The platform's models are YAML in git; each organisation's Org admins can also make their own in the app.</p>
+      <p>A model describes one table: which columns you group by (<strong>dimensions</strong>), which numbers you add up (<strong>measures</strong>), and how to drill (<strong>hierarchies</strong>). The platform's models are YAML in git or made in the app by system owners; each organisation's Org admins can also make their own in the app.</p>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Models</strong>, Org admins make a model with no YAML and no SQL:</p>
+          <p>On <strong>Data › Models</strong>, Org admins (and, in the platform workspace, system owners) make a model with no YAML and no SQL:</p>
           <ol>
             <li><strong>+ New model</strong>, then pick a connection and one of its tables.</li>
             <li>Magnum BI proposes the model from the table's columns: text and dates become dimensions, numbers summed measures, ids and calendar numbers (hour, month, year) stay dimensions, and a count of rows is always there.</li>
@@ -279,15 +279,19 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
           </ul>
         </div>
       </div>
-      <h3>Your organisation's own models</h3>
+      <h3>Models made in the app</h3>
       <ul>
         <li><strong>No SQL, by design:</strong> a dimension is a column, a measure is a count, distinct count, sum, average, min or max of a column.</li>
-        <li><strong>Org admins only</strong>, because a model makes a table visible to the whole organisation. Restrictions follow the data: a rule on a model also covers your model on the same table. A model on a different table or view is different data, so check restrictions after adding one.</li>
+        <li><strong>Shared models:</strong> made by system owners in the platform workspace, a model is one of the platform's, like the YAML ones (shared master data, say). Every organisation allowed it on <strong>Settings › Organisations</strong> uses it on its own connection of the same name, with its own data. An organisation's own model of the same name keeps it there.</li>
+        <li><strong>Admins only</strong> (Org admins for their organisation, system owners for the platform), because a model makes a table visible to everyone it reaches. Restrictions follow the data: a rule on a model also covers any model made in the app on the same table. A model on a different table or view is different data, so check restrictions after adding one.</li>
         <li>Works with ScramDB, PostgreSQL, DuckDB and BigQuery connections, and its blends can join it.</li>
       </ul>
       <div class="note"><strong>One model, many organisations.</strong> Models only <em>name</em> a connection. Each organisation's <code>warehouse</code> decides where the data really is, so the same model serves everyone from their own data.</div>
       <h3>Get started</h3>
-      <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours, single sign-on, email and webhooks). Each step links to where it's done and to its guide.</p>
+      <p>Until the essentials are set up, the home page shows a <strong>Get started</strong> checklist, worked out from what is really there: for system owners (secret key, https, a first organisation, its database and its admin) and for Org admins (connect data, a model, a first dashboard, your team, and optionally your colours, single sign-on, email and webhooks). Each step links to where it's done and to its guide, and <strong>Show me</strong> opens the page and points at the control to use.</p>
+      <h3>Tours</h3>
+      <p>At their first sign-in in an organisation, everyone is asked whether they'd like a one-minute tour. Balloons next to the controls show a dashboard's period, filters and drill-down, then what their role adds: downloads, schedules, editing, Explore, the chat and, for Org admins, the Data and Settings menus. Taking it, skipping it or <em>Don't ask again</em> stops the question; <em>Not now</em> asks again at the next sign-in, and <strong>Tour</strong> next to your name runs it any time (<code>GET</code>/<code>PUT /api/tour</code>).</p>
+      <p>The top bar groups the pages: <strong>Chat</strong>, <strong>Discover</strong> (dashboards, Explore, the catalog), <strong>Data</strong> (connections, models, blends) and <strong>Settings</strong> (members, organisations, themes, email and webhooks, chat settings, usage, code). Each person sees only what their role can use.</p>
     </section>
 
     <section id="formulas">
@@ -302,7 +306,7 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
           <ol>
-            <li>In <strong>Explore</strong>, click <strong>ƒ New formula</strong> next to <em>Measures</em> (on totals), or <strong>ƒ New field</strong> next to <em>Dimensions</em> (per row).</li>
+            <li>In <strong>Discover › Explore</strong>, click <strong>ƒ New formula</strong> next to <em>Measures</em> (on totals), or <strong>ƒ New field</strong> next to <em>Dimensions</em> (per row).</li>
             <li>Name it, and build it by clicking the model's measures, its columns (as Σ aggregations) and the functions, or by typing. It's checked as you type, and a mistake is shown where it is (<em>unknown field "revnue"; did you mean revenue?</em>).</li>
             <li><strong>Add</strong> puts it in your chart. Click its <strong>ƒ</strong> to change it.</li>
           </ol>
@@ -312,7 +316,7 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
           <figure class="shot"><a href="assets/screens/explore-row.jpg"><img src="assets/screens/explore-row.jpg" alt="Explore grouping revenue by the new field" width="1280" height="820" loading="lazy"></a><figcaption>Revenue by the new field. A field of the chart is listed with the model's, to edit (✎) or remove (×).</figcaption></figure>
           <figure class="shot"><a href="assets/screens/formula-results.jpg"><img src="assets/screens/formula-results.jpg" alt="The formula editor with the functions on the chart's results" width="760" height="740" loading="lazy"></a><figcaption>A running total: the functions <em>on the chart's results</em> are offered in Explore.</figcaption></figure>
           <figure class="shot"><a href="assets/screens/explore-results.jpg"><img src="assets/screens/explore-results.jpg" alt="Revenue by month with its running total" width="1280" height="820" loading="lazy"></a><figcaption>Revenue by month, and revenue so far.</figcaption></figure>
-          <p><strong>Shared formulas:</strong> Org admins can tick <em>Share with everyone in the organisation</em>, or use <strong>Models › Shared formulas</strong>. A shared formula becomes one of the model's measures (or fields, per row) for the whole organisation, marked <strong>ƒ</strong> in the field list.</p>
+          <p><strong>Shared formulas:</strong> Org admins can tick <em>Share with everyone in the organisation</em>, or use <strong>Data › Models › Shared formulas</strong>. A shared formula becomes one of the model's measures (or fields, per row) for the whole organisation, marked <strong>ƒ</strong> in the field list.</p>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
 <div class="code">
@@ -356,7 +360,7 @@ measures:
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p><strong>Catalog</strong> lists every model you can see, with its owner, stewards and status. The owner and Org admins see <strong>Edit</strong>.</p>
+          <p><strong>Discover › Catalog</strong> lists every model you can see, with its owner, stewards and status. The owner and Org admins see <strong>Edit</strong>.</p>
           <figure class="shot"><a href="assets/screens/catalog.jpg"><img src="assets/screens/catalog.jpg" alt="The data catalog: models with their status, owner and stewards, one being edited" width="760" height="935" loading="lazy"></a><figcaption>A certified model being edited, a deprecated blend saying what to use instead, and a draft.</figcaption></figure>
           <p>The status shows next to the model in Explore's model picker. A deprecated model also shows its note there, and a warning on every dashboard that uses it.</p>
           <p><strong>Documentation</strong> (for the model's stewards, its owner and Org admins) edits the description and tags of the model, and of each field its description, other names, examples, tags and glossary terms. A description written here replaces the model's own for your organisation; other names and tags add to it.</p>
@@ -462,7 +466,7 @@ measures:
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
           <ol>
-            <li><strong>Explore</strong> (Power users and up): pick a model, then double-click or drag dimensions and measures onto the shelves. Magnum BI suggests a chart; pick another from the list. <strong>Add to dashboard</strong> when it's right.</li>
+            <li><strong>Discover › Explore</strong> (Power users and up): pick a model, then double-click or drag dimensions and measures onto the shelves. Magnum BI suggests a chart; pick another from the list. <strong>Add to dashboard</strong> when it's right.</li>
             <li>On a dashboard, <strong>Edit</strong>: drag tiles by their title and resize them from the corner, add charts (<em>+ Add tile</em>), notes (<em>+ Add text</em>) and pages (<em>+ Tab</em>; ⇄ moves a tile to another tab), then <strong>Save</strong>. Every saved version is kept.</li>
             <li>Everyone uses the period and filters at the top, clicks a bar or a row to drill down, and downloads a tile's data or picture from its ⤓ menu, or the whole dashboard with <strong>Download</strong>.</li>
           </ol>
@@ -518,7 +522,7 @@ tiles:
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Connections</strong> (Org admins): <strong>+ Add connection</strong>, choose the type, fill in where it is and its password or key, <strong>Test</strong> it, then <strong>Save</strong>. A warning lists the connections your models need that aren't set up yet.</p>
+          <p>On <strong>Data › Connections</strong> (Org admins): <strong>+ Add connection</strong>, choose the type, fill in where it is and its password or key, <strong>Test</strong> it, then <strong>Save</strong>. A warning lists the connections your models need that aren't set up yet.</p>
           <figure class="shot"><a href="assets/screens/connections.jpg"><img src="assets/screens/connections.jpg" alt="The Connections page with the warehouse connection open: type ScramDB, host, port, database, user, schema, TLS, password" width="760" height="897" loading="lazy"></a><figcaption>Editing the <code>warehouse</code> connection; <em>Test</em> checks it before saving.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -558,7 +562,7 @@ tiles:
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Blends</strong> (Power users and up): <strong>+ New blend</strong>, pick the base model (every row starts from it), then each model to join and the fields that match (a date can match at a grain, such as the hour). Choose how long results are reused, then <strong>Save</strong> and open it in Explore.</p>
+          <p>On <strong>Data › Blends</strong> (Power users and up): <strong>+ New blend</strong>, pick the base model (every row starts from it), then each model to join and the fields that match (a date can match at a grain, such as the hour). Choose how long results are reused, then <strong>Save</strong> and open it in Explore.</p>
           <figure class="shot"><a href="assets/screens/blends.jpg"><img src="assets/screens/blends.jpg" alt="The blend editor: base model Store sales, joined with Stores on Store" width="760" height="947" loading="lazy"></a><figcaption>A blend of the platform's sales model and the organisation's own Stores model, on the store.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -592,7 +596,7 @@ cache: 1h</code></pre>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Usage</strong>, Org admins see what's cached for each model (results, rows, hits) next to who looks at what, and clear the cache after loading new data.</p>
+          <p>On <strong>Settings › Usage</strong>, Org admins see what's cached for each model (results, rows, hits) next to who looks at what, and clear the cache after loading new data.</p>
           <figure class="shot"><a href="assets/screens/usage.jpg"><img src="assets/screens/usage.jpg" alt="The Usage page: activity, dashboards, people and the cache" width="1280" height="820" loading="lazy"></a><figcaption>Usage for ACME, with its cache.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -613,7 +617,7 @@ cache: 1h</code></pre>
       <ul>
         <li><strong>Typed tables, not blobs.</strong> Each result is stored as a real table (<code>magnum_cache.r_…</code>), the same mechanism that powers <a href="#blends">blends</a>.</li>
         <li><strong>Real-world numbers.</strong> On the <a href="#demo">NYC taxi demo</a> (208 million rows), a month takes about 1 s and all five years about 5 s; a cross-engine blend about 2 s. Cached, they're instant.</li>
-        <li><strong>Managed for you.</strong> Every 5 minutes expired results are dropped, and each organisation keeps at most <code>MAGNUM_CACHE_MAX_ROWS</code> rows of results (5 million by default) and 2,000 results, least recently used dropped first. Org admins see and clear the cache on <strong>Usage</strong>; builders can bypass it with the <code>x-magnum-refresh: 1</code> header.</li>
+        <li><strong>Managed for you.</strong> Every 5 minutes expired results are dropped, and each organisation keeps at most <code>MAGNUM_CACHE_MAX_ROWS</code> rows of results (5 million by default) and 2,000 results, least recently used dropped first. Org admins see and clear the cache on <strong>Settings › Usage</strong>; builders can bypass it with the <code>x-magnum-refresh: 1</code> header.</li>
       </ul>
       <div class="note"><strong>Development tip:</strong> locally, several organisations may share one ScramDB instance (rows carry the organisation id). In production, give each organisation its own instance for full isolation.</div>
     </section>
@@ -698,7 +702,7 @@ cache: 1h</code></pre>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Delivery</strong> (Org admins; system owners in the platform workspace): set up the mail server and <strong>Send me a test</strong>; add Slack, Teams or other webhooks and <strong>Test</strong> them. The same page lists every scheduled report and alert, to pause or remove.</p>
+          <p>On <strong>Settings › Email &amp; webhooks</strong> (Org admins; system owners in the platform workspace): set up the mail server and <strong>Send me a test</strong>; add Slack, Teams or other webhooks and <strong>Test</strong> them. The same page lists every scheduled report and alert, to pause or remove.</p>
           <figure class="shot"><a href="assets/screens/delivery.jpg"><img src="assets/screens/delivery.jpg" alt="The Delivery page: the mail server, two webhooks, and the scheduled reports" width="760" height="795" loading="lazy"></a><figcaption>ACME's mail server, its Slack and Teams webhooks, and its scheduled reports.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -753,7 +757,7 @@ cache: 1h</code></pre>
         <li><strong>A public link</strong> (Org admins): one of the dashboard's public links.</li>
         <li><strong>An alert:</strong> a number on the dashboard (a KPI tile) above or below a value, or rising or falling by a percentage on the comparison period. A message goes out only when it crosses the line, and again only after it came back.</li>
       </ul>
-      <p>Reports and alerts go only to your members, people of the email domains your members join by, and the domains your Org admins allow on <strong>Delivery</strong>, checked when made and on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it. Set <code>MAGNUM_PUBLIC_URL</code> so the links in them work.</p>
+      <p>Reports and alerts go only to your members, people of the email domains your members join by, and the domains your Org admins allow on <strong>Settings › Email &amp; webhooks</strong>, checked when made and on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it. Set <code>MAGNUM_PUBLIC_URL</code> so the links in them work.</p>
     </section>
 
     <section id="themes">
@@ -762,7 +766,7 @@ cache: 1h</code></pre>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Themes</strong> (Org admins): <strong>Start from it</strong> on any theme opens the editor (colours, chart palette, corners, font) with a live preview and contrast checks. Pick the organisation's default light and dark themes, <strong>Export CSS</strong> for your own site, or import your design team's tokens.</p>
+          <p>On <strong>Settings › Themes</strong> (Org admins): <strong>Start from it</strong> on any theme opens the editor (colours, chart palette, corners, font) with a live preview and contrast checks. Pick the organisation's default light and dark themes, <strong>Export CSS</strong> for your own site, or import your design team's tokens.</p>
           <figure class="shot"><a href="assets/screens/themes.jpg"><img src="assets/screens/themes.jpg" alt="The Themes page: defaults for ACME, its own themes, and themes to start from" width="1280" height="820" loading="lazy"></a><figcaption>Themes for ACME.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -829,7 +833,7 @@ radius: 10</code></pre>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p><strong>Code</strong> downloads your setup as a zip of files. To apply files, choose their folder: the plan shows what would be created (+), changed (~) or deleted (−), with any problem next to its file and a field for a secret where one belongs. Apply when it's right.</p>
+          <p><strong>Settings › Code</strong> downloads your setup as a zip of files. To apply files, choose their folder: the plan shows what would be created (+), changed (~) or deleted (−), with any problem next to its file and a field for a secret where one belongs. Apply when it's right.</p>
           <figure class="shot"><a href="assets/screens/code.jpg"><img src="assets/screens/code.jpg" alt="The Code page: download as a zip, and the plan of a folder of files with one change and one new connection" width="860" height="560" loading="lazy"></a><figcaption>The plan comes first; nothing changes until you apply.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -856,9 +860,9 @@ magnum-bi code apply ./setup --prune   # shows the plan, asks, applies (--yes in
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Members</strong> (Org admins): add people by email with a role, give someone personal filters (they only narrow), let everyone from your email domain in with a default role, or set a one-time password for someone. The table at the top shows what each role can do.</p>
+          <p>On <strong>Settings › Members</strong> (Org admins): add people by email with a role, give someone personal filters (they only narrow), let everyone from your email domain in with a default role, or set a one-time password for someone. The table at the top shows what each role can do.</p>
           <figure class="shot"><a href="assets/screens/members.jpg"><img src="assets/screens/members.jpg" alt="The Members page: what each role can do, and ACME's people" width="1280" height="820" loading="lazy"></a><figcaption>ACME's members; one only sees EMEA.</figcaption></figure>
-          <p>System owners create organisations and give each its own database on <strong>Organisations</strong>.</p>
+          <p>System owners create organisations and give each its own database on <strong>Settings › Organisations</strong>.</p>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
 <div class="code">
@@ -889,7 +893,7 @@ magnum-bi code apply ./setup --prune   # shows the plan, asks, applies (--yes in
         <li>People join as listed members, or automatically by email domain with a default (non-admin) role.</li>
         <li><strong>Row filters</strong> only narrow what someone sees. Anything misconfigured fails closed.</li>
         <li>Anyone can preview a lower role (“view as”), never a higher one.</li>
-        <li><strong>Usage</strong> shows Org admins sign-ins, queries, dashboard views, cache hits and failures for their organisation, and system owners for the whole platform. Recording never slows a request down.</li>
+        <li><strong>Settings › Usage</strong> shows Org admins sign-ins, queries, dashboard views, cache hits and failures for their organisation, and system owners for the whole platform. Recording never slows a request down.</li>
       </ul>
     </section>
 
@@ -913,7 +917,7 @@ magnum-bi code apply ./setup --prune   # shows the plan, asks, applies (--yes in
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Members › Sign-in</strong>, Org admins choose the ways their people may sign in (within what the platform allows), require an authenticator code with passwords, and set up their single sign-on provider. Each person adds passkeys and an authenticator app under <strong>Security</strong>.</p>
+          <p>On <strong>Settings › Members › Sign-in</strong>, Org admins choose the ways their people may sign in (within what the platform allows), require an authenticator code with passwords, and set up their single sign-on provider. Each person adds passkeys and an authenticator app under <strong>Security</strong>.</p>
           <figure class="shot"><a href="assets/screens/sign-in.jpg"><img src="assets/screens/sign-in.jpg" alt="The organisation's sign-in settings: allowed methods, authenticator codes, single sign-on" width="712" height="343" loading="lazy"></a><figcaption>ACME's sign-in rules.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">
@@ -1017,7 +1021,7 @@ helm test bi</code></pre>
       <p>Want to see it at scale? One command sets up New York yellow taxi trips (NYC TLC open data, about 3.5 million trips a month) with the hourly weather in each borough:</p>
       <div class="code"><pre><code>make demo                          <span class="c"># platform workspace, 13 months</span>
 make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years</span></code></pre></div>
-      <p>System owners can also run it from <strong>Organisations › Demo data</strong>, with progress shown as it goes. It:</p>
+      <p>System owners can also run it from <strong>Settings › Organisations › Demo data</strong>, with progress shown as it goes. It:</p>
       <ol>
         <li>finds the latest published month and downloads and cleans each month with DuckDB (about 60 MB a month; months already there are skipped, so running it again only adds new ones);</li>
         <li>fetches the weather and creates the DuckDB connections <code>nyc_taxi</code> and <code>meteo</code>;</li>

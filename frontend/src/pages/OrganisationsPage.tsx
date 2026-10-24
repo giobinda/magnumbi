@@ -95,7 +95,7 @@ export default function OrganisationsPage() {
                   title={r.isNew ? 'Lowercase letters, digits, - and _' : 'The id is permanent'} />
                 <input placeholder="Name" value={r.name} onChange={e => set({ name: e.target.value })} />
                 {!r.isNew && <span className="muted small">{data.members[r.id] ?? 0} members</span>}
-                {!r.isNew && <button className="link" onClick={() => enter(r.id)}>Open</button>}
+                {!r.isNew && <button className="link" data-tour="org-open" onClick={() => enter(r.id)}>Open</button>}
                 <button className="icon" title="Remove organisation (its members lose access)"
                   onClick={() => confirm(`Remove ${r.name || r.id}? Its members lose access.`) && setRows(rows.filter((_, j) => j !== i))}>✕</button>
               </div>
@@ -122,7 +122,7 @@ export default function OrganisationsPage() {
             </div>
           )
         })}
-        <button className="link" onClick={() => setRows([...rows, { id: '', name: '', domains: [], models: [], filters: [], isNew: true }])}>
+        <button className="link" data-tour="add-org" onClick={() => setRows([...rows, { id: '', name: '', domains: [], models: [], filters: [], isNew: true }])}>
           + Add organisation</button>
       </div>
 
@@ -232,7 +232,7 @@ function OrgDatabase({ org, current, keySet, onSaved }: {
         <b>Database</b>
         {current ? <code className="mono">{current.display}</code>
           : <span className="warn-text">not set: its members can't open dashboards yet</span>}
-        {!editing && <button className="link" disabled={!keySet} onClick={() => setEditing(true)}>{current ? 'Change…' : 'Set…'}</button>}
+        {!editing && <button className="link" data-tour="org-database" disabled={!keySet} onClick={() => setEditing(true)}>{current ? 'Change…' : 'Set…'}</button>}
       </div>
       {!keySet && <div className="warn-text">Set MAGNUM_SECRET_KEY on the server first (<code>magnum-bi gen-key</code>): connection strings are stored encrypted.</div>}
       {editing && (

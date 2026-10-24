@@ -20,6 +20,7 @@ mod setup;
 pub(crate) mod share;
 mod themes;
 mod tokens;
+mod tour;
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -176,6 +177,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/formulas/{model}/{name}", axum::routing::put(formulas::save).delete(formulas::delete))
         .route("/api/org-models", get(org_models::list))
         .route("/api/setup", get(setup::checklist))
+        .route("/api/tour", get(tour::get).put(tour::put))
         .route("/api/org-models/{name}", axum::routing::put(org_models::save).delete(org_models::delete))
         .route("/api/cache", get(admin::cache_stats).delete(admin::clear_cache))
         .route("/api/code", get(code::export).post(code::apply))

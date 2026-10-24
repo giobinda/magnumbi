@@ -16,7 +16,7 @@ type Props = {
 export default function FilterBar({ dashboardId, filters, models, values, onChange }: Props) {
   if (!filters.length) return null
   return (
-    <div className="filter-bar">
+    <div className="filter-bar" data-tour="filters">
       {filters.map(f => {
         const model = models.find(m => m.name === f.model)
         const dim = model?.dimensions.find(d => d.name === f.field)

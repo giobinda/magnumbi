@@ -1,7 +1,10 @@
-//! Org admins' own models (org_models.rs): from a connection's table to a model, in the app.
+//! Models made in the app (org_models.rs): from a connection's table to a model, no SQL.
 //!
-//! A model makes a table visible to everyone in the organisation, and restrictions are set per
-//! model (and follow the same table into new models): so only Org admins make them.
+//! An organisation's own models are made by its Org admins; the platform's, in the platform
+//! workspace, by system owners (shared data every organisation its list allows uses, on its own
+//! connection of that name, like the YAML models). A model makes a table visible to everyone it
+//! reaches, and restrictions are set per model (and follow the same table into new models): so
+//! only admins make them.
 
 use std::collections::BTreeSet;
 use std::sync::Arc;
@@ -20,12 +23,14 @@ use crate::materialize::ColType;
 use crate::schema::{Model, check_name};
 use crate::state::{AppState, Shared};
 
+/// Org admins in an organisation; system owners in the platform workspace.
 fn require_org_admin(caller: &Caller) -> ApiResult<()> {
-    caller.require("manage_members")?;
-    if caller.org().is_empty() {
-        return Err(ApiError::bad_request("the platform workspace's models are the project's files (project/models)"));
-    }
-    Ok(())
+    caller.require(if caller.org().is_empty() { "manage_orgs" } else { "manage_members" })
+}
+
+/// The models this workspace made in the app (an organisation's own, or the platform's).
+fn own(caller: &Caller) -> &BTreeSet<String> {
+    if caller.org().is_empty() { &caller.project.app_models } else { &caller.project.org_models }
 }
 
 async fn connector(state: &AppState, caller: &Caller, name: &str) -> ApiResult<(Dialect, Arc<dyn Connector>)> {
@@ -98,7 +103,7 @@ pub async fn save(
     if m.name != name {
         return Err(ApiError::bad_request("the model's name must match the address it's saved to"));
     }
-    if state.project.current().models.contains_key(&name) {
+    if caller.project.models.contains_key(&name) && !own(&caller).contains(&name) {
         return Err(ApiError::bad_request(format!("{name:?} is the name of one of the platform's models or blends")));
     }
     if state.org_blends(caller.org()).await?.iter().any(|b| b.name == name) {
@@ -201,8 +206,6 @@ mod tests {
         let path = format!("/api/org-models/{name}");
         let (s, _, _) = send(&app, c, &org, "PUT", &path, Some(model.clone()), Some("power_user")).await;
         assert_eq!(s, StatusCode::FORBIDDEN);
-        let (s, _, _) = send(&app, c, "", "PUT", &path, Some(model.clone()), None).await;
-        assert_eq!(s, StatusCode::BAD_REQUEST);
 
         // what's refused: a taken name, SQL, fields that aren't the table's columns, unknown tables
         let mut taken = model.clone();
@@ -246,6 +249,46 @@ mod tests {
         assert_eq!(s, StatusCode::OK, "{b}");
 
         let (s, _, _) = send(&app, c, &org, "DELETE", &path, None, None).await;
+        assert_eq!(s, StatusCode::OK);
+        let (s, _, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn system_owners_make_the_platforms_models_in_the_app() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let name = format!("shared_sales_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        // proposed and saved in the platform workspace, on its warehouse
+        let proposal = format!("/api/connections/warehouse/tables/sample_sales/model?name={name}");
+        let (s, p, _) = send(&app, c, "", "GET", &proposal, None, None).await;
+        assert_eq!(s, StatusCode::OK, "{p}");
+        let path = format!("/api/org-models/{name}");
+        let (s, b, _) = send(&app, c, "", "PUT", &path, Some(p["model"].clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (_, list, _) = send(&app, c, "", "GET", "/api/org-models", None, None).await;
+        assert!(list["models"].as_array().unwrap().iter().any(|m| m["model"]["name"] == json!(name)), "{list}");
+        // a YAML model's name stays the YAML model's
+        let mut taken = p["model"].clone();
+        taken["name"] = json!("sales");
+        let (s, _, _) = send(&app, c, "", "PUT", "/api/org-models/sales", Some(taken), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+
+        // every organisation allowed the platform's models has it, on its own warehouse, as the platform's
+        let (_, models, _) = send(&app, c, &org, "GET", "/api/models", None, None).await;
+        let shared = models["models"].as_array().unwrap().iter().find(|m| m["name"] == json!(name)).cloned();
+        assert_eq!(shared.as_ref().map(|m| &m["own"]), Some(&json!(false)), "{models}");
+        let q = json!({"model": name, "dimensions": ["region"], "measures": ["count"]});
+        let (s, r, _) = send(&app, c, &org, "POST", "/api/query", Some(q.clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        // an organisation can't change or delete it, nor take its name
+        let (s, _, _) = send(&app, c, &org, "DELETE", &path, None, None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        let (s, _, _) = send(&app, c, &org, "PUT", &path, Some(p["model"].clone()), None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+
+        let (s, _, _) = send(&app, c, "", "DELETE", &path, None, None).await;
         assert_eq!(s, StatusCode::OK);
         let (s, _, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
         assert_eq!(s, StatusCode::BAD_REQUEST);
