@@ -152,7 +152,7 @@ make dev-frontend                         <span class="c"># UI on :5173 (in anot
           <tbody>
             <tr><td><code>make serve</code></td><td>Builds everything and runs one process serving the API and UI on <code>:8000</code>.</td></tr>
             <tr><td><code>docker compose up -d --build</code></td><td>Runs the packaged stack from your checkout instead of the published image.</td></tr>
-            <tr><td><code>make check</code></td><td>Validates your project files (connections, models, dashboards).</td></tr>
+            <tr><td><code>make check</code></td><td>Validates your project files (models, blends, themes, dashboards).</td></tr>
             <tr><td><code>make test</code></td><td>Backend tests, frontend typecheck and frontend tests.</td></tr>
             <tr><td><code>make test-db</code></td><td>Also runs the tests that need ScramDB (and PostgreSQL, if configured).</td></tr>
             <tr><td><code>make org-db ORG=acme PORT=55433</code></td><td>Gives an organisation its own local ScramDB.</td></tr>
@@ -202,16 +202,16 @@ AGENTS.md             <span class="c"># the guide for coding agents (CLAUDE.md i
         <table>
           <thead><tr><th>Object</th><th>Web UI</th><th>YAML in git</th><th>API / CLI</th></tr></thead>
           <tbody>
-            <tr><td>Models</td><td>✓ Org admins: Models page (no SQL)</td><td>✓ <code>models/</code> (the platform's)</td><td>✓ <code>/api/org-models/{name}</code>; read: <code>GET /api/models</code></td></tr>
+            <tr><td>Models</td><td>✓ Org admins: Models page (no SQL)</td><td>✓ <code>project/models/</code> (the platform's); <a href="#as-code">setup as code</a> for your own</td><td>✓ <code>/api/org-models/{name}</code>; read: <code>GET /api/models</code></td></tr>
             <tr><td>Dashboards</td><td>✓ Designer + YAML view</td><td>✓ <code>dashboards/</code> (seeded on first start)</td><td>✓ <code>/api/dashboards/{id}</code>, <code>…/yaml</code>, <code>…/history</code></td></tr>
             <tr><td>Blends</td><td>✓ Blends page</td><td>✓ <code>blends/</code></td><td>✓ <code>/api/blends/{name}</code></td></tr>
-            <tr><td>Themes</td><td>✓ Pick; Org admins: <em>Themes</em> editor, CSS export/import</td><td>✓ <code>themes/</code></td><td>✓ <code>/api/org-themes</code>; read: <code>GET /api/themes</code></td></tr>
-            <tr><td>Connections</td><td>✓ Connections page, with Test</td><td>—</td><td>✓ <code>/api/connections/{name}</code>, <code>…/test</code></td></tr>
-            <tr><td>Members, roles, filters</td><td>✓ Members page</td><td><code>access.yaml</code> (initial setup)</td><td>✓ <code>/api/members</code></td></tr>
+            <tr><td>Themes</td><td>✓ Pick; Org admins: <em>Themes</em> editor, CSS export/import</td><td>✓ <code>project/themes/</code>; an organisation's: <code>themes.yaml</code></td><td>✓ <code>/api/org-themes</code>; read: <code>GET /api/themes</code></td></tr>
+            <tr><td>Connections</td><td>✓ Connections page, with Test</td><td>✓ <a href="#as-code">setup as code</a> (<code>connections/</code>, secrets apart)</td><td>✓ <code>/api/connections/{name}</code>, <code>…/test</code></td></tr>
+            <tr><td>Members, roles, filters</td><td>✓ Members page</td><td>✓ <a href="#as-code">setup as code</a> (<code>members.yaml</code>); <code>access.yaml</code> on first start</td><td>✓ <code>/api/members</code></td></tr>
             <tr><td>Organisations</td><td>✓ Organisations page</td><td><code>access.yaml</code> (initial setup)</td><td>✓ <code>/api/platform</code>; CLI <code>magnum-bi org set-database</code></td></tr>
             <tr><td>Accounts</td><td>✓ Members, Security</td><td>—</td><td>CLI <code>magnum-bi user set-password | disable | enable</code></td></tr>
             <tr><td>API tokens</td><td>✓ Security › API tokens</td><td>—</td><td>✓ <code>/api/tokens</code></td></tr>
-            <tr><td>Sign-in policies</td><td>✓ Organisations › Sign-in, Members › Sign-in</td><td>—</td><td>✓ API</td></tr>
+            <tr><td>Sign-in policies</td><td>✓ Organisations › Sign-in, Members › Sign-in</td><td>✓ an organisation's: <a href="#as-code">setup as code</a> (<code>sign_in.yaml</code>)</td><td>✓ <code>/api/members/sign-in</code>, <code>/api/platform</code></td></tr>
           </tbody>
         </table>
       </div>
@@ -220,8 +220,8 @@ AGENTS.md             <span class="c"># the guide for coding agents (CLAUDE.md i
         <li><strong>One store per object.</strong> Dashboards are stored as YAML text. The designer and the YAML view are two views of the same thing: saving in either updates both.</li>
         <li><strong>Same validation everywhere.</strong> A dashboard, blend or connection is checked identically whether it's saved from the UI, a file or the API. Invalid changes are refused with an explanation.</li>
         <li><strong>History.</strong> Every dashboard save is kept as a version with its author, whichever way it was made.</li>
-        <li><strong>Checked before deploy.</strong> Run <code>magnum-bi check</code> (or <code>make check</code>) in CI to validate connections, models, themes and dashboards before they go live.</li>
-        <li><strong>Metrics in code.</strong> Models are only defined in YAML, so the meaning of a metric changes through review, not through a browser.</li>
+        <li><strong>Checked before deploy.</strong> Run <code>magnum-bi check</code> (or <code>make check</code>) in CI to validate the project's models, blends, themes and dashboards before they go live, and <code>magnum-bi code plan</code> for an organisation's setup.</li>
+        <li><strong>Metrics in code.</strong> The platform's models are YAML in git, so the meaning of a shared metric changes through review. Organisations' own models are made in the app (no SQL) and can be exported and applied as code too.</li>
       </ul>
       <h3>Using the API</h3>
       <p>The API lives under <code>/api</code> on the same address as the UI. Scripts, CI jobs and agents use an <strong>API token</strong> (<code>Authorization: Bearer mbi_…</code>, see <a href="#agents">AI agents &amp; MCP</a>); the browser uses its session. Your role applies to the API exactly as it does to the UI.</p>
@@ -235,7 +235,7 @@ curl -H "$H" -X PUT --data-binary @sales_overview.yaml \
 curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview.yaml \
      https://bi.example.com/api/dashboards/sales_overview/yaml               <span class="c"># 409 if someone changed it meanwhile</span></code></pre>
       </div>
-      <div class="note"><strong>Coming next:</strong> <em>plan / apply</em> from git, so a repository can continuously drive organisations and dashboards on a running server. Today, YAML dashboards and <code>access.yaml</code> are loaded on first start; after that, the server is the source of truth and the API is the way to sync.</div>
+      <div class="note"><strong>Keep an organisation in git:</strong> <code>magnum-bi code export</code>, <code>plan</code> and <code>apply</code> sync its connections, models, members, dashboards, reports and more with a folder of YAML files. See <a href="#as-code">Your setup as code</a>. The project's <code>dashboards/</code> and <code>access.yaml</code> are only loaded on first start.</div>
     </section>
 
     <section id="models">
@@ -657,7 +657,7 @@ cache: 1h</code></pre>
         </div>
       </div>
       <ul>
-        <li><strong>Visitors see the dashboard as saved</strong>: its default filters and period, without filtering or drilling down. They see it as the link's maker would, as a Viewer: the maker's row filters apply, so a link never shows more than they may see. If the maker leaves the organisation, the link stops working.</li>
+        <li><strong>Visitors see the dashboard as saved</strong>: its default filters and period, without filtering or drilling down. They see it as the link's maker would, as a Viewer: the maker's row filters apply, so a link never shows more than they may see. If the maker leaves the organisation or is disabled, the link stops working.</li>
         <li><strong>The warehouse answers each tile at most once per cache period</strong>, however many people open the link, and visitors arriving at the same moment wait for that one query. If the kept results can't be read, the link fails rather than ask the warehouse.</li>
         <li><strong>No cache is possible, never by accident.</strong> It sends every visit to the warehouse, so anyone with the link could overload it or run up its bill. Magnum BI spells out the risks and only makes the link once they're accepted and the dashboard's id is typed.</li>
         <li><strong>Removing a link</strong> stops it at once. Links aren't indexed by search engines (<code>noindex</code>), and <code>MAGNUM_PUBLIC_LINKS=0</code> turns them off for the whole server.</li>
@@ -748,12 +748,12 @@ cache: 1h</code></pre>
         </div>
       </div>
       <ul>
-        <li><strong>The data:</strong> a zip of each chart's CSV, attached to the email (webhooks get a link to the dashboard).</li>
+        <li><strong>The data:</strong> a zip of each chart's CSV, attached to the email (up to 10 MB; beyond that, the email links to the dashboard). Webhooks get a link to the dashboard.</li>
         <li><strong>A guest link with a password</strong> (Power users and up): a fresh link each time, working until the next report (at most 14 days). The password is never in the email.</li>
         <li><strong>A public link</strong> (Org admins): one of the dashboard's public links.</li>
         <li><strong>An alert:</strong> a number on the dashboard (a KPI tile) above or below a value, or rising or falling by a percentage on the comparison period. A message goes out only when it crosses the line, and again only after it came back.</li>
       </ul>
-      <p>Reports and alerts go only to your members and to the email domains your Org admins allow on <strong>Delivery</strong>, checked on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it. Set <code>MAGNUM_PUBLIC_URL</code> so the links in them work.</p>
+      <p>Reports and alerts go only to your members, people of the email domains your members join by, and the domains your Org admins allow on <strong>Delivery</strong>, checked when made and on every run. They run as their maker, with their restrictions, and pause when the maker can no longer send them or after 5 failed runs. Every email has a link to stop receiving it. Set <code>MAGNUM_PUBLIC_URL</code> so the links in them work.</p>
     </section>
 
     <section id="themes">
@@ -821,8 +821,8 @@ radius: 10</code></pre>
       <p>The agent can then search the data catalog and read its glossary, owners and lineage, list and describe models, run queries (with formulas, checked first) and preview their SQL, read, validate, save and delete dashboards (with history), schedule reports and alerts (and pause, resume, send or delete them), share formulas with the organisation, and manage blends, connections, members and themes. Give it your company's CSS design tokens and it can turn them into the organisation's default theme. It can also read usage summaries. Agents only see the tools their token allows; read-only tokens get no writing tools. Each tool calls the same API handler a browser would, so permissions and checks are the API's own.</p>
       <h3>Safety nets for changes</h3>
       <ul>
-        <li><strong>Dry runs.</strong> Add <code>?dry_run=1</code> when saving a dashboard, blend, members list or organisation themes: everything is checked and warnings come back (for example, a tile on a field that doesn't exist), but nothing is saved.</li>
-        <li><strong>Versions.</strong> Reads return a <code>version</code>. Send it back as <code>If-Match</code> and a save is refused (409, with the current version) if someone changed it meanwhile, instead of silently overwriting their work. Overwritten and deleted dashboards stay in their history.</li>
+        <li><strong>Dry runs.</strong> Add <code>?dry_run=1</code> when saving a dashboard, blend, members list, connection, your own model, shared formula, catalog entry, organisation themes, chat settings, mail server, webhook, report or setup as code: everything is checked and warnings come back (for example, a tile on a field that doesn't exist), but nothing is saved. Read-only tokens may make them.</li>
+        <li><strong>Versions.</strong> Reads of a dashboard, the members or the organisation themes return a <code>version</code>. Send it back as <code>If-Match</code> and a save is refused (409, with the current version) if someone changed it meanwhile, instead of silently overwriting their work. Overwritten and deleted dashboards stay in their history.</li>
       </ul>
       <h3 id="as-code">Your setup as code</h3>
       <p>What your organisation sets up in the app can live in git as YAML files, and files can be applied back, like terraform: export, review the plan, apply. Org admins only.</p>
@@ -990,7 +990,8 @@ helm test bi</code></pre>
             <tr><td><code>MAGNUM_CACHE_MAX_ROWS</code></td><td><code>5000000</code></td><td>Rows of cached results each organisation keeps (least recently used go first)</td></tr>
             <tr><td><code>MAGNUM_DB_AUTO_MIGRATE</code></td><td><code>1</code></td><td>Migrate ScramDB at startup</td></tr>
             <tr><td><code>MAGNUM_PROJECT_DIR</code> / <code>MAGNUM_FRONTEND_DIST</code></td><td><code>project</code> / <code>frontend/dist</code></td><td>Paths</td></tr>
-            <tr><td><code>MAGNUM_LOG</code></td><td><code>magnum_bi=info</code></td><td>Log filter</td></tr>
+            <tr><td><code>MAGNUM_LOG</code></td><td><code>magnum_bi=info</code></td><td>Log filter (<code>magnum_bi</code> is the program's module name)</td></tr>
+            <tr><td><code>MAGNUM_URL</code> / <code>MAGNUM_TOKEN</code></td><td></td><td>For <code>magnum-bi code</code> on your computer or in CI: the server's address and an API token</td></tr>
           </tbody>
         </table>
       </div>
@@ -1006,7 +1007,7 @@ helm test bi</code></pre>
         <li><strong>Headers.</strong> Strict CSP, <code>nosniff</code>, referrer policy, HSTS on https, <code>no-store</code> on the API.</li>
         <li><strong>Limits.</strong> Request bodies up to 1 MB, YAML files up to 512 KB.</li>
         <li><strong>Quiet errors.</strong> Database details are only shown to roles allowed to see SQL; others get a reference to look up in the server log.</li>
-        <li><strong>Sealed secrets.</strong> Connection credentials, single sign-on client secrets and authenticator secrets are encrypted with AES-256-GCM, bound to their organisation.</li>
+        <li><strong>Sealed secrets.</strong> Connection credentials, organisation database addresses, single sign-on client secrets, authenticator secrets, mail server passwords, webhook addresses and chat keys are encrypted with AES-256-GCM, bound to their organisation. Passwords (accounts, guest links) are stored as Argon2id hashes, sessions and API tokens as SHA-256.</li>
         <li><strong>Strong sign-in.</strong> Authenticator codes, passkeys and single sign-on, with policies that can require two factors. API tokens are scoped, expiring and revocable.</li>
       </ul>
     </section>
@@ -1032,8 +1033,7 @@ make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years
       <p>Next, roughly in order:</p>
       <ul>
         <li><strong>More connectors:</strong> Snowflake, MySQL and more.</li>
-        <li><strong>Apply from git:</strong> models, dashboards and blends already live in git; next, <em>plan / apply</em> organisations (members, connections, sign-in rules) and dashboards to a running server.</li>
-        <li><strong>TLS to ScramDB</strong> for the platform's own databases (data connections already support it).</li>
+                <li><strong>TLS to ScramDB</strong> for the platform's own databases (data connections already support it).</li>
       </ul>
     </section>
 

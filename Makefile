@@ -54,7 +54,7 @@ build:              ## build the frontend into frontend/dist (served by the back
 serve: build db-up  ## single server on :8000 (API + built UI)
 	$(LOCAL_ENV) && $(DEV_DB) target/release/magnum-bi serve
 
-check:              ## validate the project files (connections, models, dashboards)
+check:              ## validate the project files (models, blends, themes, dashboards)
 	cargo run -q -- check
 
 test:               ## backend unit tests + frontend typecheck and tests
