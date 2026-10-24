@@ -11,5 +11,5 @@ export default function DownloadButton({ dashboard, request }: { dashboard: stri
     try { const { blob, name } = await api.download(dashboard, null, request); saveFile(blob, name) } catch (e) { alert(`Download failed: ${(e as Error).message}`) }
     setBusy(false)
   }
-  return <button title="Every chart's data as CSV files (a zip), with the filters and period on screen" disabled={busy} onClick={download}>{busy ? 'Preparing…' : 'Download'}</button>
+  return <button data-tour="download" title="Every chart's data as CSV files (a zip), with the filters and period on screen" disabled={busy} onClick={download}>{busy ? 'Preparing…' : 'Download'}</button>
 }

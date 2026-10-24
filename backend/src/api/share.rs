@@ -357,6 +357,7 @@ pub(crate) mod tests {
             "chat_conversations",
             "chat_usage",
             "chat_home",
+            "tours",
             "dashboards",
             "dashboard_versions",
             "connections",

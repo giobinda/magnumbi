@@ -337,11 +337,9 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
         return project;
     }
     let org = scope.org.clone().unwrap_or_default();
-    // its own models first: its blends may join them
-    match state.org_models(&org).await {
-        Ok(m) if !m.is_empty() => project = Arc::new(project.with_org_models(&m)),
-        Ok(_) => {}
-        Err(e) => tracing::warn!(org, "organisation's models unavailable: {e:#}"),
+    // the models made in the app first, the platform's and its own: its blends may join them
+    if let Some(p) = with_app_models(state, &org, &project).await {
+        project = Arc::new(p);
     }
     match state.org_formulas(&org).await {
         Ok(f) if !f.is_empty() => project = Arc::new(project.with_formulas(&f)),
@@ -361,6 +359,30 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
         Err(e) => tracing::warn!(org, "organisation's themes unavailable: {e:#}"),
     }
     project
+}
+
+/// The project plus the models made in the app: the platform's (made in the platform workspace,
+/// for every organisation), and the organisation's own, which keep their names in it. When the
+/// platform's can't be read, organisations go on with their own (and the YAML models). None: there
+/// are none.
+pub async fn with_app_models(state: &AppState, org: &str, project: &ProjectState) -> Option<ProjectState> {
+    let own = if org.is_empty() {
+        Arc::new(vec![])
+    } else {
+        state.org_models(org).await.unwrap_or_else(|e| {
+            tracing::warn!(org, "organisation's models unavailable: {e:#}");
+            Arc::new(vec![])
+        })
+    };
+    let platform = state.org_models("").await.unwrap_or_else(|e| {
+        tracing::warn!("the platform's models unavailable: {e:#}");
+        Arc::new(vec![])
+    });
+    if own.is_empty() && platform.is_empty() {
+        return None;
+    }
+    let names: Vec<String> = own.iter().map(|m| m.name.clone()).collect();
+    Some(project.with_platform_models(&platform, &names).with_org_models(&own))
 }
 
 /// Who acts through a link, for someone not signed in here (a public link's visitors, a guest

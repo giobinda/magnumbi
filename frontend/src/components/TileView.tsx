@@ -103,7 +103,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
           {loading && <span className="spinner" title="Loading" />}
           {canDrill && steps.length === 0 && <span className="hint" title="Click a data point to drill down">⤓ drill</span>}
           {saved && data && can('download') && (
-            <select className="tile-menu" title="Download" value="" onChange={e => { const v = e.target.value; e.target.value = ''; download(v) }}>
+            <select className="tile-menu" data-tour="tile-menu" title="Download" value="" onChange={e => { const v = e.target.value; e.target.value = ''; download(v) }}>
               <option value="">⤓</option>
               <option value="csv">Data (CSV)</option>
               {hasPicture(tile.type) && <option value="png">Picture (PNG)</option>}

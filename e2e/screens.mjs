@@ -14,6 +14,8 @@ mkdirSync(OUT, { recursive: true })
 const browser = await chromium.launch()
 async function session(email, org) {
   const context = await browser.newContext({ viewport: { width: 1280, height: 820 }, colorScheme: 'light', deviceScaleFactor: 1 })
+  // the first-time tour's question (components/Tour.tsx) would cover the pages: "Not now"
+  await context.addInitScript(() => sessionStorage.setItem('magnum.tour.later', '1'))
   const page = await context.newPage()
   page.on('dialog', d => d.accept())
   const r = await page.request.post(`${BASE}/api/auth/login`, { data: { email, password: process.env.SCREENS_PASSWORD }, headers: { origin: BASE } })

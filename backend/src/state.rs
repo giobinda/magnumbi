@@ -217,7 +217,11 @@ impl AccessCache {
                 )
             }
         };
-        errors.extend(lint(&cfg, project));
+        // the platform's models made in the app count too (organisations' lists name them)
+        match crate::auth::with_app_models(state, "", project).await {
+            Some(p) => errors.extend(lint(&cfg, &p)),
+            None => errors.extend(lint(&cfg, project)),
+        }
         let cfg = Arc::new(cfg);
         *self.cached.lock().expect("access lock") = Some((Instant::now(), cfg.clone(), errors.clone()));
         (cfg, errors)

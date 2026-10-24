@@ -471,6 +471,8 @@ export const api = {
   applyProposal: (conversation: string, proposal: string) =>
     call<Proposal>(`/api/chat/${encodeURIComponent(conversation)}/proposals/${encodeURIComponent(proposal)}`, json('POST', {})),
   setHome: (home: Home | null) => call<{ ok: boolean }>('/api/chat/home', json('PUT', { home })),
+  tour: () => call<{ offer: boolean }>('/api/tour'),
+  tourSeen: (seen: boolean) => call<{ ok: boolean }>('/api/tour', json('PUT', { seen })),
   /** The organisation's setup as files (api/code.rs). */
   code: () => call<{ files: Record<string, string> }>('/api/code'),
   codeZip: async () => {

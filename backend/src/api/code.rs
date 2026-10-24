@@ -437,7 +437,9 @@ pub async fn apply(
         if p.prune { now.values().filter(|i| !wanted.contains_key(&i.path) && !kept(i)).collect() } else { vec![] };
 
     // checked against the organisation as it will be: a formula on a model these files add fits
-    let after = planned(&state, &caller, &now, &wanted, &writes, &bundle.secrets, p.prune);
+    // the platform's models made in the app, which an organisation's files sit next to
+    let platform = if caller.org().is_empty() { Default::default() } else { state.org_models("").await? };
+    let after = planned(&state, &caller, &platform, &now, &wanted, &writes, &bundle.secrets, p.prune);
     let mut ordered = writes.clone();
     ordered.sort_by_key(|i| i.kind);
     for item in &ordered {
@@ -495,9 +497,11 @@ fn stopped(e: ApiError, all: &[&str], at: usize) -> ApiError {
 
 /// The caller, seeing the organisation as the files will leave it: its models, formulas, blends,
 /// themes and glossary terms.
+#[allow(clippy::too_many_arguments)]
 fn planned(
     state: &AppState,
     caller: &Caller,
+    platform: &[crate::schema::Model],
     now: &BTreeMap<String, Item>,
     wanted: &BTreeMap<String, Item>,
     writes: &[&Item],
@@ -515,8 +519,14 @@ fn planned(
         .collect();
     let blends: Vec<crate::blend::Blend> =
         of(Kind::Blend).filter_map(|i| serde_json::from_value(i.value.clone()).ok()).collect();
-    let mut project =
-        state.project.current().with_org_models(&models).with_formulas(&formulas).with_org_blends(&blends);
+    let names: Vec<String> = models.iter().map(|m| m.name.clone()).collect();
+    let mut project = state
+        .project
+        .current()
+        .with_platform_models(platform, &names)
+        .with_org_models(&models)
+        .with_formulas(&formulas)
+        .with_org_blends(&blends);
     if let Some(t) = of(Kind::Themes).find_map(|i| serde_json::from_value(i.value.clone()).ok()) {
         project = project.with_org_themes(&t);
     }

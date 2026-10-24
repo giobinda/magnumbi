@@ -11,6 +11,8 @@ const [P_IMG, P_SCRIPT, P_SVG, P_HREF, P_TEMPLATE, P_LINK] = PAYLOADS
 
 const browser = await chromium.launch()
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+// the first-time tour's question (components/Tour.tsx) would cover the pages: "Not now"
+await context.addInitScript(() => sessionStorage.setItem('magnum.tour.later', '1'))
 const page = await context.newPage()
 const found = []
 page.on('dialog', d => { found.push(`a dialog: ${d.message()}`); d.dismiss() })

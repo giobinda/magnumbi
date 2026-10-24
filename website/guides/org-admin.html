@@ -69,12 +69,12 @@
   <main id="main" class="doc">
     <section id="top">
       <h1>Org admin guide</h1>
-<p class="lead">For an organisation's admins: from your data to dashboards your team uses, in an afternoon. The home page's <strong>Get started</strong> list follows these steps and ticks them off as you go.</p>
+<p class="lead">For an organisation's admins: from your data to dashboards your team uses, in an afternoon. The home page's <strong>Get started</strong> list follows these steps and ticks them off as you go; <strong>Show me</strong> on a step points at the control to use. Your team is offered a one-minute tour at their first sign-in (and <strong>Tour</strong>, next to each person's name, runs it again).</p>
     </section>
 
     <section id="connect">
       <h2>Connect your data</h2>
-<p>On <strong>Connections</strong>, add where your data is, and press <strong>Test</strong> before saving. Connections only ever read, and their passwords and keys are never shown again once saved.</p>
+<p>On <strong>Data › Connections</strong>, add where your data is, and press <strong>Test</strong> before saving. Connections only ever read, and their passwords and keys are never shown again once saved.</p>
       <div class="table-wrap"><table>
         <thead><tr><th>Type</th><th>What you need</th></tr></thead>
         <tbody>
@@ -90,29 +90,29 @@
       <h2>Describe your data: models</h2>
 <p>A model says which table, what people <strong>group and filter by</strong> (dimensions: region, day) and what they <strong>add up</strong> (measures: revenue, count). Dashboards and Explore work on models.</p>
       <ol>
-        <li><strong>Models › + New model</strong>: pick the connection, then the table.</li>
+        <li><strong>Data › Models › + New model</strong>: pick the connection, then the table.</li>
         <li>Magnum BI proposes the fields from its columns: text and dates as dimensions, numbers as sums (ids and hours, months and years as dimensions), and a count of rows.</li>
         <li>Untick what nobody needs, rename fields the way your team speaks, switch a number between dimension and measure, choose sum or average, and <strong>Save model</strong>.</li>
       </ol>
-      <p>Everyone in your organisation can then use it. Your platform may also provide models of its own, listed under <em>From the platform</em>.</p>
+      <p>Everyone in your organisation can then use it. Your platform may also provide models of its own (shared data, made by its system owners), listed under <em>From the platform</em>: they read your connection of the same name.</p>
       <div class="note"><strong>Restrictions follow the data.</strong> A member limited to some rows (Members) is limited on every model reading the same table. A model on a different table or view is different data: check restrictions after adding one.</div>
     </section>
 
     <section id="dashboards">
       <h2>Make dashboards</h2>
 <ul>
-        <li><strong>In one click:</strong> <strong>Models › Starter dashboard</strong> makes a dashboard from a model: its main numbers and their trend, activity over time, the top categories and the details. Change anything with <strong>Edit</strong>.</li>
-        <li><strong>Chart by chart:</strong> in <strong>Explore</strong>, drag dimensions and measures in; Magnum BI suggests a chart (17 types: KPIs, trends, gauges, tables and pivot tables, bars, lines, combos, heatmaps, treemaps, funnels, waterfalls, histograms…). <strong>Add to dashboard</strong> when it's right.</li>
+        <li><strong>In one click:</strong> <strong>Data › Models › Starter dashboard</strong> makes a dashboard from a model: its main numbers and their trend, activity over time, the top categories and the details. Change anything with <strong>Edit</strong>.</li>
+        <li><strong>Chart by chart:</strong> in <strong>Discover › Explore</strong>, drag dimensions and measures in; Magnum BI suggests a chart (17 types: KPIs, trends, gauges, tables and pivot tables, bars, lines, combos, heatmaps, treemaps, funnels, waterfalls, histograms…). <strong>Add to dashboard</strong> when it's right.</li>
         <li><strong>Words and pages:</strong> in <strong>Edit</strong>, <em>+ Add text</em> adds a tile of notes (how to read the dashboard, what a number means), and <em>+ Tab</em> splits a long dashboard into pages.</li>
         <li><strong>Period and filters:</strong> a dashboard can have a period with a comparison (previous period or year) and filters everyone can use.</li>
-        <li><strong>Blends</strong> join models on shared fields, even across databases (sales with the weather).</li>
+        <li><strong>Blends</strong> (<strong>Data › Blends</strong>) join models on shared fields, even across databases (sales with the weather).</li>
       </ul>
     </section>
 
     <section id="members">
       <h2>Invite your team</h2>
 <ul>
-        <li><strong>Members › People:</strong> add people by email with a role: <strong>Viewer</strong> (sees dashboards, uses filters), <strong>User</strong> (also drills down, embeds and downloads the data), <strong>Power user</strong> (also builds dashboards, explores, shares with guests), <strong>Org admin</strong> (also manages members, connections, models and sharing).</li>
+        <li><strong>Settings › Members › People:</strong> add people by email with a role: <strong>Viewer</strong> (sees dashboards, uses filters), <strong>User</strong> (also drills down, embeds and downloads the data), <strong>Power user</strong> (also builds dashboards, explores, shares with guests), <strong>Org admin</strong> (also manages members, connections, models and sharing).</li>
         <li><strong>Personal filters</strong> limit someone to some rows ("region is EMEA"), everywhere. They only ever narrow.</li>
         <li><strong>Everyone else from your domain</strong> (if your platform set one) joins with the default role you choose.</li>
         <li><strong>One-time password…</strong> makes a password to hand over, for people who sign in with one; they choose their own at their first sign-in.</li>
@@ -127,7 +127,7 @@
 
     <section id="sign-in">
       <h2>Sign-in and single sign-on</h2>
-<p><strong>Members › Sign-in</strong>, within what your platform allows:</p>
+<p><strong>Settings › Members › Sign-in</strong>, within what your platform allows:</p>
       <ul>
         <li>Which ways to sign in your people may use, and whether passwords need an <strong>authenticator code</strong>.</li>
         <li><strong>Your company's single sign-on</strong> (Microsoft Entra ID, Okta, Keycloak, Google Workspace…, any OpenID Connect provider): its address, client id and secret, and which provider groups become which roles. It signs in addresses on your organisation's domains only.</li>

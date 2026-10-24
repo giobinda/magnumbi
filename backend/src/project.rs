@@ -88,6 +88,8 @@ pub struct ProjectState {
     pub org_blends: BTreeSet<String>,
     /// the models that are the organisation's own (org_models.rs: made in the UI, no SQL)
     pub org_models: BTreeSet<String>,
+    /// every model made in the app (no SQL): the organisation's own and the platform's
+    pub app_models: BTreeSet<String>,
     /// the organisation's shared formulas: (model, name)
     pub formulas: BTreeSet<(String, String)>,
     /// the default (light, dark) themes: the platform's, or the organisation's own choice
@@ -130,10 +132,24 @@ impl ProjectState {
     }
 
     /// This snapshot plus an organisation's own models (one whose name is taken, or that breaks
-    /// the rules for organisations' models, is left out and reported).
+    /// the rules for models made in the app, is left out and reported).
     pub fn with_org_models(&self, models: &[Model]) -> ProjectState {
+        let mut p = self.with_app_models(models, &[]);
+        let added: Vec<String> = p.app_models.difference(&self.app_models).cloned().collect();
+        p.org_models.extend(added);
+        p
+    }
+
+    /// This snapshot plus the platform's models made in the app by system owners: like its YAML
+    /// models, for every organisation its list allows. `skip`: an organisation's own models,
+    /// which keep their names there.
+    pub fn with_platform_models(&self, models: &[Model], skip: &[String]) -> ProjectState {
+        self.with_app_models(models, skip)
+    }
+
+    fn with_app_models(&self, models: &[Model], skip: &[String]) -> ProjectState {
         let mut p = self.clone();
-        for m in models {
+        for m in models.iter().filter(|m| !skip.contains(&m.name)) {
             let fits = if self.models.contains_key(&m.name) {
                 Err(format!("the name {:?} is already a model's or blend's", m.name))
             } else {
@@ -142,7 +158,7 @@ impl ProjectState {
             match fits {
                 Ok(()) => {
                     p.models.insert(m.name.clone(), m.clone());
-                    p.org_models.insert(m.name.clone());
+                    p.app_models.insert(m.name.clone());
                 }
                 Err(e) => {
                     p.errors.insert(format!("model {}", m.name), e);
@@ -514,6 +530,7 @@ impl Project {
             blends,
             org_blends: BTreeSet::new(),
             org_models: BTreeSet::new(),
+            app_models: BTreeSet::new(),
             formulas: BTreeSet::new(),
             theme_defaults,
             themes,

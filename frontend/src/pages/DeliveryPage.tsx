@@ -31,7 +31,7 @@ export default function DeliveryPage() {
       {data && !data.secret_key && <div className="warn">MAGNUM_SECRET_KEY isn't set on the server: mail passwords and webhooks can't be saved.</div>}
       {error && <div className="error">{error}</div>}
 
-      <h2 className="section">Mail server</h2>
+      <h2 className="section" data-tour="mail">Mail server</h2>
       {data && !editMail && (data.mail
         ? <MailSummary mail={data.mail} onEdit={() => setEditMail(true)} onRemoved={load} />
         : <><p className="muted small">No mail server yet: reports can't be emailed from here.</p>

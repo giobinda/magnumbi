@@ -25,7 +25,7 @@ the cache.
 - **For viewers:** open a dashboard, pick a period, click a bar to drill down (region, then
   store). Every chart can compare with the previous period or the previous year, without anyone
   writing a formula.
-- **For analysts:** **Explore** is drag and drop. Choose measures and dimensions and the chart
+- **For analysts:** **Discover › Explore** is drag and drop. Choose measures and dimensions and the chart
   appears; save it to a dashboard. Measures are defined once, so "revenue" means the same thing
   on every dashboard.
 - **Combine sources:** join data from different systems in one chart (for example, sales from
@@ -90,7 +90,7 @@ make dev-frontend                             # UI on :5173, in another terminal
 ```
 
 Open http://localhost:5173 and sign in. The **Sales overview** dashboard runs on the sample data.
-To try organisations: create one on **Organisations** (e.g. `acme`), then give it its own
+To try organisations: create one on **Settings › Organisations** (e.g. `acme`), then give it its own
 ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
 for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
@@ -106,14 +106,27 @@ worked out from what's actually there (`GET /api/setup`). For system owners in t
 workspace, it covers the secret key, https, a first organisation, its own database and its Org
 admin. For an organisation's admins, it covers connecting data, describing it (a model), a first
 dashboard and inviting the team, with your colours and single sign-on as optional extras. Each
-step links to the page that does it and to its how-to guide on the website. On **Models**,
-**Starter dashboard** turns any model into a first dashboard in one click: its main numbers,
-their trend, activity over time, the top categories and the details, ready to change.
+step links to the page that does it and to its how-to guide on the website, and most have
+**Show me**: it opens that page and points at the control to use, with a balloon. On
+**Data › Models**, **Starter dashboard** turns any model into a first dashboard in one click: its
+main numbers, their trend, activity over time, the top categories and the details, ready to change.
+
+**A tour for everyone.** At their first sign-in in an organisation, people are asked whether they'd
+like a one-minute tour of a dashboard: the period, filters, drilling down, then what their role
+adds (downloads, schedules, editing, Explore, the chat, the admin menus). Each stop is a balloon
+next to the control. Taking it, skipping it or "Don't ask again" stops the question (`GET`/`PUT
+/api/tour`, kept in the organisation's database); "Not now" asks again at the next sign-in, and
+**Tour** next to your name runs it any time.
+
+**Finding your way.** The top bar groups the pages: **Chat**, **Discover** (dashboards, Explore,
+the catalog), **Data** (connections, models, blends) and **Settings** (members, organisations,
+themes, email and webhooks, chat settings, usage, code). Each person sees only what their role
+can use.
 
 **The NYC demo: taxi trips × weather.** One step sets up New York yellow taxi trips (NYC TLC
 open data, about 3.5 million trips a month) with the hourly weather in each borough (Open-Meteo,
 ERA5 reanalysis, CC BY 4.0): `make demo` (platform workspace) or `make demo ORG=globex MONTHS=60`,
-or, as a system owner, **Organisations › Demo data**. It finds the latest published month,
+or, as a system owner, **Settings › Organisations › Demo data**. It finds the latest published month,
 downloads and cleans each month with DuckDB into the organisation's DuckDB folder (about 60 MB a
 month; months already there are skipped, so running it again only adds new ones), fetches the
 weather, creates the DuckDB connections `nyc_taxi` and `meteo`, and imports the dashboards
@@ -269,12 +282,12 @@ flowchart TB
 
 ## Data connections
 
-Each organisation has its own connections, in its own ScramDB, managed on **Connections** by its
+Each organisation has its own connections, in its own ScramDB, managed on **Data › Connections** by its
 Org admins (and system owners). Settings are stored as-is; the secret (password, service-account
 key, storage keys) is sealed with `MAGNUM_SECRET_KEY` for that organisation and connection, and
 is never shown again. **Test** checks settings before they are saved.
 
-Models are platform YAML and only *name* a connection, with unqualified tables:
+The platform's models (YAML, or made in the app by system owners) only *name* a connection, with unqualified tables:
 `connection: warehouse`, `table: sample_sales`. Each organisation's `warehouse` decides where that
 is: so one model (and one dashboard) serves every organisation, each from its own data with its
 own credentials.
@@ -308,7 +321,7 @@ stays live). Results are cached in the organisation's own ScramDB, keyed by orga
 connection + compiled SQL. The SQL already contains the person's row filters and the
 (5-minute-rounded) period window, so people share a cached result only when they'd get the
 same rows anyway. Builders can bypass it (`x-magnum-refresh: 1`); Org admins see and clear it
-on **Usage**. Every 5 minutes expired results are dropped, and each organisation keeps at most
+on **Settings › Usage**. Every 5 minutes expired results are dropped, and each organisation keeps at most
 `MAGNUM_CACHE_MAX_ROWS` rows of results (default 5 million) and 2,000 results per database, least
 recently used dropped first.
 
@@ -319,7 +332,7 @@ Connectors therefore report neutral column types (`materialize::ColType`) along 
 ## Blends: joining models across engines
 
 A blend joins models on fields they share, even when their data is in different databases.
-Define one in code (`project/blends/*.yaml`) or, as a power user, on **Blends** in the UI (kept in
+Define one in code (`project/blends/*.yaml`) or, as a power user, on **Data › Blends** in the UI (kept in
 the organisation's own ScramDB, for that organisation only):
 
 ```yaml
@@ -364,7 +377,7 @@ On the NYC demo, a dashboard tile joining a month of trips (DuckDB, 3.5 million)
 Sign-ins, queries (source, model, rows, time, cache hit, failures), dashboard views and saves,
 and admin actions are recorded in the primary database (`usage_events`). Recording never slows
 or fails a request: events are buffered and written in batches. They are kept
-`MAGNUM_USAGE_RETENTION_DAYS` (default 400). **Usage** shows Org admins their organisation and
+`MAGNUM_USAGE_RETENTION_DAYS` (default 400). **Settings › Usage** shows Org admins their organisation and
 system owners the whole platform (or one organisation, from inside it).
 
 ## Sign-in
@@ -376,7 +389,7 @@ ways that person's organisation allows.
 - **Password** (on by default; `MAGNUM_PASSWORD_LOGIN=0` turns it off). Argon2id hashes, at
   least 10 characters, lockout for 15 minutes after 5 failures. Accounts get a password from:
   - the server: `magnum-bi user set-password you@example.com` (system owners, recovery);
-  - an Org admin: **Members › One-time password…** creates a one-time password to hand over. The
+  - an Org admin: **Settings › Members › One-time password…** creates a one-time password to hand over. The
     person must choose their own at the next sign-in;
   - the person themselves: **Security** in the top bar.
 - **Authenticator codes** after the password (TOTP, RFC 6238: any authenticator app), set up
@@ -390,7 +403,7 @@ ways that person's organisation allows.
   `.env.local.example`). PKCE, a browser-bound state, and an ID token verified against Google's
   keys; only a Google-verified email is accepted, and the email is bound to that Google account.
 - **An organisation's own single sign-on** (OpenID Connect: Microsoft Entra ID, Okta, Keycloak,
-  Auth0, Google Workspace, ...), set up by its Org admins under **Members › Sign-in**: issuer,
+  Auth0, Google Workspace, ...), set up by its Org admins under **Settings › Members › Sign-in**: issuer,
   client id and secret (sealed, never shown again), and provider groups mapped to roles (up to
   Org admin). Endpoints and keys come from the issuer's discovery document, through the network
   guard. It signs in **only addresses on the organisation's own domains** (set by system
@@ -398,8 +411,8 @@ ways that person's organisation allows.
   from their groups or the default role.
 
 **Policies.** Which methods people may use, and whether passwords need an authenticator code,
-is set at three levels: the platform (system owners, **Organisations › Sign-in**), the platform
-for one organisation (same page), and the organisation itself (its Org admins, **Members ›
+is set at three levels: the platform (system owners, **Settings › Organisations › Sign-in**), the platform
+for one organisation (same page), and the organisation itself (its Org admins, **Settings › Members ›
 Sign-in**). Methods allowed = what the server offers ∩ every level; a requirement at any level
 holds. So organisations choose within the platform's rules and can only tighten them. Policies
 are checked at sign-in and on every request: a stricter policy signs out sessions that no longer
@@ -469,7 +482,7 @@ Whatever an organisation sets up in the app can be kept as YAML files in git, an
 applied back, like terraform: export, review the plan, apply. Org admins only; applying goes
 through the same checks and permissions as the app, and secrets are never in the files.
 
-In the app: **Code** (Org admins) downloads the files as a zip, and applies a folder of them
+In the app: **Settings › Code** (Org admins) downloads the files as a zip, and applies a folder of them
 after showing the plan. From a terminal or CI, with an API token:
 
 ```bash
@@ -525,7 +538,7 @@ report isn't edited: a changed one is replaced, made by whoever applies it, who 
 - **Row filters** only ever narrow what someone sees. Organisation filters are set by system
   owners and personal filters by Org admins. A filter also covers every model reading the same
   data (`extends` family, or the same connection and table). Anything misconfigured fails closed.
-- Before the first save on **Organisations**, the system owners are `MAGNUM_SYSTEM_OWNERS`.
+- Before the first save on **Settings › Organisations**, the system owners are `MAGNUM_SYSTEM_OWNERS`.
 - Anyone can preview a lower role ("view as"), never a higher one.
 - Dashboards in the platform workspace are templates: **Publish…** copies one into organisations.
 
@@ -627,9 +640,9 @@ tiles:
 Weekday and month names sort as on a calendar. Until someone picks a chart, Explore suggests one
 from the fields chosen (a date and a measure: a line; two categories: a heatmap; and so on).
 
-### An organisation's own models
+### Models made in the app
 
-Org admins can also make models in the app, on **Models** (no YAML, no SQL): pick a connection,
+Org admins can also make models in the app, on **Data › Models** (no YAML, no SQL): pick a connection,
 then a table, and Magnum BI proposes the model from its columns. Text, true/false and dates
 become dimensions, numbers become summed measures, while ids and calendar numbers (hour, month,
 year, ...) stay dimensions; a count of rows is always there. They adjust the names, what each
@@ -640,23 +653,29 @@ ScramDB, and everyone in it can explore it and build dashboards and blends on it
   the browser: a dimension is a column, named by its name; a measure is count, distinct count,
   sum, average, min or max of a column; the table is a `schema.table` name. Saving checks every
   field against the table's actual columns.
-- **Org admins only**, because a model makes a table visible to the whole organisation.
-  Restrictions on what members see follow the data: a rule on a model also covers an
-  organisation's model on the same table of the same connection, however its name is written
-  (`sales`, `public.sales`). A model on a different table or view is different data: check
-  restrictions after adding one.
-- Its name can't be a platform model's or blend's. Connections list their tables and describe
+- **Shared models, by system owners.** Made in the platform workspace, a model is one of the
+  platform's, like the YAML ones (shared master data, say): every organisation whose list of models
+  allows it (**Settings › Organisations**) uses it on its own connection of that name, with its own
+  data and credentials. It's kept in the primary database. An organisation's own model of the same
+  name keeps the name there, so a new platform model never replaces what an organisation built.
+- **Admins only**: Org admins for their organisation, system owners for the platform, because a
+  model makes a table visible to everyone it reaches. Restrictions on what members see follow the
+  data: a rule on a model also covers any model made in the app on the same table of the same
+  connection, however its name is written (`sales`, `public.sales`). A model on a different table
+  or view is different data: check restrictions after adding one.
+- Its name can't be a YAML model's or a blend's (an organisation's, also not a platform model's). Connections list their tables and describe
   their columns for this: ScramDB and PostgreSQL (`information_schema`, columns from a prepared
   query, no rows read), DuckDB (the connection's tables, `DESCRIBE`), BigQuery (the dataset's
   `INFORMATION_SCHEMA`).
 
 API: `GET /api/connections/{name}/tables`, `GET /api/connections/{name}/tables/{table}/model?name=…`
-(a proposal), `GET /api/org-models`, `PUT`/`DELETE /api/org-models/{name}` (`?dry_run=1`).
+(a proposal), `GET /api/org-models`, `PUT`/`DELETE /api/org-models/{name}` (`?dry_run=1`), in an
+organisation for its own models and in the platform workspace for the platform's.
 
 ## Data catalog and governance
 
 Each model has, per organisation, an **owner**, **stewards** and a **status** (certified, draft or
-deprecated, with a note), on the **Catalog** page (`GET /api/governance`,
+deprecated, with a note), on the **Discover › Catalog** page (`GET /api/governance`,
 `PUT /api/governance/{model}` with `?dry_run=1`; `governance.rs`, `api/governance.rs`). Org admins
 (system owners in the platform workspace) decide everything and are the only ones who give a model
 a new owner; the owner sets the status and note and names stewards; everyone else reads. Any
@@ -701,7 +720,7 @@ The default themes are **Aloha** (light) and **Aloha night** (dark); people can 
 for themselves, and a dashboard can pin one (`theme: <id>`). Built-in themes are frozen: an id
 always looks the same. Projects can add themes in `project/themes/*.yaml`.
 
-Each organisation can have its **own themes**, made by its Org admins under **Themes**:
+Each organisation can have its **own themes**, made by its Org admins under **Settings › Themes**:
 
 - a visual editor (colours, chart palette, corners, font) with a live preview and contrast
   checks (WCAG: text 4.5:1, chart colours 3:1), starting from any theme;
@@ -807,8 +826,8 @@ API: `POST /api/dashboards/{id}/tiles/{tile}/export` (CSV) and `POST /api/dashbo
 
 ## Email and webhooks
 
-Every tenant, meaning each organisation and the platform workspace, has its own **Delivery**
-settings, for the reports and alerts it sends: a mail server, and Slack, Microsoft Teams or other
+Every tenant, meaning each organisation and the platform workspace, has its own delivery settings
+(**Settings › Email & webhooks**), for the reports and alerts it sends: a mail server, and Slack, Microsoft Teams or other
 webhooks. They're kept in the tenant's own database with their secrets sealed for it, and nothing
 is shared or inherited: an organisation without a mail server can't send email, even when the
 platform workspace has one. Org admins manage them (system owners, in the platform workspace).
@@ -844,13 +863,13 @@ goes through the tenant's own mail server and webhooks, as one of three things:
 Who and how:
 
 - **Recipients** are the tenant's members (system owners included), people of the domains its
-  members join by, and the email domains its Org admins allow on the **Delivery** page (exactly
+  members join by, and the email domains its Org admins allow on the **Settings › Email & webhooks** page (exactly
   those domains). This is checked when the report is made and again on every run.
 - **It runs as its maker**, with their restrictions. It pauses itself when they leave or lose
   the right to send it, and after 5 failed runs in a row; its maker or an Org admin resumes it.
 - Each recipient gets their own email, with a link to stop receiving it (a button, so mail
   scanners opening links don't unsubscribe anyone). Org admins see and pause every report on the
-  **Delivery** page. Runs are in the usage log.
+  **Settings › Email & webhooks** page. Runs are in the usage log.
 - The server checks for due reports every minute. With several replicas, each run is claimed
   first, so it's sent once. Set `MAGNUM_PUBLIC_URL`: links in reports point there.
 

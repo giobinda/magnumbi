@@ -91,7 +91,7 @@ export default function ThemesPage() {
         ))}
       </div>
 
-      <h2 className="section">Start a new theme</h2>
+      <h2 className="section" data-tour="theme-start">Start a new theme</h2>
       <div className="theme-list">
         {data.available.map(t => (
           <div key={t.id} className="card person theme-row">

@@ -1359,6 +1359,26 @@ impl Store {
         Ok(())
     }
 
+    /// Whether the person has taken, skipped or declined the first-time tour here.
+    pub async fn tour_seen(&self, org: &str, email: &str) -> Result<bool> {
+        let c = self.pool.get().await?;
+        Ok(c.query_opt("SELECT 1 FROM tours WHERE org = $1 AND user_email = $2", &[&org, &email]).await?.is_some())
+    }
+
+    pub async fn put_tour_seen(&self, org: &str, email: &str, seen: bool) -> Result<()> {
+        let c = self.pool.get().await?;
+        if seen {
+            c.execute(
+                "INSERT INTO tours (org, user_email) VALUES ($1, $2) ON CONFLICT (org, user_email) DO NOTHING",
+                &[&org, &email],
+            )
+            .await?;
+        } else {
+            c.execute("DELETE FROM tours WHERE org = $1 AND user_email = $2", &[&org, &email]).await?;
+        }
+        Ok(())
+    }
+
     /// One more question this month; how many there have been, this one included.
     pub async fn count_chat_question(&self, org: &str, month: &str) -> Result<i64> {
         let c = self.pool.get().await?;

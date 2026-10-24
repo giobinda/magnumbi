@@ -305,6 +305,30 @@ async fn an_organisations_own_model_on_the_same_table_is_restricted_too() {
 }
 
 #[tokio::test]
+async fn the_platforms_models_made_in_the_app_are_restricted_too() {
+    let Some(w) = World::new().await else { return };
+    let (b, owner) = people(&w);
+    let platform = As { who: Who::Person(OWNER.into()), org: String::new(), view_as: None };
+    let name = format!("shared_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    let model = json!({"name": name, "connection": "warehouse", "table": "public.sample_sales",
+                       "dimensions": [{"name": "region"}, {"name": "category"}], "measures": [{"name": "n", "type": "count"}]});
+    let r = w.send(&platform, "PUT", &format!("/api/org-models/{name}"), Some(model)).await;
+    assert!(r.status.is_success(), "{}", r.json());
+    let mut leaks = vec![];
+    for dims in [vec!["region"], vec!["category"], vec![]] {
+        let q = json!({"model": name, "dimensions": dims, "measures": ["n"]});
+        let got = w.send(&b, "POST", "/api/query", Some(q)).await.json();
+        let oracle =
+            json!({"model": "sales", "dimensions": dims, "measures": ["transactions"], "filters": [restriction()]});
+        let expected = w.send(&owner, "POST", "/api/query", Some(oracle)).await.json();
+        leaks.extend(differs(&format!("{name} by {dims:?}"), &got, &expected));
+    }
+    w.send(&platform, "DELETE", &format!("/api/org-models/{name}"), None).await;
+    assert!(leaks.is_empty(), "a platform model escaped the restriction:\n{}", leaks.join("\n"));
+    w.clean_up().await;
+}
+
+#[tokio::test]
 async fn the_chat_shows_its_model_only_what_the_person_may_see() {
     use crate::api::chat::tests::{calls, fake_provider, says};
     let Some(w) = World::new().await else { return };

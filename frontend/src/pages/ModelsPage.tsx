@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { ConnectionInfo, Formula, SharedFormula } from '../api'
 import FormulaEditor from '../components/FormulaEditor'
+import { useAuth } from '../auth'
 import { forgetModels, useModels } from '../hooks'
 import { DIMENSION_TYPES, MEASURE_TYPES, modelFrom, rowsFor } from '../modelEditor'
 import type { FieldRow, MeasureDef, ModelDef } from '../modelEditor'
@@ -10,13 +11,16 @@ import { starterDashboard } from '../starter'
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 't_$1') || 'model'
 
-/** Org admins: the organisation's own models, made from its connections' tables. */
+/** Org admins: the organisation's own models, made from its connections' tables. System owners, in the
+ *  platform workspace: the platform's, shared with every organisation its list of models allows. */
 export default function ModelsPage() {
   const [own, setOwn] = useState<{ model: ModelDef; updated_at: string; updated_by: string | null }[]>([])
   const [editing, setEditing] = useState<ModelDef | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { models } = useModels()
   const navigate = useNavigate()
+  const { auth } = useAuth()
+  const inPlatform = !auth?.org
   const load = () => api.orgModels().then(r => setOwn(r.models), e => setError(e.message))
 
   // a first dashboard on a model, to change at will
@@ -41,17 +45,19 @@ export default function ModelsPage() {
     return <ModelWizard initial={editing === 'new' ? null : editing} taken={models.map(m => m.name)}
       onDone={() => { setEditing(null); forgetModels(); load() }} onCancel={() => setEditing(null)} />
   }
-  const platform = models.filter(m => !m.own && !m.blend)
+  const platform = models.filter(m => !m.own && !m.blend && !own.some(o => o.model.name === m.name))
   return (
     <div className="page narrow">
       <h1>Models</h1>
       <p className="muted">A model says what your data means: which table, the fields people group and filter by (dimensions), and
-        the numbers they add up (measures). Make one from any table of your connections; everyone in your organisation can then
-        explore it and build dashboards on it.</p>
+        the numbers they add up (measures). Make one from any table of your connections; {inPlatform
+          ? <>it becomes one of the platform's models: every organisation allowed it (on <Link to="/organisations">Organisations</Link>) uses it on its
+            own connection of the same name, with its own data, as for shared master data.</>
+          : <>everyone in your organisation can then explore it and build dashboards on it.</>}</p>
       {error && <div className="error">{error}</div>}
-      <div className="row"><button className="primary" onClick={() => setEditing('new')}>+ New model</button></div>
+      <div className="row"><button className="primary" data-tour="new-model" onClick={() => setEditing('new')}>+ New model</button></div>
 
-      <h2 className="section">Your organisation's models</h2>
+      <h2 className="section">{inPlatform ? "The platform's models, made here" : "Your organisation's models"}</h2>
       {own.length === 0 && <p className="muted small">None yet: start with <b>New model</b>.</p>}
       {own.map(({ model: m, updated_at, updated_by }) => (
         <div key={m.name} className="card person row wrap">
@@ -60,26 +66,26 @@ export default function ModelsPage() {
           <span className="grow" />
           <span className="muted small">{updated_by ? `by ${updated_by}, ` : ''}{new Date(updated_at).toLocaleDateString()}</span>
           <Link className="btn" to={`/explore?model=${encodeURIComponent(m.name)}`}>Explore</Link>
-          <button onClick={() => starter(m.name)}>Starter dashboard</button>
+          <button data-tour="starter" onClick={() => starter(m.name)}>Starter dashboard</button>
           <button onClick={() => setEditing(m)}>Edit</button>
           <button className="danger" onClick={() => remove(m)}>Delete</button>
         </div>
       ))}
 
       {platform.length > 0 && <>
-        <h2 className="section">From the platform</h2>
-        <p className="muted small">Defined by your Magnum BI platform's team, in its project files.</p>
+        <h2 className="section">{inPlatform ? 'From the project files' : 'From the platform'}</h2>
+        <p className="muted small">{inPlatform ? 'YAML files in project/models, changed through git.' : "Defined by your Magnum BI platform's team, for every organisation."}</p>
         {platform.map(m => (
           <div key={m.name} className="card person row wrap">
             <span>{m.label}</span><span className="muted small mono">{m.name}</span>
             <span className="grow" />
-            <button onClick={() => starter(m.name)}>Starter dashboard</button>
+            <button data-tour="starter" onClick={() => starter(m.name)}>Starter dashboard</button>
           </div>
         ))}
       </>}
       <SharedFormulas />
       <p className="muted small">Restrictions on what members see apply to models by name, and follow the same table into any new model
-        on it. A model on a different table or view is different data: check <Link to="/members">Members</Link> after adding one.</p>
+        on it. A model on a different table or view is different data: check <Link to={inPlatform ? '/organisations' : '/members'}>{inPlatform ? 'Organisations' : 'Members'}</Link> after adding one.</p>
     </div>
   )
 }

@@ -52,6 +52,15 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .topnav a.active:not(.brand) { color: var(--text); background: var(--surface-2); }
 .topnav .brand { font-weight: 800; font-size: 17px; color: var(--text); margin-right: 16px; letter-spacing: -.3px; }
 .topnav .brand span { color: var(--accent); }
+/* the top bar's groups (Discover, Data, Settings): a button and its links */
+.nav-menu { position: relative; }
+.nav-menu > button { border: 0; background: none; min-height: 0; padding: 6px 12px; border-radius: 7px; color: var(--text-muted); font: inherit; font-weight: 500; }
+.nav-menu > button:hover, .nav-menu > button[aria-expanded="true"], .nav-menu > button.active { color: var(--text); background: var(--surface-2); }
+.nav-menu-list { position: absolute; top: calc(100% + 4px); left: 0; z-index: 30; min-width: 190px; display: flex; flex-direction: column; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 8px 24px rgba(0, 0, 0, .14); }
+.nav-menu-list[hidden] { display: none; }
+.topnav .nav-menu-list a { padding: 8px 10px; }
+.topnav .nav-menu-list a:hover { color: var(--text); background: var(--surface-2); }
 /* phones: the links and controls wrap onto more rows (never a page wider than the screen), and
    the taller bar scrolls away with the page */
 @media (max-width: 760px) {
@@ -556,3 +565,15 @@ label.check.inline { align-items: center; gap: 4px; }
 .code-changes .create .sign { color: var(--good); }
 .code-changes .delete .sign, .code-changes .error-row .sign { color: var(--danger); }
 .code-changes input { max-width: 420px; }
+
+/* tours (components/Tour.tsx): a ring around the control, a balloon next to it */
+.tour-ring { position: fixed; z-index: 90; border: 2px solid var(--accent); border-radius: 10px; pointer-events: none;
+  box-shadow: 0 0 0 9999px rgba(0, 0, 0, .28); transition: all .15s ease; }
+.tour-balloon { position: fixed; z-index: 91; padding: 12px 14px; border-radius: 12px; background: var(--surface); color: var(--text);
+  border: 1px solid var(--border); box-shadow: 0 12px 32px rgba(0, 0, 0, .25); }
+.tour-balloon p { margin: 6px 0 10px; line-height: 1.45; }
+.tour-balloon::before { content: ""; position: absolute; left: calc(var(--arrow) - 7px); width: 12px; height: 12px;
+  background: var(--surface); border: 1px solid var(--border); transform: rotate(45deg); }
+.tour-balloon.below::before { top: -7px; border-right: 0; border-bottom: 0; }
+.tour-balloon.above::before { bottom: -7px; border-left: 0; border-top: 0; }
+.modal.welcome { max-width: 480px; }

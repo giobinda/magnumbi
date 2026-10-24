@@ -32,7 +32,7 @@ export default function Home() {
       <div className="dash-head">
         <h1>Dashboards</h1>
         <div className="dash-actions">
-          {can('create') && <button className="primary" onClick={create}>+ New dashboard</button>}
+          {can('create') && <button className="primary" data-tour="new-dashboard" onClick={create}>+ New dashboard</button>}
         </div>
       </div>
       <GetStarted />
