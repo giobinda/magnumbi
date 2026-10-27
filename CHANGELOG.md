@@ -17,9 +17,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   lite in a window of its own, through the system's web engine (WebView2, WebKit, WebKitGTK). It
   shows the local app only (other links open in the browser), puts downloads in Downloads, and
   stops lite and its PostgreSQL when it closes. The server's build never includes it.
-
-### Added
-
+- **The desktop app, packaged** (`.github/workflows/desktop.yml`, `packaging/`): each release gets a
+  `.dmg` for macOS (both chips), a `.zip` for Windows and a `.deb` / `.rpm` for Linux, unsigned, with
+  their `SHA256SUMS`. The UI and OpenSSL are built into the program; opened with no command, it
+  shows the window. Opening it twice shows where the first one is.
 - **Setup as code.** Org admins export what their organisation set up in the app (connections,
   its own models, shared formulas, blends, themes, glossary, catalog entries, dashboards, the mail
   server, webhooks, chat settings, scheduled reports and alerts) as YAML files, see what applying
@@ -35,6 +36,8 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Changed
 
+- Building needs **Rust 1.94** (lite's embedded PostgreSQL): this also fixes the container image,
+  which still built with 1.89.
 - **Blends are checked against the organisation as the person sees it**, so a blend may join a
   model saved in the same apply.
 
@@ -43,6 +46,8 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Security
 
+- The desktop window hands only `http`/`https` links to the system, and Windows opens them without
+  `cmd` (which would read a `&` in an address as another command).
 - **A saved secret no longer follows a changed address.** Changing a connection's host or user,
   the mail server's host or user name, the chat's provider address, or the single
   sign-on issuer or client now needs the password, key or client secret again, instead of

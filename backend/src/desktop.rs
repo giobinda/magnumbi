@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use tao::dpi::LogicalSize;
 use tao::event::{Event, WindowEvent};
 use tao::event_loop::{ControlFlow, EventLoopBuilder};
-use tao::window::{Window, WindowBuilder};
+use tao::window::{Icon, Window, WindowBuilder};
 use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
 
 /// What the server thread tells the window.
@@ -21,6 +21,9 @@ enum Up {
     Stopped,
 }
 
+/// The window's icon (packaging/icon.svg at 64x64, as RGBA).
+const ICON: &[u8] = include_bytes!("../../packaging/icon-64.rgba");
+
 const STARTING: &str = r#"<!doctype html><meta charset="utf-8"><title>Magnum BI</title>
 <body style="font:16px system-ui,sans-serif;display:grid;place-items:center;height:90vh;color:#444">
 <div style="text-align:center"><h1 style="font-weight:600">Magnum BI</h1>
@@ -28,40 +31,64 @@ const STARTING: &str = r#"<!doctype html><meta charset="utf-8"><title>Magnum BI<
 
 /// `magnum-bi desktop`: lite, in a window, until the window closes.
 pub fn run(dir: PathBuf) -> anyhow::Result<()> {
+    // no GTK application id: GTK hands a second launch to the first one, which tao doesn't take;
+    // Linux matches the window to its menu entry (magnum-bi.desktop) by the program's name
     let event_loop = EventLoopBuilder::<Up>::with_user_event().build();
     let proxy = event_loop.create_proxy();
-    let port = crate::lite::port(&dir, None)?;
 
-    // lite, on its own thread and runtime: the window has the main thread
+    // lite, on its own thread and runtime: the window has the main thread. Opened twice, the
+    // second window only says where the first one is.
     let (stop, stopped) = tokio::sync::oneshot::channel::<()>();
-    let server_dir = dir.clone();
-    let server = std::thread::spawn(move || {
-        let told = proxy.clone();
-        let ready = move |address: &str| {
-            let _ = told.send_event(Up::Ready(address.to_string()));
-        };
-        // the window closing, or the program being asked to stop from outside
-        let until = async {
-            tokio::select! {
-                _ = stopped => {}
-                _ = crate::shutdown() => {}
-            }
-        };
-        let result = tokio::runtime::Builder::new_multi_thread()
-            .enable_all()
-            .build()
-            .map_err(anyhow::Error::from)
-            .and_then(|rt| rt.block_on(crate::lite(Some(port), server_dir, ready, until)));
-        let _ = proxy.send_event(match result {
-            Ok(()) => Up::Stopped,
-            Err(e) => Up::Failed(format!("{e:#}")),
-        });
-    });
+    let started = crate::lite::lock(&dir).and_then(|one| Ok((one, crate::lite::port(&dir, None)?)));
+    let port = started.as_ref().map_or(0, |(_, port)| *port);
+    let mut server = match started {
+        Err(e) => {
+            let _ = proxy.send_event(Up::Failed(format!("{e:#}")));
+            None
+        }
+        Ok((one, port)) => {
+            let server_dir = dir.clone();
+            Some(std::thread::spawn(move || {
+                let _one = one;
+                let told = proxy.clone();
+                let ready = move |address: &str| {
+                    let _ = told.send_event(Up::Ready(address.to_string()));
+                };
+                // the window closing, or the program being asked to stop from outside
+                let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+                let asked_now = asked.clone();
+                let until = async move {
+                    tokio::select! {
+                        _ = stopped => {}
+                        _ = crate::shutdown() => {}
+                    }
+                    asked_now.store(true, std::sync::atomic::Ordering::SeqCst);
+                };
+                let result = tokio::runtime::Builder::new_multi_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(anyhow::Error::from)
+                    .and_then(|rt| rt.block_on(crate::lite(Some(port), server_dir, ready, until)));
+                // asked to stop, it goes, whatever went wrong on the way out (a failure page
+                // would keep a window nobody asked for)
+                let asked = asked.load(std::sync::atomic::Ordering::SeqCst);
+                let _ = proxy.send_event(match result {
+                    Err(e) if !asked => Up::Failed(format!("{e:#}")),
+                    Err(e) => {
+                        tracing::warn!("stopping Magnum BI lite: {e:#}");
+                        Up::Stopped
+                    }
+                    Ok(()) => Up::Stopped,
+                });
+            }))
+        }
+    };
 
     let window = WindowBuilder::new()
         .with_title("Magnum BI")
         .with_inner_size(LogicalSize::new(1280.0, 860.0))
         .with_min_inner_size(LogicalSize::new(640.0, 480.0))
+        .with_window_icon(Icon::from_rgba(ICON.to_vec(), 64, 64).ok())
         .build(&event_loop)?;
     // its storage (preferences, an unlocked PIN) in the lite folder, like everything else
     let mut context = WebContext::new(Some(dir.join("window")));
@@ -74,11 +101,15 @@ pub fn run(dir: PathBuf) -> anyhow::Result<()> {
             if is_app(&url, port) || url.starts_with("blob:") || url == "about:blank" {
                 return true;
             }
-            crate::lite::open_browser(&url);
+            if opens_outside(&url) {
+                crate::lite::open_browser(&url);
+            }
             false
         })
         .with_new_window_req_handler(|url, _| {
-            crate::lite::open_browser(&url);
+            if opens_outside(&url) {
+                crate::lite::open_browser(&url);
+            }
             NewWindowResponse::Deny
         })
         .with_download_started_handler(move |_, path| {
@@ -88,7 +119,6 @@ pub fn run(dir: PathBuf) -> anyhow::Result<()> {
     let webview = attach(builder, &window)?;
 
     let mut stop = Some(stop);
-    let mut server = Some(server);
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
@@ -146,6 +176,12 @@ pub fn is_app(url: &str, port: u16) -> bool {
     })
 }
 
+/// Whether a link leaving the app opens in the person's browser: web addresses only. Anything else
+/// (files, programs, the system's own handlers such as ms-msdt:) is never handed to the system.
+pub fn opens_outside(url: &str) -> bool {
+    url::Url::parse(url).is_ok_and(|u| matches!(u.scheme(), "http" | "https"))
+}
+
 /// Where a download lands: in `downloads`, under its own file name only (never a path it chose).
 pub fn download_path(suggested: &Path, downloads: &Path) -> PathBuf {
     let name = suggested.file_name().and_then(|n| n.to_str()).filter(|n| !n.is_empty()).unwrap_or("download");
@@ -172,6 +208,27 @@ mod tests {
             "javascript:alert(1)",
         ] {
             assert!(!is_app(elsewhere, 51234), "{elsewhere}");
+        }
+    }
+
+    #[test]
+    fn only_web_addresses_open_in_the_browser() {
+        for web in ["https://giobinda.github.io/magnumbi/docs.html", "http://example.com/?a&calc", "HTTPS://x.example/"]
+        {
+            assert!(opens_outside(web), "{web}");
+        }
+        // files, programs and the system's own handlers are never handed to the system
+        for not in [
+            "file:///etc/passwd",
+            "file://server/share/x.exe",
+            "ms-msdt:/id PCWDiagnostic",
+            "search-ms:query=x",
+            "javascript:alert(1)",
+            "smb://server/share",
+            "mailto:a@b.example",
+            "not a url",
+        ] {
+            assert!(!opens_outside(not), "{not}");
         }
     }
 

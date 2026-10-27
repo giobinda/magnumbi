@@ -201,6 +201,9 @@ async fn frontend(State(state): State<Shared>, request: Request) -> Response {
     if request.uri().path().starts_with("/api/") {
         return ApiError::not_found("no such endpoint").into_response();
     }
+    if cfg!(feature = "desktop") {
+        return built_in(crate::ui::FILES, request.uri().path());
+    }
     let dist = &state.config.frontend_dist;
     if !dist.join("index.html").exists() {
         return (
@@ -214,6 +217,26 @@ async fn frontend(State(state): State<Shared>, request: Request) -> Response {
         Ok(r) => r.into_response(),
         Err(e) => ApiError::Internal(anyhow::anyhow!("serving the UI: {e}")).into_response(),
     }
+}
+
+/// The UI built into the program (desktop builds, by build.rs: there is no frontend/dist next to
+/// an installed app), served as `frontend` serves frontend/dist.
+fn built_in(files: &[(&str, &'static [u8])], path: &str) -> Response {
+    let find = |p: &str| files.iter().find(|(name, _)| *name == p);
+    let Some((name, body)) = find(path.trim_start_matches('/')).or_else(|| find("index.html")) else {
+        return (StatusCode::NOT_FOUND, "the UI isn't built into this program").into_response();
+    };
+    let kind = match name.rsplit_once('.').map_or("", |(_, ext)| ext) {
+        "html" => "text/html; charset=utf-8",
+        "js" => "text/javascript; charset=utf-8",
+        "css" => "text/css; charset=utf-8",
+        "json" => "application/json",
+        "svg" => "image/svg+xml",
+        "png" => "image/png",
+        "woff2" => "font/woff2",
+        _ => "application/octet-stream",
+    };
+    ([(axum::http::header::CONTENT_TYPE, kind)], *body).into_response()
 }
 
 /// JSON bodies with API-style errors ({"detail": ...}) instead of plain-text rejections.
@@ -629,6 +652,31 @@ pub mod tests {
         let u = url::Url::parse(&std::env::var("MAGNUM_TEST_DATABASE_URL").unwrap()).unwrap();
         json!({"type": "scramdb", "host": u.host_str().unwrap(), "port": u.port().unwrap_or(5432),
                "database": u.path().trim_start_matches('/'), "user": u.username(), "tls": false})
+    }
+
+    #[tokio::test]
+    async fn the_ui_built_into_the_program_is_served_with_its_routes() {
+        let files: &[(&str, &'static [u8])] = &[
+            ("index.html", b"<!doctype html>app"),
+            ("assets/index-1.js", b"console.log(1)"),
+            ("assets/index-1.css", b"a{}"),
+        ];
+        for (path, body, kind) in [
+            ("/", "<!doctype html>app", "text/html"),
+            ("/assets/index-1.js", "console.log(1)", "text/javascript"),
+            ("/assets/index-1.css", "a{}", "text/css"),
+            // the app's own routes are index.html, as from frontend/dist
+            ("/dashboards/sales", "<!doctype html>app", "text/html"),
+            ("/assets/gone.js", "<!doctype html>app", "text/html"),
+            ("/../index.html", "<!doctype html>app", "text/html"),
+        ] {
+            let r = super::built_in(files, path);
+            assert_eq!(r.status(), StatusCode::OK, "{path}");
+            let ct = r.headers()["content-type"].to_str().unwrap().to_string();
+            assert!(ct.starts_with(kind), "{path}: {ct}");
+            let bytes = r.into_body().collect().await.unwrap().to_bytes();
+            assert_eq!(bytes, body.as_bytes(), "{path}");
+        }
     }
 
     #[tokio::test]

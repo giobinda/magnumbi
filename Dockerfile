@@ -11,7 +11,7 @@ COPY frontend/ ./
 RUN npm run build
 
 # the project's declared minimum Rust (rust-version)
-FROM docker.io/library/rust:1.89-bookworm AS build
+FROM docker.io/library/rust:1.94-bookworm AS build
 RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev pkg-config && rm -rf /var/lib/apt/lists/*
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rustfmt.toml ./

@@ -66,7 +66,7 @@
     '   nyc_taxi_weather), and how to stop, restart and back up (the secrets volume holds the encryption key).',
     '',
     'Keep it local: do not expose it on other network interfaces or weaken any security setting.',
-    'If Docker is not an option, build from source instead with the README "Quick start" (Rust 1.89+, Node 20+).',
+    'If Docker is not an option, build from source instead with the README "Quick start" (Rust 1.94+, Node 20+).',
     'Afterwards, offer to connect yourself to it over MCP: I will make an API token under Security > API tokens.'
   ].join('\n');
   document.querySelectorAll('[data-agent-prompt]').forEach(function (el) { el.textContent = AGENT_PROMPT; });

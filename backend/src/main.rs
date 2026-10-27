@@ -1,5 +1,7 @@
 //! Magnum BI: a lightweight BI tool. Semantic models and dashboards as YAML, queries on ScramDB,
 //! a React UI served from the same address.
+// Windows: the desktop build is an app (no console window behind it); the server build is a command
+#![cfg_attr(all(windows, feature = "desktop"), windows_subsystem = "windows")]
 
 mod access;
 mod api;
@@ -20,6 +22,15 @@ mod delivery;
 mod demo;
 #[cfg(feature = "desktop")]
 mod desktop;
+/// The built UI, in desktop builds (build.rs); the server serves frontend/dist from disk.
+#[cfg(feature = "desktop")]
+mod ui {
+    include!(concat!(env!("OUT_DIR"), "/ui.rs"));
+}
+#[cfg(not(feature = "desktop"))]
+mod ui {
+    pub static FILES: &[(&str, &[u8])] = &[];
+}
 mod error;
 mod export;
 mod formula;
@@ -193,8 +204,11 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
     // the window runs on the main thread (macOS insists), the server beside it
     #[cfg(feature = "desktop")]
-    if let Some(Command::Desktop { dir }) = cli.command {
-        return desktop::run(lite_dir(dir)?);
+    match &cli.command {
+        // the installed app, opened from the menu or by a double click: its window
+        None => return desktop::run(lite_dir(None)?),
+        Some(Command::Desktop { dir }) => return desktop::run(lite_dir(dir.clone())?),
+        _ => {}
     }
     tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run(cli))
 }
@@ -218,6 +232,7 @@ async fn run(cli: Cli) -> Result<()> {
         if set_pin || remove_pin {
             return lite_pin(&dir, set_pin);
         }
+        let _one = lite::lock(&dir)?;
         let open = move |address: &str| {
             if !no_open {
                 lite::open_browser(address);
