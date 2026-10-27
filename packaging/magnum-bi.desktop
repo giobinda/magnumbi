@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Magnum BI
+GenericName=Business intelligence
+Comment=Semantic models and dashboards, on this computer
+Exec=magnum-bi
+Icon=magnum-bi
+Terminal=false
+Categories=Office;Development;
+StartupWMClass=magnum-bi

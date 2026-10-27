@@ -31,6 +31,9 @@ postgresql_embedded = { version = "=0.22.0", default-features = false, features 
 # the desktop window on lite (desktop.rs), only with --features desktop: never in the server's build
 tao = { version = "=0.37.1", optional = true }
 wry = { version = "=0.57.0", optional = true }
+# desktop builds carry their own OpenSSL (passkeys use it): Windows has none, and a macOS build for
+# both chips can't link Homebrew's
+openssl = { version = "=0.10.81", optional = true }
 duckdb = { version = "1.10506", features = ["bundled", "parquet", "json"] }
 jsonwebtoken = "9"
 rand = "0.8"
@@ -74,4 +77,4 @@ webauthn-authenticator-rs = { version = "0.5.5", default-features = false, featu
 
 [features]
 # `magnum-bi desktop`: lite in a window of its own (wry/tao: WebView2, WebKit, WebKitGTK)
-desktop = ["dep:tao", "dep:wry"]
+desktop = ["dep:tao", "dep:wry", "dep:openssl", "openssl/vendored"]

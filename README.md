@@ -76,7 +76,7 @@ backend is Rust (axum + tokio-postgres); the UI is React.
 
 ## Quick start
 
-Prerequisites: Rust 1.89+, Node 20+, and Podman or Docker (for the local ScramDB).
+Prerequisites: Rust 1.94+, Node 20+, and Podman or Docker (for the local ScramDB).
 
 ```bash
 make install                                  # frontend dependencies
@@ -106,6 +106,13 @@ only on this computer: it listens on `127.0.0.1` and refuses requests addressed 
 folder isn't encrypted, so disk encryption is what protects it at rest. Options: `--port`, `--dir`,
 `--no-open`. Lite and the desktop window come in addition to the server, which is unchanged and
 runs on ScramDB.
+
+**The desktop app, ready to install**: each release on GitHub has a `.dmg` (macOS, both chips), a
+`.zip` (Windows) and a `.deb` / `.rpm` (Linux, needing WebKitGTK 4.1), built by
+`.github/workflows/desktop.yml` with the scripts in `packaging/` (the UI is built into the program).
+They aren't signed, so macOS and Windows ask the first time: on macOS, *System Settings › Privacy
+& Security › Open Anyway*; on Windows, *More info › Run anyway*
+([details](https://giobinda.github.io/magnumbi/docs.html)). Each release lists their `SHA256SUMS`.
 To try organisations: create one on **Settings › Organisations** (e.g. `acme`), then give it its own
 ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`

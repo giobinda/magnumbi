@@ -123,6 +123,21 @@ pub fn set_pin(dir: &std::path::Path, pin: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// Holds `dir` for this lite until dropped: a second one on the same folder (opened twice) would
+/// fight over its PostgreSQL and its port, so it is told where the first one is instead.
+pub fn lock(dir: &std::path::Path) -> anyhow::Result<std::fs::File> {
+    std::fs::create_dir_all(dir)?;
+    let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("lock"))?;
+    match file.try_lock() {
+        Ok(()) => Ok(file),
+        Err(std::fs::TryLockError::WouldBlock) => {
+            let port = std::fs::read_to_string(dir.join("port")).unwrap_or_default();
+            anyhow::bail!("Magnum BI lite is already open from {}: http://localhost:{}", dir.display(), port.trim())
+        }
+        Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
+    }
+}
+
 /// The port lite listens on: the one asked for, else the one it had last time (kept in `dir`:
 /// the browser or window keeps preferences per address), else a free one picked now. A port
 /// something else has taken since is replaced.
@@ -187,7 +202,8 @@ pub fn open_browser(url: &str) {
     let opened = if cfg!(target_os = "macos") {
         std::process::Command::new("open").arg(url).spawn()
     } else if cfg!(windows) {
-        std::process::Command::new("cmd").args(["/C", "start", "", url]).spawn()
+        // not `cmd /C start`: cmd would read a `&` in the address as another command
+        std::process::Command::new("rundll32.exe").args(["url.dll,FileProtocolHandler", url]).spawn()
     } else {
         std::process::Command::new("xdg-open").arg(url).spawn()
     };
@@ -449,6 +465,21 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         let ids: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["connection", "model", "dashboard", "theme", "delivery"], "{r}");
+    }
+
+    #[test]
+    fn one_lite_at_a_time_per_folder() {
+        let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
+        let p = port(&dir, None).unwrap();
+        let first = lock(&dir).unwrap();
+        let again = lock(&dir).unwrap_err().to_string();
+        assert!(again.contains("already open") && again.contains(&format!("http://localhost:{p}")), "{again}");
+        // another folder is another lite
+        let other = dir.join("other");
+        let _other = lock(&other).unwrap();
+        drop(first);
+        lock(&dir).unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

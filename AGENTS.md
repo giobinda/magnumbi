@@ -54,7 +54,8 @@ backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP hand
                    formula.rs (the formula language: parsed, never SQL from people), results.rs,
                    governance.rs (who owns a model, its status), lineage.rs, chat.rs (the chat's providers),
                    lite.rs (magnum-bi lite: one person, its own PostgreSQL, no sign-in, localhost only),
-                   desktop.rs (lite in a window: wry/tao, only with --features desktop),
+                   desktop.rs (lite in a window: wry/tao, only with --features desktop, which
+                   also builds in the UI (build.rs) and OpenSSL),
                    org_models.rs (organisations' own models), delivery.rs (mail and webhooks), export.rs,
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs
@@ -68,6 +69,7 @@ website/           the public site (plain HTML/CSS/JS, no build): landing page, 
                    on GitHub Pages via .github/workflows/website.yml
 Dockerfile, compose.yaml      the image (UI + server + project) and a one-machine stack
 .github/workflows/publish.yml the image and chart on ghcr.io (main: edge; tag vX.Y.Z: a release)
+.github/workflows/desktop.yml the desktop app on a tag (unsigned .dmg, .zip, .deb, .rpm; scripts in packaging/)
 deploy/helm/magnum-bi/        the Helm chart (bundled or external ScramDB; checks in secret.yaml)
 ```
 

@@ -1,0 +1,110 @@
+# The desktop app (lite in a window: magnum-bi desktop) for Linux, macOS and Windows, unsigned:
+#   a tag vX.Y.Z -> built and attached to that tag's GitHub release (made if there isn't one)
+#   run by hand  -> built and kept as the run's artifacts, to try before a release
+# Linux: .deb and .rpm (built on the oldest supported Ubuntu, for an old enough glibc);
+# macOS: a .dmg for both chips; Windows: a .zip with the .exe; and their SHA256SUMS.
+# packaging/ has the scripts.
+name: desktop
+
+on:
+  push:
+    tags: ["v*.*.*"]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {os: linux, runner: ubuntu-22.04}
+          - {os: macos, runner: macos-14}
+          - {os: windows, runner: windows-2022}
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      # the desktop build carries the UI (backend/build.rs)
+      - name: The UI
+        working-directory: frontend
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.98.0"
+          targets: ${{ matrix.os == 'macos' && 'aarch64-apple-darwin,x86_64-apple-darwin' || '' }}
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          key: desktop
+
+      - name: Version
+        shell: bash
+        run: echo "VERSION=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)" >> "$GITHUB_ENV"
+
+      - name: Linux
+        if: matrix.os == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libwebkit2gtk-4.1-dev rpm
+          cargo build --release --locked --features desktop
+          packaging/linux.sh "$VERSION"
+
+      - name: macOS
+        if: matrix.os == 'macos'
+        run: |
+          for target in aarch64-apple-darwin x86_64-apple-darwin; do
+            cargo build --release --locked --features desktop --target "$target"
+          done
+          mkdir -p target/release
+          lipo -create -output target/release/magnum-bi \
+            target/aarch64-apple-darwin/release/magnum-bi target/x86_64-apple-darwin/release/magnum-bi
+          packaging/macos.sh "$VERSION"
+
+      - name: Windows
+        if: matrix.os == 'windows'
+        shell: pwsh
+        env:
+          # OpenSSL's build wants Strawberry Perl, not Git's
+          OPENSSL_SRC_PERL: C:\Strawberry\perl\bin\perl.exe
+        run: |
+          cargo build --release --locked --features desktop
+          New-Item -ItemType Directory -Force target/packages, target/zip | Out-Null
+          Copy-Item target/release/magnum-bi.exe, LICENSE target/zip/
+          Compress-Archive -Path target/zip/* -DestinationPath "target/packages/magnum-bi-$env:VERSION-windows-x64.zip"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.os }}
+          path: target/packages/*
+          if-no-files-found: error
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: packages
+          merge-multiple: true
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1 \
+            || gh release create "$GITHUB_REF_NAME" --verify-tag --title "Magnum BI $GITHUB_REF_NAME" --generate-notes
+          (cd packages && sha256sum -- * > SHA256SUMS)
+          gh release upload "$GITHUB_REF_NAME" packages/* --clobber
