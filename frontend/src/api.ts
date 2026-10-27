@@ -174,6 +174,10 @@ export type Role = 'viewer' | 'user' | 'power_user' | 'org_admin' | 'system_owne
 export type Permission = 'view' | 'filter' | 'drill' | 'download' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'manage_orgs' | 'manage_system'
 export interface AuthState {
   required: boolean; authenticated: boolean; user: { name?: string; email?: string } | null
+  /** magnum-bi lite: one person on their own computer, no organisations, accounts or sign-in */
+  lite?: boolean
+  /** lite, locked with a PIN (asked for instead of signing in) */
+  pin?: boolean
   /** the sign-in methods this server offers */
   methods: { password: boolean; google: boolean }
   method?: string; has_password?: boolean
@@ -529,6 +533,7 @@ export const api = {
   changePassword: (current: string | null, next: string) =>
     call<{ ok: boolean }>('/api/auth/password', json('POST', { current, new: next })),
   logout: () => call<{ ok: boolean }>('/api/auth/logout', { method: 'POST' }),
+  unlockLite: (pin: string) => call<{ ok: boolean }>('/api/lite/unlock', json('POST', { pin })),
   /** Org admins: a one-time password for a member, shown once */
   resetMemberPassword: (email: string) => call<{ email: string; password: string }>('/api/members/password', json('POST', { email })),
   dashboard: (id: string) => call<DashboardResponse>(`/api/dashboards/${encodeURIComponent(id)}`),

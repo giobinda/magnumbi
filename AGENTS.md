@@ -39,6 +39,10 @@ organisation owns.
     drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or
     lower, the maker's row filters plus the link's).
 
+  - lite (`lite.rs`): no sign-in, so it must stay unreachable from anywhere else: it listens on
+    loopback only, answers only requests addressed to localhost, and is switched on by
+    `magnum-bi lite` only (never by a setting); the online version keeps every check.
+
   If a change needs to touch one, say so explicitly.
 - **Match the surrounding code:** short doc comments that say why, plain English in
   user-facing messages ("this account signs in with …"), names over abbreviations.
@@ -49,6 +53,7 @@ organisation owns.
 backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP handlers, mcp.rs, share.rs, guest.rs),
                    formula.rs (the formula language: parsed, never SQL from people), results.rs,
                    governance.rs (who owns a model, its status), lineage.rs, chat.rs (the chat's providers),
+                   lite.rs (magnum-bi lite: one person, its own PostgreSQL, no sign-in, localhost only),
                    org_models.rs (organisations' own models), delivery.rs (mail and webhooks), export.rs,
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs

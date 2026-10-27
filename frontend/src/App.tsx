@@ -139,7 +139,7 @@ function SettingsMenu() {
   return (
     <NavMenu label="Settings" tour="nav-settings" paths={['/members', '/themes', '/delivery', '/usage', '/code', '/organisations', '/chat-settings']}>
       {auth?.org && <NavLink to="/members">Members</NavLink>}
-      <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>
+      {!auth?.lite && <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>}
       <NavLink to="/themes">Themes</NavLink>
       <NavLink to="/delivery">Email &amp; webhooks</NavLink>
       <NavLink to="/chat-settings">Chat settings</NavLink>
@@ -152,6 +152,7 @@ function SettingsMenu() {
 /** System owners: work in the platform workspace (templates, every model) or inside an organisation. */
 function OrgSwitcher() {
   const { auth } = useAuth()
+  if (auth?.lite) return null // no organisations
   if (!auth?.orgs) return auth?.org ? <span className="org-badge" title="Your organisation">{auth.org.name}</span> : null
   const pick = (id: string) => { setOrg(id || null); location.assign('/') }  // dashboards differ per organisation
   return (
@@ -192,7 +193,8 @@ function UserMenu() {
   const options = auth.view_as ?? []
   // a preview of a lower role ("view as"); the server never lets it go up
   const pick = (r: string) => { setViewAs(r !== auth.actual_role ? (r as Role) : null); refresh() }
-  const roleBadge = options.length > 1 ? (
+  // lite: one person, no roles to preview
+  const roleBadge = auth.lite ? null : options.length > 1 ? (
     <select className="role-select" title="Preview Magnum BI as a lower role"
       value={getViewAs() ?? auth.actual_role} onChange={e => pick(e.target.value)}>
       {options.map(r => <option key={r} value={r}>{r === auth.actual_role ? '' : 'View as '}{ROLE_LABELS[r]}</option>)}
@@ -212,8 +214,10 @@ function UserMenu() {
       <span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span>
       <span className="user-name" title={auth.user?.email ?? undefined}>{name}</span>
       <TourButton />
-      <button className="link" onClick={() => setChanging(true)}>Security</button>
-      <button className="link" onClick={signOut}>Sign out</button>
+      {/* lite: nobody signs in; its API tokens (for local agents) are still here */}
+      <button className="link" onClick={() => setChanging(true)}>{auth.lite ? 'API tokens' : 'Security'}</button>
+      {!auth.lite && <button className="link" onClick={signOut}>Sign out</button>}
+      {auth.lite && auth.method === 'pin' && <button className="link" onClick={signOut}>Lock</button>}
       {changing && (
         <div className="modal-bg login-overlay">
           <SecurityCard onClose={() => { setChanging(false); refresh() }} />

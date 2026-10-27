@@ -131,6 +131,13 @@ docker compose exec magnum magnum-bi demo --months 1       <span class="c"># opt
       <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>magnum-secrets</code> volume on first start: back it up.</p>
       <div class="note"><strong>Step-by-step guides:</strong> <a href="guides/infrastructure.html">running Magnum BI</a> (Compose, Kubernetes, https, backups), <a href="guides/platform-owner.html">setting up organisations</a> (for platform owners) and <a href="guides/org-admin.html">setting up your organisation</a> (for Org admins: data, models, dashboards, team).</div>
       <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
+      <h3>Lite: just you, on your computer</h3>
+      <p>No container, no accounts: Magnum BI for one person. It starts its own PostgreSQL in <code>~/.magnum-bi</code> (downloaded the first time) and opens in your browser. You own everything, in one workspace: connect a database, or CSV and Parquet files through DuckDB, then build models and dashboards as usual.</p>
+      <div class="code">
+<pre><code>make lite                         <span class="c"># from a checkout: builds, then runs magnum-bi lite</span>
+magnum-bi lite --set-pin          <span class="c"># optional: lock it with a PIN</span></code></pre>
+      </div>
+      <p class="muted">It answers only on this computer: it listens on <code>127.0.0.1</code> and refuses requests addressed to anything but <code>localhost</code>. The PIN keeps others at this computer out of the app; the data folder itself isn't encrypted, so disk encryption is what protects it at rest. There are no organisations, members or sign-in settings, and no public or guest links. The online version runs on ScramDB.</p>
       <h3>From source</h3>
       <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
       <div class="code">

@@ -16,6 +16,13 @@ use crate::state::Shared;
 pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
     caller.require("view")?;
     let org = caller.org().to_string();
+    // lite: one person and their data; no organisations, people or sign-in to set up
+    if state.config.lite {
+        let steps = workspace_steps(&state, &caller, &org).await?;
+        let steps: Vec<Value> =
+            steps.into_iter().filter(|s| !matches!(s["id"].as_str(), Some("members" | "sign_in"))).collect();
+        return Ok(Json(json!({"for": "lite", "steps": steps})));
+    }
     if org.is_empty() && caller.role == Some(Role::SystemOwner) {
         let orgs = &caller.access.platform.organisations;
         let databases = state.store.org_databases().await?;
@@ -36,9 +43,19 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
     if org.is_empty() || !caller.can("manage_members") {
         return Ok(Json(json!({"for": null, "steps": []})));
     }
+    Ok(Json(json!({"for": "organisation", "steps": workspace_steps(&state, &caller, &org).await?})))
+}
+
+/// A workspace's steps: an organisation's (or, in lite, the platform workspace's).
+async fn workspace_steps(
+    state: &crate::state::AppState,
+    caller: &crate::auth::Caller,
+    org: &str,
+) -> ApiResult<Vec<Value>> {
+    let org = org.to_string();
     let store = state.orgs.store(&org).await?;
     let connections: Vec<String> = state.connectors.list(&store, &org).await?.into_iter().map(|c| c.name).collect();
-    let models = available_models(&caller)
+    let models = available_models(caller)
         .values()
         .filter(|m| !caller.project.blends.contains_key(&m.name) && connections.contains(&m.connection))
         .count();
@@ -54,7 +71,7 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
         sign_in: members.sign_in.is_some(),
         delivery: has_delivery(&store, &org).await?,
     };
-    Ok(Json(json!({"for": "organisation", "steps": org_steps(&facts)})))
+    Ok(org_steps(&facts).iter().map(|s| json!(s)).collect())
 }
 
 /// The tenant has a mail server or a webhook of its own.

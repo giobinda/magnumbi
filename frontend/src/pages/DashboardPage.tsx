@@ -63,7 +63,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const auth = useAuth().auth
   const allRestrictions = auth?.restrictions ?? []
   const [showPublish, setShowPublish] = useState(false)
-  const isTemplate = can('manage_orgs') && !auth?.org  // platform workspace: dashboards are templates
+  // platform workspace: dashboards are templates (in lite it's the only workspace: they're dashboards)
+  const isTemplate = can('manage_orgs') && !auth?.org && !auth?.lite
   const { themes } = useTheme()
   // an embed's ?theme= wins (the host page decides), then the dashboard's pinned theme
   useThemeOverride(new URLSearchParams(location.search).get('theme') || dash?.theme || null)

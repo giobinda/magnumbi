@@ -75,6 +75,9 @@ pub async fn refuse_session(
     session: &SessionInfo,
     jar: &CookieJar,
 ) -> Option<Response> {
+    if state.config.lite && matches!(session.method.as_str(), "local" | "pin") {
+        return None; // no sign-in to check (lite.rs)
+    }
     let policy = sign_in_policy(access, &session.user.email, &offered(state));
     match policy.check_session(&session.method, session.user.two_factor) {
         SessionCheck::Ok => None,
@@ -128,7 +131,14 @@ pub async fn session_or_token(
         .and_then(|v| v.strip_prefix("Bearer "));
     match bearer {
         Some(token) => Ok(state.store.token_session(token.trim()).await?),
-        None => session_of(state, jar).await,
+        None => match session_of(state, jar).await? {
+            // lite: one person on their own computer, who doesn't sign in (lite.rs), unless it's
+            // locked with a PIN: then a session comes from giving it
+            None if state.config.lite && state.config.lite_pin.is_none() => {
+                Ok(crate::lite::session(&state.store).await?)
+            }
+            found => Ok(found),
+        },
     }
 }
 
@@ -300,7 +310,9 @@ pub async fn require_session(State(state): State<Shared>, jar: CookieJar, reques
         Ok(None) => return ApiError::sign_in().into_response(),
         Err(e) => return e.into_response(),
     };
-    if session.user.must_change_password {
+    // (lite's owner doesn't sign in, so has no password to change and nowhere to change it)
+    let lite_owner = state.config.lite && matches!(session.method.as_str(), "local" | "pin");
+    if session.user.must_change_password && !lite_owner {
         let body = json!({"detail": "choose a new password first", "change_password": true});
         return (StatusCode::FORBIDDEN, axum::Json(body)).into_response();
     }

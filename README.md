@@ -90,6 +90,17 @@ make dev-frontend                             # UI on :5173, in another terminal
 ```
 
 Open http://localhost:5173 and sign in. The **Sales overview** dashboard runs on the sample data.
+
+### Lite: just you, on your computer
+
+`make lite` (or `magnum-bi lite` once built) runs Magnum BI for one person, with no container: it
+starts its own PostgreSQL in `~/.magnum-bi` (downloaded the first time), then opens
+http://localhost:8000. There are no organisations, accounts or sign-in: you own everything, in one
+workspace, and connect your data (a database, or CSV and Parquet files through DuckDB). It answers
+only on this computer: it listens on `127.0.0.1` and refuses requests addressed to anything but
+`localhost`. `magnum-bi lite --set-pin` locks it with a PIN (`--remove-pin` to undo); the data
+folder isn't encrypted, so disk encryption is what protects it at rest. Options: `--port`, `--dir`,
+`--no-open`. The online version is unchanged: it runs on ScramDB.
 To try organisations: create one on **Settings › Organisations** (e.g. `acme`), then give it its own
 ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
 For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`

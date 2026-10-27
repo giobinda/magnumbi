@@ -46,6 +46,11 @@ pub struct Config {
     pub usage_retention_days: i64,
     /// rows of cached results each organisation may keep (MAGNUM_CACHE_MAX_ROWS; cache.rs)
     pub cache_max_rows: i64,
+    /// one person on their own computer, no sign-in (lite.rs): set by `magnum-bi lite` only, never
+    /// by a setting
+    pub lite: bool,
+    /// lite only: the hash of the PIN that unlocks it (none: it isn't locked)
+    pub lite_pin: Option<String>,
     /// DuckDB connections: one directory per organisation (and _extensions)
     pub duckdb_dir: PathBuf,
     /// download DuckDB's httpfs extension when an organisation first reads object storage
@@ -119,6 +124,8 @@ impl Config {
                 (None, None) => None,
             },
             usage_retention_days: env("MAGNUM_USAGE_RETENTION_DAYS").map(|d| d.parse()).transpose()?.unwrap_or(400),
+            lite: false,
+            lite_pin: None,
             cache_max_rows: env("MAGNUM_CACHE_MAX_ROWS").map(|n| n.parse()).transpose()?.unwrap_or(5_000_000),
             duckdb_dir: env("MAGNUM_DUCKDB_DIR").unwrap_or_else(|| "data/duckdb".into()).into(),
             duckdb_install_extensions: flag("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", true),
