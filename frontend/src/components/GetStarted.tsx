@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { SHOW_ME } from '../tour'
+import DemoCard from './DemoCard'
 import { useTour } from './Tour'
 import type { SetupStep } from '../api'
 
@@ -16,6 +17,7 @@ export default function GetStarted() {
   const [data, setData] = useState<{ for: string | null; steps: SetupStep[] } | null>(null)
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(HIDE_KEY) === '1' } catch { return false } })
   const { start } = useTour()
+  const [demo, setDemo] = useState(false)
   useEffect(() => { api.setup().then(setData, () => setData(null)) }, [])
   if (!data?.for || !data.steps.length) return null
   const required = data.steps.filter(s => !s.optional)
@@ -42,8 +44,11 @@ export default function GetStarted() {
               <div className="muted small">{s.detail}</div>
             </div>
             {!s.done && SHOW_ME[s.id] && <button className="small" onClick={() => start(SHOW_ME[s.id])}>Show me</button>}
-            {!s.done && <Link className="btn small" to={s.link}>Go</Link>}
+            {/* the sample data is set up right here */}
+            {!s.done && s.id === 'demo' && <button className="small" onClick={() => setDemo(!demo)}>{demo ? 'Close' : 'Set up'}</button>}
+            {!s.done && s.id !== 'demo' && <Link className="btn small" to={s.link}>Go</Link>}
             <a className="small" href={SITE + s.guide} target="_blank" rel="noreferrer">How ↗</a>
+            {s.id === 'demo' && demo && <div className="step-demo"><DemoCard /></div>}
           </li>
         ))}
       </ol>

@@ -149,7 +149,8 @@ can use.
 **The NYC demo: taxi trips × weather.** One step sets up New York yellow taxi trips (NYC TLC
 open data, about 3.5 million trips a month) with the hourly weather in each borough (Open-Meteo,
 ERA5 reanalysis, CC BY 4.0): `make demo` (platform workspace) or `make demo ORG=globex MONTHS=60`,
-or, as a system owner, **Settings › Organisations › Demo data**. It finds the latest published month,
+or, as a system owner, **Settings › Organisations › Demo data**, or **Get started › Try it with
+sample data** on the home page (the platform workspace; in lite, its one workspace). It finds the latest published month,
 downloads and cleans each month with DuckDB into the organisation's DuckDB folder (about 60 MB a
 month; months already there are skipped, so running it again only adds new ones), fetches the
 weather, creates the DuckDB connections `nyc_taxi` and `meteo`, and imports the dashboards

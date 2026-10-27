@@ -285,11 +285,12 @@ async fn steps(
             .await
             .map_err(|e| anyhow::anyhow!("{name}: {e}"))?;
     }
+    if state.config.lite {
+        add_definitions(&state.project.root)?;
+    }
     let project = state.project.current();
-    for id in ["nyc_taxi", "nyc_taxi_weather"] {
-        let path = state.project.dashboards_dir().join(format!("{id}.yaml"));
-        let text = with_month(&std::fs::read_to_string(&path)?, &latest)?;
-        store.write_dashboard(org, id, &text, Some(by)).await?;
+    for (id, text) in DASHBOARDS {
+        store.write_dashboard(org, id, &with_month(text, &latest)?, Some(by)).await?;
     }
     note(progress, None, Some(format!("dashboards nyc_taxi and nyc_taxi_weather, showing {latest}")));
     if !org.is_empty() {
@@ -480,9 +481,53 @@ pub fn with_month(yaml: &str, month: &str) -> anyhow::Result<String> {
     Ok(crate::project::dump_dashboard(&d))
 }
 
+/// The demo's models and blend, from project/ (built in: lite and installed apps have no checkout).
+const DEFINITIONS: [(&str, &str); 3] = [
+    ("models/taxi.yaml", include_str!("../../project/models/taxi.yaml")),
+    ("models/weather.yaml", include_str!("../../project/models/weather.yaml")),
+    ("blends/taxi_weather.yaml", include_str!("../../project/blends/taxi_weather.yaml")),
+];
+
+/// Its dashboards, from project/dashboards.
+const DASHBOARDS: [(&str, &str); 2] = [
+    ("nyc_taxi", include_str!("../../project/dashboards/nyc_taxi.yaml")),
+    ("nyc_taxi_weather", include_str!("../../project/dashboards/nyc_taxi_weather.yaml")),
+];
+
+/// Lite: the demo's models and blend in its project folder, where they aren't yet (one changed
+/// there is kept). How many were added. The server's project is its operators': left alone.
+pub fn add_definitions(root: &Path) -> anyhow::Result<usize> {
+    let mut added = 0;
+    for (file, text) in DEFINITIONS {
+        let path = root.join(file);
+        if !path.exists() {
+            std::fs::create_dir_all(path.parent().expect("in a folder"))?;
+            std::fs::write(&path, text)?;
+            added += 1;
+        }
+    }
+    Ok(added)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_demo_brings_its_models_where_there_are_none() {
+        let root = std::env::temp_dir().join(format!("magnum-demo-{}", uuid::Uuid::new_v4().simple()));
+        // lite's project folder: empty
+        assert_eq!(add_definitions(&root).unwrap(), 3);
+        let project = crate::project::Project::new(&root).current();
+        assert!(project.models.contains_key("taxi") && project.models.contains_key("weather"), "{:?}", project.errors);
+        assert!(project.blends.contains_key("taxi_weather"), "{:?}", project.errors);
+        // what's there is kept: the person may have changed it
+        let edited = root.join("models/taxi.yaml");
+        std::fs::write(&edited, "# mine\n").unwrap();
+        assert_eq!(add_definitions(&root).unwrap(), 0);
+        assert_eq!(std::fs::read_to_string(&edited).unwrap(), "# mine\n");
+        std::fs::remove_dir_all(&root).unwrap();
+    }
     use duckdb::Connection;
 
     fn tmp() -> std::path::PathBuf {

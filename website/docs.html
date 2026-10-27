@@ -1038,7 +1038,7 @@ helm test bi</code></pre>
       <p>Want to see it at scale? One command sets up New York yellow taxi trips (NYC TLC open data, about 3.5 million trips a month) with the hourly weather in each borough:</p>
       <div class="code"><pre><code>make demo                          <span class="c"># platform workspace, 13 months</span>
 make demo ORG=globex MONTHS=60     <span class="c"># an organisation, five years</span></code></pre></div>
-      <p>System owners can also run it from <strong>Settings › Organisations › Demo data</strong>, with progress shown as it goes. It:</p>
+      <p>System owners can also run it from <strong>Settings › Organisations › Demo data</strong>, or from <strong>Get started › Try it with sample data</strong> on the home page (for the platform workspace; in lite and the desktop app, for its one workspace), with progress shown as it goes. It:</p>
       <ol>
         <li>finds the latest published month and downloads and cleans each month with DuckDB (about 60 MB a month; months already there are skipped, so running it again only adds new ones);</li>
         <li>fetches the weather and creates the DuckDB connections <code>nyc_taxi</code> and <code>meteo</code>;</li>
