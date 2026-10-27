@@ -24,6 +24,10 @@ chrono-tz = "=0.10.4"
 cookie = "0.18"
 clap = { version = "4", features = ["derive", "env"] }
 deadpool-postgres = "0.14"
+# magnum-bi lite: its own PostgreSQL, fetched on first start (lite.rs); pinned, rustls like the rest.
+# 0.22.0 (2026-10-21) is under two weeks old: an exception the owner chose on 2026-10-27, since
+# 0.21 drops the archive's hard links (PostgreSQL then lacks the UTC time zone and won't connect)
+postgresql_embedded = { version = "=0.22.0", default-features = false, features = ["theseus", "tokio", "tls-rustls-ring"] }
 duckdb = { version = "1.10506", features = ["bundled", "parquet", "json"] }
 jsonwebtoken = "9"
 rand = "0.8"

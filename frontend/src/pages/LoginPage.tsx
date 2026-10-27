@@ -30,6 +30,31 @@ function done(onSignedIn: () => void) {
 
 /** Sign-in, email first: then the ways this person's organisation allows (password, passkey, its
  *  own single sign-on, Google), and an authenticator code when they use one. */
+/** Magnum BI lite, locked with a PIN: the PIN, and nothing else. */
+export function PinCard({ onUnlocked }: { onUnlocked: () => void }) {
+  const [pin, setPin] = useState('')
+  const [err, setErr] = useState<string | null>(null)
+  const unlock = async (e: FormEvent) => {
+    e.preventDefault(); setErr(null)
+    try { await api.unlockLite(pin); onUnlocked() } catch (x) { setErr((x as Error).message); setPin('') }
+  }
+  return (
+    <div className="login-wrap">
+      <div className="login-card">
+        <Brand big />
+        <h1>Unlock</h1>
+        <form className="login-form" onSubmit={unlock}>
+          <label>PIN
+            <input type="password" inputMode="numeric" autoComplete="off" value={pin} onChange={e => setPin(e.target.value)} required autoFocus />
+          </label>
+          {err && <div className="error">{err}</div>}
+          <button className="primary login-btn" disabled={!pin}>Unlock</button>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 export default function LoginPage({ auth, onSignedIn }: { auth: AuthState; onSignedIn: () => void }) {
   const error = new URLSearchParams(location.search).get('error')
   const [email, setEmail] = useState('')

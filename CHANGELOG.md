@@ -7,6 +7,14 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Magnum BI lite** (`magnum-bi lite`, `make lite`): for one person on their own computer, with no
+  container. It starts its own PostgreSQL in `~/.magnum-bi` (downloaded the first time), has no
+  organisations, accounts or sign-in, and answers only on this computer (`127.0.0.1`, requests
+  addressed to `localhost` only). The query cache works in its one workspace; an optional PIN
+  (`--set-pin`) locks it. The online version keeps running on ScramDB.
+
+### Added
+
 - **Setup as code.** Org admins export what their organisation set up in the app (connections,
   its own models, shared formulas, blends, themes, glossary, catalog entries, dashboards, the mail
   server, webhooks, chat settings, scheduled reports and alerts) as YAML files, see what applying

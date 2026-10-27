@@ -83,10 +83,40 @@ async fn start_session_as(
     Ok(jar.add(session_cookie(state, token)))
 }
 
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PinBody {
+    pin: String,
+}
+
+/// Lite, locked with a PIN: unlock it for this browser (lite.rs). Wrong PINs count like wrong
+/// passwords: too many, and it waits.
+pub async fn lite_unlock(State(state): State<Shared>, jar: CookieJar, Body(b): Body<PinBody>) -> ApiResult<Response> {
+    let Some(hash) = state.config.lite_pin.clone().filter(|_| state.config.lite) else {
+        return Err(ApiError::not_found("no such endpoint"));
+    };
+    let owner = crate::lite::OWNER;
+    if let Some(wait) = state.limiter.locked(owner) {
+        let detail = format!("too many wrong PINs; try again in {} minutes", wait.div_ceil(60));
+        return Err(ApiError::Status(StatusCode::TOO_MANY_REQUESTS, detail));
+    }
+    let pin = b.pin;
+    if !hashing(&state, move || password::verify(&pin, Some(&hash))).await? {
+        state.limiter.failed(owner);
+        return Err(ApiError::bad_request("that isn't the PIN"));
+    }
+    state.limiter.succeeded(owner);
+    let jar = start_session(&state, jar, owner, "pin").await?;
+    Ok((jar, Json(json!({"ok": true}))).into_response())
+}
+
 pub async fn me(State(state): State<Shared>, jar: CookieJar, headers: HeaderMap) -> ApiResult<Json<Value>> {
     let session = session_or_token(&state, &jar, &headers).await?;
     let methods = json!({"password": state.config.password_login, "google": state.google.is_some()});
-    let signed_out = || Json(json!({"required": true, "authenticated": false, "user": null, "methods": methods}));
+    let signed_out = || {
+        Json(json!({"required": true, "authenticated": false, "user": null, "methods": methods,
+                    "lite": state.config.lite, "pin": state.config.lite && state.config.lite_pin.is_some()}))
+    };
     let Some(session) = session else { return Ok(signed_out()) };
     let project = state.project.current();
     let (access, _) = state.access.get(&state, &project).await;
@@ -98,6 +128,8 @@ pub async fn me(State(state): State<Shared>, jar: CookieJar, headers: HeaderMap)
     let mut out = json!({
         "required": true,
         "authenticated": true,
+        // one person on their own computer: no organisations, accounts or sign-in (lite.rs)
+        "lite": state.config.lite,
         "user": {"email": session.user.email, "name": session.user.name},
         "methods": methods,
         "method": session.method,

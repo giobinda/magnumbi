@@ -106,10 +106,12 @@ export function SecurityCard({ onClose }: { onClose: () => void }) {
   return (
     <div className="login-wrap">
       <div className="login-card security-card">
-        <h1>Sign-in security</h1>
+        <h1>{auth.lite ? 'API tokens' : 'Sign-in security'}</h1>
         <p className="muted small">{auth.user?.email}</p>
         {msg && <div className={msg.kind}>{msg.text}</div>}
 
+        {/* lite: nobody signs in, so no password, authenticator or passkeys */}
+        {!auth.lite && <>
         <section>
           <h3>Password</h3>
           <p className="muted small">{auth.has_password ? 'Set.' : 'None: you sign in another way.'}</p>
@@ -155,6 +157,7 @@ export function SecurityCard({ onClose }: { onClose: () => void }) {
             ) : <p className="muted small">This browser doesn't support passkeys.</p>}
           </section>
         )}
+        </>}
         <ApiTokens />
         <button type="button" className="primary" onClick={onClose}>Close</button>
       </div>

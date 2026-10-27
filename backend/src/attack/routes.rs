@@ -44,6 +44,7 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("POST", "/api/auth/passkeys/login/start", Open),
     ("POST", "/api/auth/passkeys/login/finish", Open),
     ("POST", "/api/auth/logout", Open),
+    ("POST", "/api/lite/unlock", Open),
     ("POST", "/api/auth/password", Open),
     ("GET", "/api/auth/google/login", Open),
     ("GET", "/api/auth/google/callback", Open),

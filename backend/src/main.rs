@@ -23,6 +23,7 @@ mod export;
 mod formula;
 mod governance;
 mod lineage;
+mod lite;
 mod materialize;
 mod netguard;
 mod org_models;
@@ -106,6 +107,24 @@ enum Command {
         #[arg(long, env = "MAGNUM_ORG", global = true)]
         org: Option<String>,
     },
+    /// Magnum BI for one person on this computer: its own PostgreSQL (fetched the first time), no
+    /// organisations, accounts or sign-in, reachable from this computer only
+    Lite {
+        #[arg(long, default_value_t = 8000)]
+        port: u16,
+        /// where it keeps everything (default: ~/.magnum-bi)
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+        /// don't open the browser
+        #[arg(long)]
+        no_open: bool,
+        /// lock it with a PIN (asked for here), then exit; it asks for the PIN from the next start
+        #[arg(long, conflicts_with = "remove_pin")]
+        set_pin: bool,
+        /// remove the PIN, then exit
+        #[arg(long)]
+        remove_pin: bool,
+    },
 }
 
 #[derive(Subcommand)]
@@ -167,6 +186,17 @@ async fn main() -> Result<()> {
     if let Some(Command::Code { command, url, org }) = cli.command {
         return code(command, url, org).await;
     }
+    // its own database and settings
+    if let Some(Command::Lite { port, dir, no_open, set_pin, remove_pin }) = cli.command {
+        let dir = match dir {
+            Some(d) => d,
+            None => std::env::home_dir().context("no home folder: say where with --dir")?.join(".magnum-bi"),
+        };
+        if set_pin || remove_pin {
+            return lite_pin(&dir, set_pin);
+        }
+        return lite(port, dir, !no_open).await;
+    }
     let config = Config::from_env()?;
     match cli.command.unwrap_or(Command::Serve) {
         Command::Serve => serve(config).await,
@@ -195,7 +225,7 @@ async fn main() -> Result<()> {
             Ok(())
         }
         Command::Check => check(&config),
-        Command::Code { .. } => unreachable!("handled above"),
+        Command::Code { .. } | Command::Lite { .. } => unreachable!("handled above"),
         Command::Demo { org, months } => {
             let state = app_state(config).await?;
             let progress = state.demo.clone();
@@ -366,6 +396,11 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         db::migrate(&pool, db::PRIMARY)
             .await
             .with_context(|| format!("ScramDB at {}", db::redact(&config.database_url)))?;
+        // lite: the platform workspace is the only one, and keeps what an organisation's database
+        // would (its query cache among them) in the one database
+        if config.lite {
+            db::migrate(&pool, db::ORG).await?;
+        }
     }
     let store = Store::new(pool.clone());
     let project = project::Project::new(&config.project_dir);
@@ -376,7 +411,9 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
     if seeded > 0 {
         tracing::info!("seeded {seeded} dashboard(s) from {}", project.dashboards_dir().display());
     }
-    if let Some((email, password, generated)) =
+    if config.lite {
+        lite::ensure_owner(&store).await?; // no first password: nobody signs in
+    } else if let Some((email, password, generated)) =
         config::first_admin(store.user_count().await?, &config.bootstrap_owners, config.initial_password.as_deref())
     {
         let hash = auth::password::hash(&password)?;
@@ -398,12 +435,14 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
         tracing::warn!("no system owners yet: set MAGNUM_SYSTEM_OWNERS=you@example.com");
     }
     tracing::info!(
-        "storage: ScramDB at {}; sign-in: {}",
+        "storage: {} at {}; sign-in: {}",
+        if config.lite { "its own PostgreSQL" } else { "ScramDB" },
         db::redact(&config.database_url),
-        match (config.password_login, config.google.is_some()) {
+        match (config.password_login && !config.lite, config.google.is_some() && !config.lite) {
             (true, true) => "password + Google",
             (true, false) => "password",
             (false, true) => "Google",
+            (false, false) if config.lite => "none (lite: this computer only)",
             (false, false) => "none configured",
         }
     );
@@ -424,7 +463,8 @@ async fn app_state(config: Config) -> Result<Arc<AppState>> {
             None => tracing::warn!(org, "can't tell where this organisation's database is; not guarded against"),
         }
     }
-    if guard.allow_private {
+    // (lite: connecting to this computer's own databases is the point)
+    if guard.allow_private && !config.lite {
         tracing::warn!("organisations' connections may reach private networks (MAGNUM_ALLOW_PRIVATE_CONNECTIONS)");
     }
     let google = config.google.clone().map(auth::google::Google::new);
@@ -517,5 +557,41 @@ async fn code(command: CodeCommand, url: Option<String>, org: Option<String>) ->
             println!("Applied.");
         }
     }
+    Ok(())
+}
+
+/// `magnum-bi lite`: its own PostgreSQL in the folder, then the server for its one person.
+async fn lite(port: u16, dir: std::path::PathBuf, open: bool) -> Result<()> {
+    println!("Starting Magnum BI lite in {} (the first start downloads PostgreSQL)…", dir.display());
+    let (database, url) = lite::database(&dir).await.context("starting its PostgreSQL")?;
+    let config = lite::config(&dir, &url, port, |k| std::env::var(k).ok())?;
+    std::fs::create_dir_all(&config.project_dir)?;
+    let address = format!("http://localhost:{port}");
+    println!("Magnum BI lite: {address} (this computer only; Ctrl+C to stop)");
+    if open {
+        let address = address.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_secs(1)).await;
+            lite::open_browser(&address);
+        });
+    }
+    let served = serve(config).await;
+    database.stop().await.context("stopping its PostgreSQL")?;
+    served
+}
+
+/// `magnum-bi lite --set-pin | --remove-pin`: lock lite with a PIN, or unlock it for good.
+fn lite_pin(dir: &std::path::Path, set: bool) -> Result<()> {
+    if !set {
+        lite::set_pin(dir, None)?;
+        println!("No PIN any more (from the next start).");
+        return Ok(());
+    }
+    let pin = rpassword::prompt_password("PIN (at least 4 characters): ")?;
+    if rpassword::prompt_password("Again: ")? != pin {
+        bail!("the two PINs differ: nothing changed");
+    }
+    lite::set_pin(dir, Some(&pin))?;
+    println!("PIN set: Magnum BI lite asks for it from the next start.");
     Ok(())
 }

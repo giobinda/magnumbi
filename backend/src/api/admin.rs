@@ -19,6 +19,11 @@ use crate::security::public_base;
 use crate::state::{AppState, Shared, store_access};
 use crate::usage::Event;
 
+/// Whose cache: the organisation's, or in lite the platform workspace's (its only one).
+fn cache_owner(state: &AppState, caller: &Caller) -> ApiResult<String> {
+    if state.config.lite { Ok(caller.org().to_string()) } else { current_org(caller) }
+}
+
 fn current_org(caller: &Caller) -> ApiResult<String> {
     caller.scope.org.clone().ok_or_else(|| ApiError::bad_request("choose an organisation first"))
 }
@@ -580,7 +585,7 @@ pub async fn usage_summary(
 /// The organisation's query cache: per model, how long results may be reused and what's cached.
 pub async fn cache_stats(State(state): State<Shared>, Auth(caller): Auth) -> ApiResult<Json<Value>> {
     caller.require("manage_members")?;
-    let org = current_org(&caller)?;
+    let org = cache_owner(&state, &caller)?;
     let ttl: BTreeMap<String, u64> =
         super::available_models(&caller).into_iter().map(|(n, m)| (n, m.cache.unwrap_or(0))).collect();
     let cached = crate::cache::stats(&state.orgs.store(&org).await?, &org).await?;
@@ -599,7 +604,7 @@ pub async fn clear_cache(
     UrlQuery(p): UrlQuery<ModelParam>,
 ) -> ApiResult<Json<Value>> {
     caller.require("manage_members")?;
-    let org = current_org(&caller)?;
+    let org = cache_owner(&state, &caller)?;
     let n = crate::cache::clear(&state.orgs.store(&org).await?, &org, p.model.as_deref()).await?;
     state.usage.record(Event {
         model: p.model.clone(),

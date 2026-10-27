@@ -93,6 +93,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/auth/passkeys/login/start", post(auth::passkey_login_start))
         .route("/api/auth/passkeys/login/finish", post(auth::passkey_login_finish))
         .route("/api/auth/logout", post(auth::logout))
+        .route("/api/lite/unlock", post(auth::lite_unlock))
         .route("/api/auth/password", post(auth::change_password))
         .route("/api/auth/google/login", get(auth::google_login))
         .route("/api/auth/google/callback", get(auth::google_callback))
@@ -381,10 +382,10 @@ async fn on_results(
 }
 
 /// The organisation's ScramDB when results may be cached (`ttl` > 0; none for the platform
-/// workspace).
+/// workspace, whose dashboards are templates, except in lite, where it's the only workspace).
 async fn cache_store(state: &AppState, caller: &Caller, ttl: u64) -> Option<Store> {
     match (ttl > 0, caller.org()) {
-        (true, org) if !org.is_empty() => state.orgs.store(org).await.ok(),
+        (true, org) if !org.is_empty() || state.config.lite => state.orgs.store(org).await.ok(),
         _ => None,
     }
 }
@@ -524,6 +525,34 @@ pub mod tests {
 
     /// `app` on another project directory.
     pub async fn app_with(project: &str) -> Option<(axum::Router, Arc<AppState>, String)> {
+        app_configured(project, |_| {}).await
+    }
+
+    /// `app` in lite mode (lite.rs): the local owner, no sign-in.
+    pub async fn app_lite() -> Option<(axum::Router, Arc<AppState>)> {
+        app_lite_with_pin(None).await
+    }
+
+    /// `app_lite`, locked with a PIN (or not).
+    pub async fn app_lite_with_pin(pin: Option<&str>) -> Option<(axum::Router, Arc<AppState>)> {
+        let project = concat!(env!("CARGO_MANIFEST_DIR"), "/../project");
+        let pin = pin.map(|p| crate::auth::password::hash(p).unwrap());
+        let (app, state, _) = app_configured(project, |c| {
+            c.lite = true;
+            c.lite_pin = pin;
+        })
+        .await?;
+        crate::lite::ensure_owner(&state.store).await.unwrap();
+        state
+            .access
+            .pin(crate::access::AccessConfig::from_document(json!({"system_owners": [crate::lite::OWNER]})).unwrap());
+        Some((app, state))
+    }
+
+    async fn app_configured(
+        project: &str,
+        tweak: impl FnOnce(&mut crate::config::Config),
+    ) -> Option<(axum::Router, Arc<AppState>, String)> {
         let url = std::env::var("MAGNUM_TEST_DATABASE_URL").ok()?;
         let key = crate::crypto::SecretKey::generate();
         let dir = std::env::temp_dir().join(format!("magnum-api-{}", uuid::Uuid::new_v4().simple()));
@@ -535,8 +564,9 @@ pub mod tests {
             ("MAGNUM_DUCKDB_DIR", dir.display().to_string()),
             ("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", "0".to_string()),
         ];
-        let config =
+        let mut config =
             crate::config::Config::from_lookup(|k| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone())).unwrap();
+        tweak(&mut config);
         let store = Store::new(crate::db::test_pool(8).await?);
         // once per test run: on a new database, tests starting together would race to create
         // the owner's account

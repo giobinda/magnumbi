@@ -133,8 +133,11 @@ pub fn logged_path(path: &str) -> String {
 pub async fn hardening(State(state): State<Shared>, request: Request, next: Next) -> Response {
     let (method, headers, path) =
         (request.method().clone(), request.headers().clone(), request.uri().path().to_string());
-    let mut resp = match size_rejection(&method, &headers).or_else(|| csrf_rejection(&state.config, &method, &headers))
-    {
+    let rejection = size_rejection(&method, &headers)
+        .or_else(|| crate::lite::host_rejection(&state.config, &headers))
+        .or_else(|| crate::lite::route_rejection(&state.config, &path))
+        .or_else(|| csrf_rejection(&state.config, &method, &headers));
+    let mut resp = match rejection {
         Some(r) => r,
         None => next.run(request).await,
     };

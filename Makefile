@@ -1,4 +1,4 @@
-.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve check test test-db lint e2e-attack screenshots
+.PHONY: install db-up db-down db-reset db-psql org-db key migrate seed demo user dev-backend dev-frontend build serve lite check test test-db lint e2e-attack screenshots
 
 # local settings (git-ignored), e.g. MAGNUM_SYSTEM_OWNERS / Google client: see .env.local.example
 LOCAL_ENV = set -a && { [ ! -f .env.local ] || . ./.env.local; } && set +a
@@ -53,6 +53,9 @@ build:              ## build the frontend into frontend/dist (served by the back
 
 serve: build db-up  ## single server on :8000 (API + built UI)
 	$(LOCAL_ENV) && $(DEV_DB) target/release/magnum-bi serve
+
+lite: build         ## Magnum BI for one person on this computer, no container (its own PostgreSQL in ~/.magnum-bi)
+	target/release/magnum-bi lite
 
 check:              ## validate the project files (models, blends, themes, dashboards)
 	cargo run -q -- check
