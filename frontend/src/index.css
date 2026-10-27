@@ -442,8 +442,10 @@ table.data.pivot td.total { border-top: 0; border-left: 2px solid var(--border);
 .get-started .progress { height: 6px; border-radius: 3px; background: var(--surface-2); margin: 10px 0 6px; overflow: hidden; }
 .get-started .progress i { display: block; height: 100%; background: var(--accent); }
 .steps-list { list-style: none; padding: 0; margin: 0; }
-.steps-list li { display: flex; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
+.steps-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
 .steps-list li:first-child { border-top: 0; }
+.steps-list .step-demo { flex-basis: 100%; }
+.steps-list .step-demo .card { margin: 0; }
 .steps-list .tick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 700; }
 .steps-list li.done .tick { background: var(--good); border-color: var(--good); color: #fff; }
 .steps-list li.done b { color: var(--text-muted); font-weight: 500; text-decoration: line-through; }

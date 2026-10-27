@@ -30,6 +30,24 @@ fn step(
     Step { id, title, detail, done, optional: false, link, guide }
 }
 
+/// The sample data (crate::demo): something to look around in before connecting one's own. Its
+/// system owners set it up in the platform workspace (in lite: the one workspace).
+pub fn demo_step(done: bool) -> Step {
+    Step {
+        optional: true,
+        ..step(
+            "demo",
+            "Try it with sample data",
+            done,
+            "New York taxi trips with the weather in each borough: two dashboards and a blend, set up for you \
+             (about 60 MB a month of data, downloaded)."
+                .into(),
+            "/dashboards/nyc_taxi_weather",
+            "docs.html#demo",
+        )
+    }
+}
+
 /// What the platform has, for its owners' checklist.
 pub struct PlatformFacts {
     pub secret_key: bool,
@@ -195,6 +213,14 @@ mod tests {
 
     fn ids(steps: &[Step]) -> Vec<(&str, bool)> {
         steps.iter().map(|s| (s.id, s.done)).collect()
+    }
+
+    #[test]
+    fn the_sample_data_is_optional_and_done_once_its_dashboard_is_there() {
+        let s = demo_step(false);
+        assert_eq!((s.id, s.done, s.optional), ("demo", false, true));
+        assert!(s.detail.contains("taxi") && s.detail.contains("weather"), "{}", s.detail);
+        assert!(demo_step(true).done);
     }
 
     #[test]

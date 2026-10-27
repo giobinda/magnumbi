@@ -8,7 +8,7 @@ use super::available_models;
 use crate::access::Role;
 use crate::auth::Auth;
 use crate::error::ApiResult;
-use crate::setup::{OrgFacts, PlatformFacts, org_steps, platform_steps};
+use crate::setup::{OrgFacts, PlatformFacts, demo_step, org_steps, platform_steps};
 use crate::state::Shared;
 
 /// System owners in the platform workspace: the platform's steps. Org admins (and system owners
@@ -19,8 +19,8 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
     // lite: one person and their data; no organisations, people or sign-in to set up
     if state.config.lite {
         let steps = workspace_steps(&state, &caller, &org).await?;
-        let steps: Vec<Value> =
-            steps.into_iter().filter(|s| !matches!(s["id"].as_str(), Some("members" | "sign_in"))).collect();
+        let steps = steps.into_iter().filter(|s| !matches!(s["id"].as_str(), Some("members" | "sign_in")));
+        let steps: Vec<Value> = std::iter::once(demo(&state).await?).chain(steps).collect();
         return Ok(Json(json!({"for": "lite", "steps": steps})));
     }
     if org.is_empty() && caller.role == Some(Role::SystemOwner) {
@@ -38,7 +38,9 @@ pub async fn checklist(State(state): State<Shared>, Auth(caller): Auth) -> ApiRe
             with_admin,
             delivery: has_delivery(&state.store, "").await?,
         };
-        return Ok(Json(json!({"for": "platform", "steps": platform_steps(&facts)})));
+        let mut steps: Vec<Value> = platform_steps(&facts).iter().map(|s| json!(s)).collect();
+        steps.push(demo(&state).await?);
+        return Ok(Json(json!({"for": "platform", "steps": steps})));
     }
     if org.is_empty() || !caller.can("manage_members") {
         return Ok(Json(json!({"for": null, "steps": []})));
@@ -74,6 +76,11 @@ async fn workspace_steps(
     Ok(org_steps(&facts).iter().map(|s| json!(s)).collect())
 }
 
+/// The sample data's step: done once the platform workspace has its dashboard.
+async fn demo(state: &crate::state::AppState) -> ApiResult<Value> {
+    Ok(json!(demo_step(state.store.read_dashboard("", "nyc_taxi_weather").await?.is_some())))
+}
+
 /// The tenant has a mail server or a webhook of its own.
 async fn has_delivery(store: &crate::store::Store, org: &str) -> ApiResult<bool> {
     Ok(store.mail_server(org).await?.is_some() || !store.webhooks(org).await?.is_empty())
@@ -105,6 +112,8 @@ mod tests {
         assert_eq!(r["for"], json!("platform"));
         let d = done(&r);
         assert!(d.contains(&("secret_key".into(), true)) && d.contains(&("organisation".into(), true)), "{d:?}");
+        // the sample data, for the platform workspace (where its owners may set it up)
+        assert!(d.iter().any(|(id, _)| id == "demo"), "{d:?}");
 
         // inside the organisation: its own (a connection and a dashboard, models on it, no team yet)
         let (_, r, _) = send(&app, c, &org, "GET", "/api/setup", None, None).await;
@@ -113,6 +122,8 @@ mod tests {
         for (id, is_done) in [("connection", true), ("model", true), ("dashboard", true), ("members", false)] {
             assert!(d.contains(&(id.into(), is_done)), "{id}: {d:?}");
         }
+        // only system owners set up the demo, from the platform workspace
+        assert!(!d.iter().any(|(id, _)| id == "demo"), "{d:?}");
         // nothing to set up for others
         let (_, r, _) = send(&app, c, &org, "GET", "/api/setup", None, Some("power_user")).await;
         assert_eq!(r["steps"], json!([]));

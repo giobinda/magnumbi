@@ -189,6 +189,12 @@ pub async fn database(dir: &std::path::Path) -> anyhow::Result<(postgresql_embed
     s.configuration.insert("listen_addresses".into(), "127.0.0.1".into());
     let mut pg = postgresql_embedded::PostgreSQL::new(s);
     pg.setup().await?;
+    // one left running in this folder (the program killed, or crashed) is no other lite's: the
+    // folder is locked (`lock`). Stop it, or it holds the data and this start fails.
+    if pg.status() == postgresql_embedded::Status::Started {
+        tracing::info!("stopping the PostgreSQL left running in {}", dir.display());
+        pg.stop().await?;
+    }
     pg.start().await?;
     if !pg.database_exists("magnum").await? {
         pg.create_database("magnum").await?;
@@ -464,7 +470,27 @@ mod tests {
         let (s, r) = ask(&lite, Some("localhost"), "GET", "/api/setup").await;
         assert_eq!(s, StatusCode::OK);
         let ids: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
-        assert_eq!(ids, ["connection", "model", "dashboard", "theme", "delivery"], "{r}");
+        // sample data first, to look around before connecting one's own
+        assert_eq!(ids, ["demo", "connection", "model", "dashboard", "theme", "delivery"], "{r}");
+        assert_eq!(r["steps"][0]["optional"], json!(true), "{r}");
+    }
+
+    /// Needs its PostgreSQL (downloaded): MAGNUM_TEST_LITE_DATABASE=1.
+    #[tokio::test]
+    async fn a_postgresql_left_running_is_stopped_before_starting() {
+        if std::env::var_os("MAGNUM_TEST_LITE_DATABASE").is_none() {
+            return;
+        }
+        let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
+        let (left, _) = database(&dir).await.unwrap();
+        // the program went away without stopping it (killed, crashed, an older build)
+        std::mem::forget(left);
+        let (pg, url) = database(&dir).await.expect("starts over the one left running");
+        let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
+        tokio::spawn(conn);
+        client.simple_query("SELECT 1").await.unwrap();
+        pg.stop().await.unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

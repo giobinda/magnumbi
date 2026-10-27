@@ -96,7 +96,8 @@ the `sample_sales` table: `make seed`):
 
 - `MAGNUM_TEST_DATABASE_URL=postgresql://scramdb@127.0.0.1:55432/scramdb` for ScramDB;
 - `MAGNUM_TEST_POSTGRES_URL` for a real PostgreSQL;
-- `MAGNUM_TEST_DUCKDB_EXTENSIONS=$PWD/data/duckdb/_extensions` for DuckDB extensions.
+- `MAGNUM_TEST_DUCKDB_EXTENSIONS=$PWD/data/duckdb/_extensions` for DuckDB extensions;
+- `MAGNUM_TEST_LITE_DATABASE=1` for lite's own PostgreSQL (downloaded).
 
 Run the full suite with all three before calling something done (`make test-db` runs 8 tests at
 once, `TEST_THREADS=n` to change it: more queue up on ScramDB and time out); CI (`.github/workflows/ci.yml`)
