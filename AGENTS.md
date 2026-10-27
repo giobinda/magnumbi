@@ -54,6 +54,7 @@ backend/src/       Rust server + CLI (crate magnum-bi): main.rs, api/ (HTTP hand
                    formula.rs (the formula language: parsed, never SQL from people), results.rs,
                    governance.rs (who owns a model, its status), lineage.rs, chat.rs (the chat's providers),
                    lite.rs (magnum-bi lite: one person, its own PostgreSQL, no sign-in, localhost only),
+                   desktop.rs (lite in a window: wry/tao, only with --features desktop),
                    org_models.rs (organisations' own models), delivery.rs (mail and webhooks), export.rs,
                    auth/ (sessions, passwords, TOTP, passkeys, OIDC, policies), compiler.rs
                    (semantic query -> SQL, per dialect), blend.rs, connectors/, store.rs, access.rs
@@ -162,7 +163,8 @@ Other engines:
 
 ## Decisions already made (don't re-propose)
 
-- No standalone desktop app.
+- The desktop app is lite in a window, alongside the server (never instead of it), and ships
+  unsigned: no Apple or Windows signing certificates.
 - No LDAP / Active Directory.
 - MCP is hand-rolled (`api/mcp.rs`), not the `rmcp` SDK.
 - Blends aggregate per engine, then join on ScramDB (never copy raw rows).

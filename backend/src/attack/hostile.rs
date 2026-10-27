@@ -332,15 +332,33 @@ fn document_cases(w: &World) -> Vec<Case> {
     out
 }
 
+async fn send(w: &World, who: &As, c: &Case) -> super::Reply {
+    match (&c.yaml, &c.raw) {
+        (Some(text), _) => w.yaml(who, &c.path, text).await,
+        (_, Some(text)) => w.raw(who, c.method, &c.path, Some("application/json"), text.clone()).await,
+        _ => w.send(who, c.method, &c.path, c.body.clone()).await,
+    }
+}
+
+/// Whether hostile input made the server work hard: quadratic parsing took 40 s (release) and
+/// minutes here. A busy shared test database slows every request alike (over 30 s under the whole
+/// suite's load), so it counts only when it is also three times an ordinary request at that moment.
+fn too_slow(took: std::time::Duration, ordinary: std::time::Duration) -> bool {
+    took > std::time::Duration::from_secs(30) && took > ordinary * 3
+}
+
+async fn timed<T>(f: impl std::future::Future<Output = T>) -> std::time::Duration {
+    let started = std::time::Instant::now();
+    f.await;
+    started.elapsed()
+}
+
 async fn run(w: &World, who: &As, cases: Vec<Case>) -> Vec<String> {
     let mut wrong = vec![];
+    let ordinary = json!({"model": "sales", "dimensions": ["region"], "measures": ["transactions"]});
     for c in cases {
         let started = std::time::Instant::now();
-        let r = match (&c.yaml, &c.raw) {
-            (Some(text), _) => w.yaml(who, &c.path, text).await,
-            (_, Some(text)) => w.raw(who, c.method, &c.path, Some("application/json"), text.clone()).await,
-            _ => w.send(who, c.method, &c.path, c.body.clone()).await,
-        };
+        let r = send(w, who, &c).await;
         let took = started.elapsed();
         let body: String = r.body.chars().take(200).collect();
         if r.status.is_server_error() {
@@ -348,13 +366,29 @@ async fn run(w: &World, who: &As, cases: Vec<Case>) -> Vec<String> {
         } else if c.expect == Expect::Refused && !r.status.is_client_error() {
             wrong.push(format!("{}: accepted ({}) {body}", c.what, r.status));
         }
-        // quadratic parsing took 40 s (release) and minutes here; under the whole suite's load an
-        // ordinary request on the shared test database has taken over 15 s, so the line is at 30
-        if took > std::time::Duration::from_secs(30) {
-            wrong.push(format!("{}: took {took:?}", c.what));
+        if too_slow(took, std::time::Duration::ZERO) {
+            // slow, or the database was busy: again, beside an ordinary query at the same moment
+            let (again, ordinary) =
+                tokio::join!(timed(send(w, who, &c)), timed(w.send(who, "POST", "/api/query", Some(ordinary.clone()))));
+            if too_slow(again, ordinary) {
+                wrong.push(format!("{}: took {took:?}, then {again:?} beside an ordinary {ordinary:?}", c.what));
+            }
         }
     }
     wrong
+}
+
+#[test]
+fn slow_means_slower_than_an_ordinary_request_at_the_same_moment() {
+    let s = std::time::Duration::from_secs;
+    // a busy test database slows everything alike: not a finding
+    assert!(!too_slow(s(31), s(20)));
+    assert!(!too_slow(s(45), s(16)));
+    // hostile input that makes the server work hard: a finding, however busy the database
+    assert!(too_slow(s(40), s(1)));
+    assert!(too_slow(s(300), s(60)));
+    // quick enough, whatever the ordinary request took
+    assert!(!too_slow(s(29), s(0)));
 }
 
 #[tokio::test]
