@@ -11,7 +11,12 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   container. It starts its own PostgreSQL in `~/.magnum-bi` (downloaded the first time), has no
   organisations, accounts or sign-in, and answers only on this computer (`127.0.0.1`, requests
   addressed to `localhost` only). The query cache works in its one workspace; an optional PIN
-  (`--set-pin`) locks it. The online version keeps running on ScramDB.
+  (`--set-pin`) locks it. Its port is picked the first time and kept. The online version keeps
+  running on ScramDB.
+- **The desktop window** (`magnum-bi desktop`, `make desktop`, built with `--features desktop`):
+  lite in a window of its own, through the system's web engine (WebView2, WebKit, WebKitGTK). It
+  shows the local app only (other links open in the browser), puts downloads in Downloads, and
+  stops lite and its PostgreSQL when it closes. The server's build never includes it.
 
 ### Added
 

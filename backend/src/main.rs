@@ -18,6 +18,8 @@ mod crypto;
 mod db;
 mod delivery;
 mod demo;
+#[cfg(feature = "desktop")]
+mod desktop;
 mod error;
 mod export;
 mod formula;
@@ -107,11 +109,19 @@ enum Command {
         #[arg(long, env = "MAGNUM_ORG", global = true)]
         org: Option<String>,
     },
+    /// Magnum BI lite in a window of its own (built with --features desktop)
+    #[cfg(feature = "desktop")]
+    Desktop {
+        /// where it keeps everything (default: ~/.magnum-bi)
+        #[arg(long)]
+        dir: Option<std::path::PathBuf>,
+    },
     /// Magnum BI for one person on this computer: its own PostgreSQL (fetched the first time), no
     /// organisations, accounts or sign-in, reachable from this computer only
     Lite {
-        #[arg(long, default_value_t = 8000)]
-        port: u16,
+        /// default: a free one, picked the first time and kept
+        #[arg(long)]
+        port: Option<u16>,
         /// where it keeps everything (default: ~/.magnum-bi)
         #[arg(long)]
         dir: Option<std::path::PathBuf>,
@@ -173,8 +183,7 @@ enum UserCommand {
     Enable { email: String },
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
+fn main() -> Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_env("MAGNUM_LOG")
@@ -182,20 +191,39 @@ async fn main() -> Result<()> {
         )
         .init();
     let cli = Cli::parse();
+    // the window runs on the main thread (macOS insists), the server beside it
+    #[cfg(feature = "desktop")]
+    if let Some(Command::Desktop { dir }) = cli.command {
+        return desktop::run(lite_dir(dir)?);
+    }
+    tokio::runtime::Builder::new_multi_thread().enable_all().build()?.block_on(run(cli))
+}
+
+/// Where lite keeps everything: the folder asked for, else ~/.magnum-bi.
+fn lite_dir(dir: Option<std::path::PathBuf>) -> Result<std::path::PathBuf> {
+    match dir {
+        Some(d) => Ok(d),
+        None => Ok(std::env::home_dir().context("no home folder: say where with --dir")?.join(".magnum-bi")),
+    }
+}
+
+async fn run(cli: Cli) -> Result<()> {
     // a client of another server: none of this one's settings
     if let Some(Command::Code { command, url, org }) = cli.command {
         return code(command, url, org).await;
     }
     // its own database and settings
     if let Some(Command::Lite { port, dir, no_open, set_pin, remove_pin }) = cli.command {
-        let dir = match dir {
-            Some(d) => d,
-            None => std::env::home_dir().context("no home folder: say where with --dir")?.join(".magnum-bi"),
-        };
+        let dir = lite_dir(dir)?;
         if set_pin || remove_pin {
             return lite_pin(&dir, set_pin);
         }
-        return lite(port, dir, !no_open).await;
+        let open = move |address: &str| {
+            if !no_open {
+                lite::open_browser(address);
+            }
+        };
+        return lite(port, dir, open, shutdown()).await;
     }
     let config = Config::from_env()?;
     match cli.command.unwrap_or(Command::Serve) {
@@ -226,6 +254,8 @@ async fn main() -> Result<()> {
         }
         Command::Check => check(&config),
         Command::Code { .. } | Command::Lite { .. } => unreachable!("handled above"),
+        #[cfg(feature = "desktop")]
+        Command::Desktop { .. } => unreachable!("handled above"),
         Command::Demo { org, months } => {
             let state = app_state(config).await?;
             let progress = state.demo.clone();
@@ -341,6 +371,15 @@ async fn user(config: &Config, command: UserCommand) -> Result<()> {
 }
 
 async fn serve(config: Config) -> Result<()> {
+    serve_until(config, shutdown(), |_| {}).await
+}
+
+/// `serve`, until `stop`; `listening` hears the address once requests can come.
+async fn serve_until(
+    config: Config,
+    stop: impl Future<Output = ()> + Send + 'static,
+    listening: impl FnOnce(&str),
+) -> Result<()> {
     let problems = config.deployment_problems();
     if config.deployed && !problems.is_empty() {
         bail!("MAGNUM_ENV=production refuses to start: {}", problems.join("; "));
@@ -353,6 +392,7 @@ async fn serve(config: Config) -> Result<()> {
     let addr = format!("{}:{}", state.config.host, state.config.port);
     let listener = tokio::net::TcpListener::bind(&addr).await.with_context(|| format!("can't listen on {addr}"))?;
     tracing::info!("Magnum BI on http://{addr}");
+    listening(&addr);
     // scheduled reports: what's due, every minute (each run is claimed, so replicas don't repeat it)
     let reports = state.clone();
     tokio::spawn(async move {
@@ -376,7 +416,7 @@ async fn serve(config: Config) -> Result<()> {
         }
     });
     let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();
-    axum::serve(listener, app).with_graceful_shutdown(shutdown()).await?;
+    axum::serve(listener, app).with_graceful_shutdown(stop).await?;
     Ok(())
 }
 
@@ -561,21 +601,25 @@ async fn code(command: CodeCommand, url: Option<String>, org: Option<String>) ->
 }
 
 /// `magnum-bi lite`: its own PostgreSQL in the folder, then the server for its one person.
-async fn lite(port: u16, dir: std::path::PathBuf, open: bool) -> Result<()> {
+/// `magnum-bi lite` (and the desktop window's server): until `stop`; `ready` hears the address once
+/// it can be opened.
+async fn lite(
+    port: Option<u16>,
+    dir: std::path::PathBuf,
+    ready: impl FnOnce(&str),
+    stop: impl Future<Output = ()> + Send + 'static,
+) -> Result<()> {
+    let port = lite::port(&dir, port)?;
     println!("Starting Magnum BI lite in {} (the first start downloads PostgreSQL)…", dir.display());
     let (database, url) = lite::database(&dir).await.context("starting its PostgreSQL")?;
     let config = lite::config(&dir, &url, port, |k| std::env::var(k).ok())?;
     std::fs::create_dir_all(&config.project_dir)?;
     let address = format!("http://localhost:{port}");
-    println!("Magnum BI lite: {address} (this computer only; Ctrl+C to stop)");
-    if open {
-        let address = address.clone();
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_secs(1)).await;
-            lite::open_browser(&address);
-        });
-    }
-    let served = serve(config).await;
+    let served = serve_until(config, stop, |_| {
+        println!("Magnum BI lite: {address} (this computer only; Ctrl+C to stop)");
+        ready(&address);
+    })
+    .await;
     database.stop().await.context("stopping its PostgreSQL")?;
     served
 }

@@ -123,6 +123,25 @@ pub fn set_pin(dir: &std::path::Path, pin: Option<&str>) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// The port lite listens on: the one asked for, else the one it had last time (kept in `dir`:
+/// the browser or window keeps preferences per address), else a free one picked now. A port
+/// something else has taken since is replaced.
+pub fn port(dir: &std::path::Path, asked: Option<u16>) -> anyhow::Result<u16> {
+    if let Some(p) = asked {
+        return Ok(p);
+    }
+    let free = |p: u16| std::net::TcpListener::bind(("127.0.0.1", p)).is_ok();
+    let path = dir.join("port");
+    let kept = std::fs::read_to_string(&path).ok().and_then(|p| p.trim().parse::<u16>().ok());
+    if let Some(p) = kept.filter(|p| free(*p)) {
+        return Ok(p);
+    }
+    let p = std::net::TcpListener::bind(("127.0.0.1", 0))?.local_addr()?.port();
+    std::fs::create_dir_all(dir)?;
+    std::fs::write(&path, p.to_string())?;
+    Ok(p)
+}
+
 /// The password of lite's own PostgreSQL: made the first time, kept in `dir`, readable by its
 /// owner only (the database keeps the one it was set up with).
 pub fn database_password(dir: &std::path::Path) -> anyhow::Result<String> {
@@ -430,6 +449,23 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         let ids: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
         assert_eq!(ids, ["connection", "model", "dashboard", "theme", "delivery"], "{r}");
+    }
+
+    #[test]
+    fn the_port_is_picked_once_and_kept_unless_taken() {
+        let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
+        let first = port(&dir, None).unwrap();
+        assert!(first > 1024, "{first}");
+        assert_eq!(port(&dir, None).unwrap(), first, "the same address next time");
+        // something else took it: another one, kept from then on
+        let taken = std::net::TcpListener::bind(("127.0.0.1", first)).unwrap();
+        let second = port(&dir, None).unwrap();
+        assert_ne!(second, first);
+        drop(taken);
+        assert_eq!(port(&dir, None).unwrap(), second);
+        // asked for: that one, whatever was kept
+        assert_eq!(port(&dir, Some(8123)).unwrap(), 8123);
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

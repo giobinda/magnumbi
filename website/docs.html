@@ -134,10 +134,11 @@ docker compose exec magnum magnum-bi demo --months 1       <span class="c"># opt
       <h3>Lite: just you, on your computer</h3>
       <p>No container, no accounts: Magnum BI for one person. It starts its own PostgreSQL in <code>~/.magnum-bi</code> (downloaded the first time) and opens in your browser. You own everything, in one workspace: connect a database, or CSV and Parquet files through DuckDB, then build models and dashboards as usual.</p>
       <div class="code">
-<pre><code>make lite                         <span class="c"># from a checkout: builds, then runs magnum-bi lite</span>
+<pre><code>make lite                         <span class="c"># from a checkout: builds, then runs magnum-bi lite in your browser</span>
+make desktop                      <span class="c"># or in a window of its own</span>
 magnum-bi lite --set-pin          <span class="c"># optional: lock it with a PIN</span></code></pre>
       </div>
-      <p class="muted">It answers only on this computer: it listens on <code>127.0.0.1</code> and refuses requests addressed to anything but <code>localhost</code>. The PIN keeps others at this computer out of the app; the data folder itself isn't encrypted, so disk encryption is what protects it at rest. There are no organisations, members or sign-in settings, and no public or guest links. The online version runs on ScramDB.</p>
+      <p class="muted">It answers only on this computer: it listens on <code>127.0.0.1</code> and refuses requests addressed to anything but <code>localhost</code>. The PIN keeps others at this computer out of the app; the data folder itself isn't encrypted, so disk encryption is what protects it at rest. There are no organisations, members or sign-in settings, and no public or guest links. In the window, links elsewhere open in your browser, downloads land in Downloads, and closing it stops everything. It picks its port the first time and keeps it. The window needs the system's web engine: built into Windows and macOS, WebKitGTK on Linux. Lite and the window come in addition to the server, which runs on ScramDB.</p>
       <h3>From source</h3>
       <p>For development. You'll need <strong>Rust 1.89+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
       <div class="code">
