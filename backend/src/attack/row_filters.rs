@@ -305,6 +305,51 @@ async fn an_organisations_own_model_on_the_same_table_is_restricted_too() {
 }
 
 #[tokio::test]
+async fn a_lookup_on_the_restricted_table_is_restricted_too() {
+    let Some(w) = World::new().await else { return };
+    let (b, owner) = people(&w);
+    // B's orders table: one row per sale, the sales themselves only through the lookup
+    let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let table = format!("atk_orders_{suffix}");
+    let db = w.state.store.pool.get().await.unwrap();
+    db.batch_execute(&format!("CREATE TABLE {table} (sale_id BIGINT)")).await.unwrap();
+    db.batch_execute(&format!("INSERT INTO {table} SELECT id FROM sample_sales")).await.unwrap();
+    let name = format!("orders_{suffix}");
+    let model = json!({"name": name, "connection": "warehouse", "table": table,
+        "joins": [{"table": "public.sample_sales", "as": "sale", "on": [["sale_id", "id"]]}],
+        "dimensions": [{"name": "region", "from": "sale"}, {"name": "category", "from": "sale"}],
+        "measures": [{"name": "n", "type": "count"}]});
+    let r = w.send(&b, "PUT", &format!("/api/org-models/{name}"), Some(model)).await;
+    let mut leaks = vec![];
+    if r.status.is_success() {
+        for dims in [vec!["region"], vec!["category"], vec![]] {
+            let q = json!({"model": name, "dimensions": dims, "measures": ["n"]});
+            let got = w.send(&b, "POST", "/api/query", Some(q)).await.json();
+            let oracle =
+                json!({"model": "sales", "dimensions": dims, "measures": ["transactions"], "filters": [restriction()]});
+            let expected = w.send(&owner, "POST", "/api/query", Some(oracle)).await.json();
+            leaks.extend(differs(&format!("{name} by {dims:?}"), &got, &expected));
+        }
+        // without the lookup's region, the model can't be restricted: refused, not unrestricted
+        let bare = json!({"name": format!("{name}_bare"), "connection": "warehouse", "table": table,
+            "joins": [{"table": "sample_sales", "as": "sale", "on": [["sale_id", "id"]]}],
+            "dimensions": [{"name": "category", "from": "sale"}], "measures": [{"name": "n", "type": "count"}]});
+        if w.send(&b, "PUT", &format!("/api/org-models/{name}_bare"), Some(bare)).await.status.is_success() {
+            let q = json!({"model": format!("{name}_bare"), "measures": ["n"]});
+            let r = w.send(&b, "POST", "/api/query", Some(q)).await;
+            if r.status.is_success() {
+                leaks.push(format!("{name}_bare answered without the restriction: {}", r.json()));
+            }
+        }
+    } else {
+        leaks.push(format!("the lookup model wasn't saved, so nothing was tested: {}", r.json()));
+    }
+    db.batch_execute(&format!("DROP TABLE {table}")).await.unwrap();
+    assert!(leaks.is_empty(), "a lookup escaped the restriction:\n{}", leaks.join("\n"));
+    w.clean_up().await;
+}
+
+#[tokio::test]
 async fn the_platforms_models_made_in_the_app_are_restricted_too() {
     let Some(w) = World::new().await else { return };
     let (b, owner) = people(&w);

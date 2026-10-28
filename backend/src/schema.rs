@@ -91,6 +91,12 @@ pub struct Dimension {
     /// SQL expression over the model's base; defaults to the column `name`
     #[serde(default)]
     pub sql: Option<String>,
+    /// a lookup's column (`from` its `as`), not the main table's
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub from: Option<String>,
+    /// the column, when it isn't named as the field (two lookups may both have a `name`)
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub column: Option<String>,
     /// or a formula on the row's other fields (no SQL): e.g. `amount * qty`
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub formula: Option<String>,
@@ -152,6 +158,20 @@ pub const MEASURE_TYPES: [&str; 8] = ["count", "count_distinct", "sum", "avg", "
 pub const MAX_FORMULAS: usize = 50;
 pub const FORMATS: [&str; 3] = ["number", "currency", "percent"];
 
+/// A lookup a model joins: one row per key, so the main table's numbers are never counted twice;
+/// rows without a match are kept (LEFT JOIN).
+#[derive(Debug, Clone, PartialEq, Deserialize, Serialize)]
+#[serde(deny_unknown_fields)]
+pub struct Join {
+    /// schema.table, on the model's connection
+    pub table: String,
+    /// how its fields name it (`from`)
+    #[serde(rename = "as")]
+    pub alias: String,
+    /// the columns that match: [the main table's, the lookup's], each pair equal
+    pub on: Vec<Vec<String>>,
+}
+
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
 pub struct Model {
@@ -178,6 +198,10 @@ pub struct Model {
     /// named drill paths, e.g. location: [region, store]
     #[serde(default)]
     pub hierarchies: BTreeMap<String, Vec<String>>,
+    /// lookups: tables of the same connection with one row per key (customers for orders),
+    /// joined to the main table, whose columns are dimensions (`from`)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub joins: Vec<Join>,
     /// how long results may be reused ("15m", "6h", 0/off). Parsed now, used once caching lands.
     #[serde(default, deserialize_with = "duration")]
     pub cache: Option<u64>,
@@ -187,6 +211,53 @@ pub struct Model {
 }
 
 impl Model {
+    /// Lookups: each a name of its own (not `base`, the main table's), the columns to match, all
+    /// plain column names; a field from a lookup names one, and reads a column (no SQL).
+    fn check_joins(&self) -> Result<(), String> {
+        let at = |what: String| Err(format!("model {:?}: {what}", self.name));
+        if !self.joins.is_empty() && self.table.is_none() {
+            return at("lookups join a table: use `table`, not `sql`".into());
+        }
+        for (i, j) in self.joins.iter().enumerate() {
+            if !NAME_RE.is_match(&j.alias) || j.alias.eq_ignore_ascii_case("base") {
+                return at(format!("lookup {:?}: name it with letters, digits and _ (not \"base\")", j.alias));
+            }
+            if self.joins[..i].iter().any(|x| x.alias == j.alias) {
+                return at(format!("lookup {:?} is named twice", j.alias));
+            }
+            if j.on.is_empty() {
+                return at(format!("lookup {:?}: say which columns match (on)", j.alias));
+            }
+            for pair in &j.on {
+                if pair.len() != 2 {
+                    return at(format!(
+                        "lookup {:?}: each match is a pair [main table's column, lookup's column]",
+                        j.alias
+                    ));
+                }
+                if let Some(bad) = pair.iter().find(|c| !NAME_RE.is_match(c)) {
+                    return at(format!("lookup {:?}: {bad:?} isn't a column name", j.alias));
+                }
+            }
+        }
+        for d in &self.dimensions {
+            if let Some(c) = d.column.as_deref().filter(|c| !NAME_RE.is_match(c)) {
+                return at(format!("dimension {:?}: {c:?} isn't a column name", d.name));
+            }
+            let Some(from) = &d.from else { continue };
+            if !self.joins.iter().any(|j| &j.alias == from) {
+                return at(format!("dimension {:?}: there's no lookup {from:?}", d.name));
+            }
+            if d.sql.is_some() || d.formula.is_some() {
+                return at(format!(
+                    "dimension {:?}: a lookup's field is one of its columns (no SQL, no formula)",
+                    d.name
+                ));
+            }
+        }
+        Ok(())
+    }
+
     pub fn dimension(&self, name: &str) -> Option<&Dimension> {
         self.dimensions.iter().find(|d| d.name == name)
     }
@@ -253,6 +324,7 @@ impl Model {
         if !dupes.is_empty() {
             return Err(format!("model {:?}: duplicate field names {dupes:?}", self.name));
         }
+        self.check_joins()?;
         crate::compiler::check_formulas(self).map_err(|e| e.0)?;
         for (h, path) in &self.hierarchies {
             let missing: Vec<&String> = path.iter().filter(|p| self.dimension(p).is_none()).collect();
@@ -473,6 +545,8 @@ impl Formula {
             description: self.description.clone(),
             kind: String::new(),
             sql: None,
+            from: None,
+            column: None,
             formula: Some(self.expr.clone()),
             hidden: false,
             aggregation: None,

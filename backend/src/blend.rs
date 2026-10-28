@@ -200,6 +200,7 @@ impl Blend {
             dimensions: vec![],
             measures: vec![],
             hierarchies: BTreeMap::new(),
+            joins: vec![],
             cache: self.cache,
             tags: vec![],
         };
@@ -484,6 +485,8 @@ fn joined(cx: &Ctx, sides: &[usize], q: &Query, now: DateTime<Utc>) -> Result<Jo
         description: d.description.clone(),
         kind,
         sql: Some(ident(column)),
+        from: None,
+        column: None,
         formula: None,
         hidden,
         aggregation: None,
@@ -716,6 +719,7 @@ impl Joined {
             dimensions: self.dimensions.clone(),
             measures: self.measures.clone(),
             hierarchies: BTreeMap::new(),
+            joins: vec![],
             cache: None,
             tags: vec![],
         }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { modelFrom, rowsFor } from './modelEditor'
+import { lookupsOf, modelFrom, rowsFor, suggestMatch, withLookups, withoutLookups } from './modelEditor'
 import type { FieldRow, ModelDef } from './modelEditor'
 
 const proposal: ModelDef = {
@@ -54,5 +54,45 @@ describe('drill paths in the model editor', () => {
     const m = modelFrom(meta, rows, count, { location: ['country', 'region', 'store'], shop: ['region', 'store'] })
     // store is out: it leaves the first path, and the second, one step short, goes
     expect(m.hierarchies).toEqual({ location: ['country', 'region'] })
+  })
+})
+
+describe('lookups in the model editor', () => {
+  it('proposes the columns that match', () => {
+    expect(suggestMatch(['id', 'customer_id', 'amount'], ['id', 'country'], 'customer')).toEqual(['customer_id', 'id'])
+    expect(suggestMatch(['store', 'amount'], ['store', 'city'], 'shop')).toEqual(['store', 'store'])
+    expect(suggestMatch(['amount'], ['id', 'city'], 'shop')).toEqual(['', ''])
+  })
+
+  it("adds a lookup's ticked columns as fields, named apart from the model's own", () => {
+    const base: ModelDef = { name: 'orders', connection: 'w', table: 'orders', dimensions: [{ name: 'id', type: 'string' }, { name: 'name', type: 'string' }], measures: [] }
+    const m = withLookups(base, [{
+      table: 'shop.customers', as: 'customer', on: [['customer_id', 'id']],
+      fields: [
+        { column: 'country', include: true, label: 'Country', type: 'string' },
+        { column: 'name', include: true, label: 'Customer', type: 'string' },
+        { column: 'email', include: false, label: 'Email', type: 'string' },
+      ],
+    }])
+    expect(m.joins).toEqual([{ table: 'shop.customers', as: 'customer', on: [['customer_id', 'id']] }])
+    expect(m.dimensions.slice(2)).toEqual([
+      { name: 'country', label: 'Country', type: 'string', from: 'customer' },
+      // the model has a "name" already: this one is the customer's
+      { name: 'customer_name', label: 'Customer', type: 'string', from: 'customer', column: 'name' },
+    ])
+  })
+
+  it('reads them back for editing', () => {
+    const saved: ModelDef = {
+      name: 'orders', connection: 'w', table: 'orders', measures: [],
+      joins: [{ table: 'shop.customers', as: 'customer', on: [['customer_id', 'id']] }],
+      dimensions: [{ name: 'id', type: 'string' }, { name: 'country', label: 'Country', type: 'string', from: 'customer' },
+        { name: 'customer_name', label: 'Customer', type: 'string', from: 'customer', column: 'name' }],
+    }
+    const [l] = lookupsOf(saved)
+    expect([l.table, l.as, l.on]).toEqual(['shop.customers', 'customer', [['customer_id', 'id']]])
+    expect(l.fields.map(f => [f.column, f.label, f.include])).toEqual([['country', 'Country', true], ['name', 'Customer', true]])
+    // the model's own fields stay the model's
+    expect(withoutLookups(saved).dimensions.map(d => d.name)).toEqual(['id'])
   })
 })

@@ -5,8 +5,8 @@ import type { ConnectionInfo, Formula, SharedFormula } from '../api'
 import FormulaEditor from '../components/FormulaEditor'
 import { useAuth } from '../auth'
 import { forgetModels, useModels } from '../hooks'
-import { DIMENSION_TYPES, MEASURE_TYPES, modelFrom, rowsFor } from '../modelEditor'
-import type { FieldRow, MeasureDef, ModelDef } from '../modelEditor'
+import { DIMENSION_TYPES, MEASURE_TYPES, keepPaths, lookupsOf, modelFrom, rowsFor, suggestMatch, withLookups, withoutLookups } from '../modelEditor'
+import type { FieldRow, LookupDef, MeasureDef, ModelDef } from '../modelEditor'
 import { starterDashboard } from '../starter'
 
 const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace(/^_+|_+$/g, '').replace(/^(\d)/, 't_$1') || 'model'
@@ -116,7 +116,7 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
       const n = initial?.name ?? (name || slug(t.split('.').pop() ?? t))
       const p = await api.proposeModel(connection, t, n)
       setName(n); setLabel(initial?.label ?? p.model.label ?? n); setTable(t); setSkipped(p.skipped)
-      setRows(rowsFor(p.model, initial ?? undefined))
+      setRows(rowsFor(p.model, initial ? withoutLookups(initial) : undefined))
       setCount(initial?.measures.find(m => m.type === 'count' && !m.sql) ?? p.model.measures[0])
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
@@ -125,10 +125,12 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
   const save = async () => {
     if (!rows) return
     setError(null); setBusy(true)
-    const m = modelFrom({ name, label, connection, table }, rows, count, paths)
+    const whole = withLookups(modelFrom({ name, label, connection, table }, rows, count), lookups)
+    const m = { ...whole, hierarchies: keepPaths(paths, whole.dimensions.map(d => d.name)) }
     try { await api.saveOrgModel(m, true); await api.saveOrgModel(m); onDone() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   const [paths, setPaths] = useState<Record<string, string[]>>(initial?.hierarchies ?? {})
+  const [lookups, setLookups] = useState<LookupDef[]>(initial ? lookupsOf(initial) : [])
   const set = (i: number, patch: Partial<FieldRow>) => setRows(rs => rs!.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const nameTaken = !initial && taken.includes(name)
 
@@ -191,7 +193,9 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
         </table>
         {skipped.length > 0 && <p className="muted small">Left out (names Magnum BI can't use as fields yet): {skipped.join(', ')}.</p>}
         <DrillPaths paths={paths} onChange={setPaths}
-          dims={rows.filter(r => r.include && r.role === 'dimension').map(r => ({ name: r.column, label: r.label || r.column }))} />
+          dims={withLookups(modelFrom({ name, label, connection, table }, rows, count), lookups).dimensions
+            .map(d => ({ name: d.name, label: d.label || d.name }))} />
+        <Lookups connection={connection} table={table} mine={rows.map(r => r.column)} lookups={lookups} onChange={setLookups} />
         <div className="row">
           <button onClick={initial ? onCancel : () => setRows(null)}>{initial ? 'Cancel' : 'Back'}</button>
           <button className="primary" disabled={busy || !name || !label.trim() || nameTaken} onClick={save}>{busy ? 'Checking…' : 'Save model'}</button>
@@ -291,5 +295,92 @@ function DrillPaths({ paths, onChange, dims }: {
       </div>
     ))}
     <div className="row"><button onClick={add} disabled={dims.length < 2}>+ New drill path</button></div>
+  </>
+}
+
+/** Lookups: other tables of the connection with one row per key (customers for orders), whose
+ *  columns become the model's dimensions (a customer's country). The main table's numbers count
+ *  once: a lookup with several rows per key is refused when the model is saved. */
+function Lookups({ connection, table, mine, lookups, onChange }: {
+  connection: string; table: string; mine: string[]; lookups: LookupDef[]; onChange: (l: LookupDef[]) => void
+}) {
+  const [tables, setTables] = useState<string[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [columns, setColumns] = useState<Record<string, { column: string; type: string; label: string }[]>>({})
+  // a table's columns (from the proposal Models › New model makes), once
+  const columnsOf = async (t: string) => {
+    if (columns[t]) return columns[t]
+    const p = await api.proposeModel(connection, t, 'lookup')
+    const cols = [
+      ...p.model.dimensions.map(d => ({ column: d.name, type: d.type, label: d.label ?? d.name })),
+      ...p.model.measures.filter(m => m.sql).map(m => ({ column: (m.sql ?? '').replace(/["`]/g, ''), type: 'number', label: m.label ?? m.name })),
+    ]
+    setColumns(c => ({ ...c, [t]: cols }))
+    return cols
+  }
+  // editing: every column of each lookup, the saved ones ticked
+  useEffect(() => {
+    lookups.forEach(l => { columnsOf(l.table).catch(e => setError((e as Error).message)) })
+  }, [])  // eslint-disable-line react-hooks/exhaustive-deps
+  const put = (i: number, l: LookupDef) => onChange(lookups.map((x, j) => (j === i ? l : x)))
+  const add = async (t: string) => {
+    setError(null)
+    try {
+      const cols = await columnsOf(t)
+      let as = slug(t.split('.').pop() ?? t)
+      while (lookups.some(l => l.as === as) || as === 'base') as = `${as}_2`
+      const match = suggestMatch(mine, cols.map(c => c.column), as)
+      onChange([...lookups, { table: t, as, on: [match], fields: cols.map(c => ({ ...c, include: false })) }])
+    } catch (e) { setError((e as Error).message) }
+  }
+  const fieldsOf = (l: LookupDef) => {
+    const known = columns[l.table] ?? []
+    return [...l.fields, ...known.filter(c => !l.fields.some(f => f.column === c.column)).map(c => ({ ...c, include: false }))]
+  }
+  return <>
+    <div className="steps"><b>5. Lookups</b> <span className="muted small">optional</span></div>
+    <p className="muted small">Another table with one row per key, matched to this one: customers for orders, products for sales.
+      Its columns become this model's fields (a customer's country), while the numbers stay this table's and count once.
+      Restrictions on that table apply here too.</p>
+    {lookups.map((l, i) => (
+      <fieldset key={i} className="join lookup">
+        <legend>{l.table} <span className="muted small">as {l.as}</span></legend>
+        {l.on.map((pair, k) => (
+          <div key={k} className="row key">
+            <span className="small">{table}</span>
+            <select value={pair[0]} onChange={e => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [e.target.value, p[1]] : p)) })}>
+              <option value="">column…</option>{mine.map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+            <span>=</span>
+            <span className="small">{l.table}</span>
+            <select value={pair[1]} onChange={e => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [p[0], e.target.value] : p)) })}>
+              <option value="">column…</option>{(columns[l.table] ?? []).map(c => <option key={c.column} value={c.column}>{c.column}</option>)}
+            </select>
+            {l.on.length > 1 && <button className="link danger" onClick={() => put(i, { ...l, on: l.on.filter((_, n) => n !== k) })}>×</button>}
+          </div>
+        ))}
+        <button className="link small" onClick={() => put(i, { ...l, on: [...l.on, ['', '']] })}>+ another column to match</button>
+        <table className="fields-table">
+          <thead><tr><th /><th>Its column</th><th>Name shown</th></tr></thead>
+          <tbody>{fieldsOf(l).map(f => (
+            <tr key={f.column} className={f.include ? '' : 'off'}>
+              <td><input type="checkbox" checked={f.include} onChange={e => put(i, { ...l, fields: fieldsOf(l).map(x => (x.column === f.column ? { ...x, include: e.target.checked } : x)) })} /></td>
+              <td className="mono small">{f.column}</td>
+              <td><input value={f.label} disabled={!f.include} onChange={e => put(i, { ...l, fields: fieldsOf(l).map(x => (x.column === f.column ? { ...x, label: e.target.value } : x)) })} /></td>
+            </tr>
+          ))}</tbody>
+        </table>
+        <button className="link danger" onClick={() => onChange(lookups.filter((_, j) => j !== i))}>Remove this lookup</button>
+      </fieldset>
+    ))}
+    {error && <div className="error small">{error}</div>}
+    <div className="row lookup-add">
+      {tables === null
+        ? <button onClick={() => api.tables(connection).then(r => setTables(r.tables.filter(t => t !== table)), e => setError(e.message))}>+ Add a lookup</button>
+        : <select value="" onChange={e => e.target.value && add(e.target.value)}>
+            <option value="">Look up which table?</option>
+            {tables.map(t => <option key={t} value={t}>{t}</option>)}
+          </select>}
+    </div>
   </>
 }

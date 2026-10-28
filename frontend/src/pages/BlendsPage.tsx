@@ -1,3 +1,5 @@
+import { blendName, matchSentence, suggestKeys } from '../blendForm'
+import type { Key } from '../blendForm'
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api, isTemporal } from '../api'
@@ -8,8 +10,6 @@ import { forgetModels, useModels } from '../hooks'
 const GRAINS = ['hour', 'day', 'week', 'month', 'quarter', 'year']
 const CACHE: [string, number | null][] = [['Live data', null], ['15 minutes', 900], ['1 hour', 3600], ['1 day', 86400]]
 
-/** A join key being edited: base field, joined field, grain (dates and times). */
-type Key = { base: string; other: string; grain: string }
 
 const parseKey = (s: string): Key => {
   const [a = '', b = ''] = s.split('=').map(x => x.trim())
@@ -86,37 +86,49 @@ function BlendForm({ initial, models, onDone, onCancel }: {
     initial?.joins.map(j => ({ model: j.model, keys: j.on.map(parseKey) })) ?? [{ model: '', keys: [{ base: '', other: '', grain: '' }] }])
   const [cache, setCache] = useState<number | null>(initial?.cache ?? 3600)
   const [msg, setMsg] = useState<string | null>(null)
+  const [checked, setChecked] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
+  // the id follows the label until it's typed (a new blend; an id never changes after)
+  const [nameTyped, setNameTyped] = useState(Boolean(initial))
 
   const model = (n: string) => models.find(m => m.name === n)
   const dims = (n: string) => model(n)?.dimensions ?? []
   const temporal = (n: string, f: string) => isTemporal(dims(n).find(d => d.name === f)?.type)
   const setJoin = (i: number, j: { model: string; keys: Key[] }) => setJoins(joins.map((x, k) => (k === i ? j : x)))
 
+  const def = (): Blend => ({
+    name: name.trim(), label: label.trim() || null, description: description.trim() || null, base, cache,
+    joins: joins.map((j): BlendJoin => ({ model: j.model, on: j.keys.filter(k => k.base && k.other).map(keyText) })),
+  })
   const save = async () => {
     setBusy(true); setMsg(null)
-    const def: Blend = {
-      name: name.trim(), label: label.trim() || null, description: description.trim() || null, base, cache,
-      joins: joins.map((j): BlendJoin => ({ model: j.model, on: j.keys.filter(k => k.base && k.other).map(keyText) })),
-    }
-    try { await api.saveBlend(def); onDone() } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+    try { await api.saveBlend(def()); onDone() } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
   }
+  // a dry run: everything a save checks, nothing saved
+  const check = async () => {
+    setBusy(true); setMsg(null); setChecked(null)
+    try { await api.saveBlend(def(), true); setChecked('Checked: it can be saved.') } catch (e) { setMsg((e as Error).message) } finally { setBusy(false) }
+  }
+  const fieldLabel = (m: string) => (f: string) => dims(m).find(d => d.name === f)?.label || f
+  // a model added: its fields to match, proposed
+  const pick = (i: number, m: string) => setJoin(i, { model: m, keys: m ? suggestKeys(dims(base), dims(m)) : [{ base: '', other: '', grain: '' }] })
 
   return (
     <form className="card org-card connection-form blend-form" onSubmit={e => { e.preventDefault(); save() }}>
       <h2>{initial ? `Edit ${initial.label || initial.name}` : 'New blend'}</h2>
       <div className="grid2">
-        <label className="small">Name <span className="muted">(letters, digits, _)</span>
-          <input value={name} disabled={!!initial} required pattern="[A-Za-z_][A-Za-z0-9_]*" onChange={e => setName(e.target.value)} placeholder="taxi_weather" />
+        <label className="small">Name
+          <input value={label} onChange={e => { setLabel(e.target.value); if (!nameTyped) setName(blendName(e.target.value)) }} placeholder="Taxi trips × weather" />
         </label>
-        <label className="small">Label
-          <input value={label} onChange={e => setLabel(e.target.value)} placeholder="Taxi trips × weather" />
+        <label className="small">Id <span className="muted">(permanent: letters, digits, _)</span>
+          <input className="mono" value={name} disabled={!!initial} required pattern="[A-Za-z_][A-Za-z0-9_]*"
+            onChange={e => { setName(e.target.value); setNameTyped(true) }} placeholder="taxi_weather" />
         </label>
       </div>
       <label className="small">Description
         <input value={description} onChange={e => setDescription(e.target.value)} />
       </label>
-      <label className="small">Base model <span className="muted">· every row of the result starts from it</span>
+      <label className="small">Start from <span className="muted">· the model whose rows the others are added to</span>
         <select value={base} onChange={e => setBase(e.target.value)}>
           {models.map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
         </select>
@@ -124,9 +136,9 @@ function BlendForm({ initial, models, onDone, onCancel }: {
 
       {joins.map((j, i) => (
         <fieldset key={i} className="join">
-          <legend>Join</legend>
+          <legend>Add the data of</legend>
           <div className="row">
-            <select value={j.model} onChange={e => setJoin(i, { ...j, model: e.target.value })}>
+            <select value={j.model} onChange={e => pick(i, e.target.value)}>
               <option value="">Choose a model…</option>
               {models.filter(m => m.name !== base && (m.name === j.model || !joins.some(x => x.model === m.name)))
                 .map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
@@ -146,17 +158,19 @@ function BlendForm({ initial, models, onDone, onCancel }: {
               </select>
               {temporal(base, k.base) && temporal(j.model, k.other) && (
                 <select value={k.grain} title="Match dates and times by" onChange={e => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, grain: e.target.value } : x)) })}>
-                  <option value="">exact value</option>
-                  {GRAINS.map(g => <option key={g} value={g}>same {g}</option>)}
+                  <option value="">the exact moment</option>
+                  {GRAINS.map(g => <option key={g} value={g}>the same {g}</option>)}
                 </select>
               )}
               {j.keys.length > 1 && <button type="button" className="link danger" onClick={() => setJoin(i, { ...j, keys: j.keys.filter((_, m) => m !== n) })}>×</button>}
             </div>
           ))}
-          {j.model && <button type="button" className="link" onClick={() => setJoin(i, { ...j, keys: [...j.keys, { base: '', other: '', grain: '' }] })}>+ another key</button>}
+          {j.model && <button type="button" className="link" onClick={() => setJoin(i, { ...j, keys: [...j.keys, { base: '', other: '', grain: '' }] })}>+ another field to match</button>}
+          {j.model && <p className="muted small">{matchSentence(model(base)?.label ?? base, model(j.model)?.label ?? j.model, j.keys,
+            { base: fieldLabel(base), other: fieldLabel(j.model) })}</p>}
         </fieldset>
       ))}
-      <button type="button" className="link" onClick={() => setJoins([...joins, { model: '', keys: [{ base: '', other: '', grain: '' }] }])}>+ join another model</button>
+      <button type="button" className="link" onClick={() => setJoins([...joins, { model: '', keys: [{ base: '', other: '', grain: '' }] }])}>+ add another model's data</button>
 
       <label className="small">Reuse results for
         <select value={cache ?? ''} onChange={e => setCache(e.target.value ? Number(e.target.value) : null)}>
@@ -167,8 +181,10 @@ function BlendForm({ initial, models, onDone, onCancel }: {
         models; distinct counts and custom formulas stay available on each model alone. When a model has several rows per
         join key for the fields you pick, the other models' measures would be counted twice: such queries are refused.</p>
       {msg && <div className="error">{msg}</div>}
+      {checked && !msg && <div className="ok">{checked}</div>}
       <div className="row">
         <button type="button" onClick={onCancel}>Cancel</button>
+        <button type="button" disabled={busy || !name || !base || joins.some(j => !j.model)} onClick={check}>Check</button>
         <button className="primary" disabled={busy || !name || !base || joins.some(j => !j.model)}>{busy ? 'Saving…' : 'Save'}</button>
       </div>
     </form>
