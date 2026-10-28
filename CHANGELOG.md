@@ -10,6 +10,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 - **Get started offers one month of sample data first** (about 60 MB, quick to set up); more
   months, for the comparisons with a year earlier, are one choice away. Settings › Organisations ›
   Demo data still offers 13 months first.
+- **Get started ticks steps as they're done**: when the sample data is set up (its step and the
+  connection, model and dashboard it made turn green at once, and the list stays open on its
+  "Open" link), and when the window comes back from another tab.
+- **Downloading the macOS app on the website says how to open it**: it isn't signed by Apple, so a
+  note explains macOS's warning (*Privacy & Security › Open Anyway*, or `xattr` in Terminal).
 
 ## 0.1.7 (2026-10-28)
 

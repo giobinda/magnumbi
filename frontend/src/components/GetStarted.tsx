@@ -1,7 +1,7 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
-import { SKIPPABLE, shownSteps } from '../getStarted'
+import { SKIPPABLE, cardShown, shownSteps } from '../getStarted'
 import { SHOW_ME } from '../tour'
 import DemoCard from './DemoCard'
 import { useTour } from './Tour'
@@ -25,11 +25,17 @@ export default function GetStarted() {
   const { start } = useTour()
   const [demo, setDemo] = useState(false)
   const [skipped, setSkipped] = useState(readSkipped)
-  useEffect(() => { api.setup().then(setData, () => setData(null)) }, [])
+  const reload = useCallback(() => { api.setup().then(setData, () => setData(null)) }, [])
+  useEffect(() => {
+    reload()
+    // a step done in another tab or window ticks when this one is back
+    window.addEventListener('focus', reload)
+    return () => window.removeEventListener('focus', reload)
+  }, [reload])
   if (!data?.for || !data.steps.length) return null
   const required = data.steps.filter(s => !s.optional)
   const done = required.filter(s => s.done).length
-  if (done === required.length || hidden) return null
+  if (!cardShown(data.steps, hidden, demo)) return null
   const skip = (id: string) => {
     const next = [...skipped, id]
     setSkipped(next)
@@ -61,7 +67,7 @@ export default function GetStarted() {
             {!s.done && s.id !== 'demo' && <Link className="btn small" to={s.link}>Go</Link>}
             {!s.done && SKIPPABLE.includes(s.id) && <button className="link small" onClick={() => skip(s.id)}>Skip</button>}
             <a className="small" href={SITE + s.guide} target="_blank" rel="noreferrer">How ↗</a>
-            {s.id === 'demo' && demo && <div className="step-demo"><DemoCard months={1} /></div>}
+            {s.id === 'demo' && demo && <div className="step-demo"><DemoCard months={1} onDone={reload} /></div>}
           </li>
         ))}
       </ol>
