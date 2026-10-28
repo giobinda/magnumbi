@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { fieldGroups } from '../fieldGroups'
+import { splitBy, splitNote, splitOf } from '../splitBy'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
@@ -64,6 +66,8 @@ type Props = {
 
 /** Charts whose series have a legend (buildOption): its place is a tile option. */
 const LEGENDED: string[] = ['bar', 'hbar', 'line', 'area', 'combo']
+/** Charts that split one measure into a series per value of a second dimension (Split by). */
+const SPLITTABLE: string[] = ['bar', 'hbar', 'line', 'area']
 
 export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel, onModelsChanged }: Props) {
   const [modelName, setModelName] = useState(initial?.query.model ?? models[0]?.name ?? '')
@@ -233,8 +237,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
           {model && !model.blend && <button className="link new-formula" title="A field of each row, from its columns"
             onClick={() => setEditing('new-row')}>ƒ New field</button>}
         </div>
-        {model?.dimensions.filter(d => fieldMatches(d, search)).map(d => (
-          <FieldItem key={d.name} field={{ kind: 'dimension', name: d.name }} label={fieldLabel(model, d.name)}
+        {fieldGroups(model?.dimensions.filter(d => fieldMatches(d, search)) ?? [], Boolean(model?.blend)).map(g => (
+          <Fragment key={`d:${g.group ?? ''}`}>
+          {g.group && <div className="field-source">{g.group}</div>}
+          {g.items.map(({ field: d, label: short }) => (
+          <FieldItem key={d.name} field={{ kind: 'dimension', name: d.name }} label={short}
             icon={d.formula ? 'ƒ' : TYPE_ICON[d.type]} onAdd={add} used={dims.some(x => fieldName(x) === d.name)}
             onHelp={() => toggleHelp(`dimension:${d.name}`)}
             help={helpFor === `dimension:${d.name}` && <FieldHelp field={d} kind="dimension" glossary={glossary} onClose={closeHelp} />}
@@ -253,13 +260,18 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
               )}
               {d.own && <button className="add" title="Remove this field from the chart" onClick={() => remove(d.name)}>×</button>}
             </>} />
+          ))}
+          </Fragment>
         ))}
         <div className="field-group row">Measures
           {model && !model.blend && <button className="link new-formula" title="A calculation on the measures and columns"
             onClick={() => setEditing('new')}>ƒ New formula</button>}
         </div>
-        {model?.measures.filter(m => fieldMatches(m, search)).map(m => (
-          <FieldItem key={m.name} field={{ kind: 'measure', name: m.name }} label={fieldLabel(model, m.name)}
+        {fieldGroups(model?.measures.filter(m => fieldMatches(m, search)) ?? [], Boolean(model?.blend)).map(g => (
+          <Fragment key={`m:${g.group ?? ''}`}>
+          {g.group && <div className="field-source">{g.group}</div>}
+          {g.items.map(({ field: m, label: short }) => (
+          <FieldItem key={m.name} field={{ kind: 'measure', name: m.name }} label={short}
             icon={m.type === 'formula' ? 'ƒ' : 'Σ'} onAdd={add} used={measures.includes(m.name)}
             onHelp={() => toggleHelp(`measure:${m.name}`)}
             help={helpFor === `measure:${m.name}` && <FieldHelp field={m} kind="measure" glossary={glossary} onClose={closeHelp} />}
@@ -267,6 +279,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
             extra={m.shared && can('manage_members') ? (
               <button className="add" title="Edit this shared formula" onClick={() => setEditing(asFormula(m, false, m.format))}>✎</button>
             ) : undefined} />
+          ))}
+          </Fragment>
         ))}
         {model && Object.keys(model.hierarchies).length > 0 && <>
           <div className="field-group">Drill paths</div>
@@ -366,6 +380,16 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                 </select>
               </label>
             )}
+            {SPLITTABLE.includes(type) && dims.length > 0 && model && (
+              <label title="A series per value: trips by borough, a line each">Split by
+                <select value={fieldName(splitOf(dims))} onChange={e => setDims(splitBy(dims, e.target.value))}>
+                  <option value="">nothing</option>
+                  {model.dimensions.filter(d => d.name !== fieldName(dims[0])).map(d => (
+                    <option key={d.name} value={d.name}>{fieldLabel(model, d.name)}</option>
+                  ))}
+                </select>
+              </label>
+            )}
             {LEGENDED.includes(type) && (
               <label>Legend
                 <select value={legend} onChange={e => setLegend(e.target.value)}>
@@ -385,6 +409,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
             {type === 'gauge' && <label>Target <input type="number" min={0} value={target} placeholder="none"
               onChange={e => setTarget(e.target.value === '' ? '' : Math.max(0, Number(e.target.value)))} /></label>}
           </div>
+          {SPLITTABLE.includes(type) && splitNote(dims, measures) && <p className="warn-text small">{splitNote(dims, measures)}</p>}
         </div>
 
         <PeriodControl model={model} period={period} onChange={setPeriod} editableField />

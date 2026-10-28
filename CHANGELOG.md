@@ -28,12 +28,19 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Changed
 
+- **Field lists show whole names**, grouped under their model in a blend ("NYC taxi trips",
+  then "Pickup time"...), and the list can be widened by dragging its edge.
+- **Split by** in the tile editor: one measure as a series per value of a dimension (trips by
+  borough, a line each); it says why when the chart has more than one measure.
+- **Edit one tile from the dashboard**: its ✎ (for those who may edit) opens the tile editor;
+  Save saves the dashboard with it, without the dashboard's Edit mode.
 - **Quieter dashboards** (from a tester's first look): a tile's rows and timings are in its title's
   tooltip (under it while editing); the comparison dates are on hover, not in the filter bar;
   legends sit under the chart and name each measure once (a year earlier is its dashed twin), or
   where the tile says (Legend: above, right, none).
 - **A KPI with nothing in its comparison period says so**, instead of "– vs 0" or "– vs –".
 - **Get started, back anytime**: a link in the top bar opens the checklist, hidden or done.
+  A step already done keeps its **Show me**, to see the way there again.
 - **Magnum light and Magnum dark are the default themes** (a tester found Aloha heavy); Aloha
   stays a choice away.
 

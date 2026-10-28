@@ -173,9 +173,12 @@ td.drillable { color: var(--accent); cursor: pointer; }
 td.drillable:hover { text-decoration: underline; }
 
 /* explorer */
-.explorer { display: grid; grid-template-columns: 260px 1fr; gap: 14px; min-height: calc(100vh - 90px); }
+.explorer { display: grid; grid-template-columns: auto 1fr; gap: 14px; min-height: calc(100vh - 90px); }
 .modal .explorer { min-height: 70vh; }
-.fields { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow: auto; max-height: calc(100vh - 90px); }
+/* the field list: as wide as its edge is dragged (names wrap, never cut) */
+.fields { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 12px; display: flex; flex-direction: column; gap: 6px; overflow: auto; max-height: calc(100vh - 90px);
+  width: 280px; min-width: 220px; max-width: 60vw; resize: horizontal; }
+.field-source { font-size: 12px; font-weight: 600; color: var(--text-muted); margin: 6px 0 0 6px; }
 .modal .fields { max-height: 75vh; }
 .fields > select, .fields > input { width: 100%; }
 .field-group { font-size: 11px; font-weight: 700; text-transform: uppercase; color: var(--text-muted); margin-top: 10px; letter-spacing: .04em; }
@@ -185,7 +188,7 @@ td.drillable:hover { text-decoration: underline; }
 .ficon { width: 22px; text-align: center; font-size: 11px; font-weight: 700; border-radius: 4px; padding: 1px 0; }
 .dimension .ficon { color: var(--dim); background: var(--dim-soft); }
 .measure .ficon { color: var(--mea); background: var(--mea-soft); }
-.flabel { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.flabel { flex: 1; min-width: 0; overflow-wrap: anywhere; }
 .field-item .add { visibility: hidden; padding: 0 6px; min-height: 0; border: 0; background: none; color: var(--text-muted); }
 .field-item:hover .add { visibility: visible; }
 .hier { padding: 2px 6px; }
@@ -228,7 +231,7 @@ pre.code { background: var(--surface-2); padding: 10px; border-radius: 8px; whit
 @media (max-width: 760px) {
   .page { padding: 12px 16px 32px; }
   .explorer { grid-template-columns: 1fr; }
-  .fields { max-height: 260px; }
+  .fields { max-height: 260px; width: auto; max-width: none; resize: none; }
   .title-edit { min-width: 0; width: 100%; }
   .shelf { grid-template-columns: 1fr; }
 }

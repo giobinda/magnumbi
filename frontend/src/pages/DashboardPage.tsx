@@ -1,3 +1,4 @@
+import { withTile } from '../tileEdit'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import GridLayout, { WidthProvider } from 'react-grid-layout'
@@ -51,6 +52,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [version, setVersion] = useState<string | null>(null)
   const [view, setView] = useState<'dashboard' | 'yaml'>('dashboard')
   const [editTile, setEditTile] = useState<ChartTile | 'new' | null>(null)
+  // a tile edited on its own, from the dashboard (not in Edit mode): saved when applied
+  const [quick, setQuick] = useState(false)
   const [editText, setEditText] = useState<Tile | 'new' | null>(null)
   const [search, setSearch] = useSearchParams()
   const [showEmbed, setShowEmbed] = useState(false)
@@ -108,6 +111,19 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     try {
       const r = await api.saveDashboard(id, dash, version)
       setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setDirty(false); setEditing(false); setVersion(r.version ?? null)
+    } catch (e) { alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
+    setSaving(false)
+  }
+
+  /** One tile changed outside Edit mode: the dashboard saved with it, against the version loaded. */
+  const saveTile = async (t: Tile) => {
+    if (!dash) return
+    const next = withTile(dash, t)
+    setSaving(true)
+    try {
+      const r = await api.saveDashboard(id, next, version)
+      setDash(next); setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setVersion(r.version ?? null)
+      setEditTile(null); setQuick(false)
     } catch (e) { alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
     setSaving(false)
   }
@@ -254,7 +270,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
                     ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
                         period={period && period.model === t.query.model ? tilePeriod : null}
                         source={{ dashboard: id, request: tileRequest }}
-                        editing={editing} onEdit={() => setEditTile(t)} onDelete={remove} actions={move} />
+                        editing={editing} onEdit={() => setEditTile(t)} onDelete={remove} actions={move}
+                        onQuickEdit={!embed && !phone && can('edit') ? () => { setQuick(true); setEditTile(t) } : undefined} />
                     : <TextTile title={t.title} text={t.text ?? ''} editing={editing} onEdit={() => setEditText(t)} onDelete={remove} actions={move} />}
                 </div>
               )
@@ -268,8 +285,9 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
           <div className="modal wide">
             <h2>{editTile === 'new' ? 'Add tile' : 'Edit tile'}</h2>
             <Explorer models={models} onModelsChanged={reloadModels} initial={editTile === 'new' ? undefined : editTile}
-              submitLabel={editTile === 'new' ? 'Add to dashboard' : 'Apply'}
-              onSubmit={t => upsertTile(editTile === 'new' ? t : { ...t, tab: editTile.tab }, editTile === 'new')} onCancel={() => setEditTile(null)} />
+              submitLabel={editTile === 'new' ? 'Add to dashboard' : quick ? 'Save' : 'Apply'}
+              onSubmit={t => (quick && editTile !== 'new' ? saveTile(t) : upsertTile(editTile === 'new' ? t : { ...t, tab: editTile.tab }, editTile === 'new'))}
+              onCancel={() => { setEditTile(null); setQuick(false) }} />
           </div>
         </div>
       )}
