@@ -25,6 +25,8 @@ type Props = {
   editing?: boolean
   onEdit?: () => void
   onDelete?: () => void
+  /** outside the dashboard's Edit mode: edit this tile on its own (those who may edit) */
+  onQuickEdit?: () => void
   /** more buttons while editing (move to another tab) */
   actions?: ReactNode
 }
@@ -41,7 +43,7 @@ export function tileTitle(tile: ChartTile, model?: ModelInfo, columns?: Column[]
   return [m, d].filter(Boolean).join(' by ') || tile.id
 }
 
-export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onDelete, actions }: Props) {
+export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onQuickEdit, onDelete, actions }: Props) {
   const can = useCan()
   const [steps, setSteps] = useState<DrillStep[]>([])
   const [showSql, setShowSql] = useState(false)
@@ -113,6 +115,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
           {can('view_sql') && <button className="icon" title="Show SQL" onClick={() => setShowSql(s => !s)}>{'</>'}</button>}
           {editing && actions}
           {editing && onEdit && <button className="icon" title="Edit tile" onClick={onEdit}>✎</button>}
+          {!editing && onQuickEdit && <button className="icon" title="Edit this tile (saved when applied)" onClick={onQuickEdit}>✎</button>}
           {editing && onDelete && <button className="icon" title="Remove tile" onClick={onDelete}>✕</button>}
         </div>
       </div>

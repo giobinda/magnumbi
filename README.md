@@ -660,7 +660,7 @@ A tile's `type`, and what it needs from its query:
 | `trend` | the latest value, its change on the point before, and a sparkline | a date + 1 measure |
 | `gauge` | progress towards `options.target` (else a round number above it) | 1 measure |
 | `table`, `pivot` | rows; a pivot spreads a second field across columns, with totals when the measure adds up (sum, count) | 2 dimensions + 1 measure (pivot) |
-| `bar`, `hbar`, `line`, `area` | categories or time; a second dimension splits the series; `options.stacked`, `options.percent` (100%) | 1–2 dimensions + measures |
+| `bar`, `hbar`, `line`, `area` | categories or time; a second dimension splits one measure into a series per value (**Split by** in the editor); `options.stacked`, `options.percent` (100%); `options.legend`: `bottom` (default), `top`, `right`, `none` | 1–2 dimensions + measures |
 | `combo` | the first measure as bars, the others as lines, each on its own scale | 1 dimension + 2 measures |
 | `pie`, `treemap`, `funnel` | shares; a treemap nests a second dimension; a funnel keeps the query's order | 1 (or 2) dimensions + 1 measure |
 | `heatmap` | one field across, one down, colour by value | 2 dimensions + 1 measure |

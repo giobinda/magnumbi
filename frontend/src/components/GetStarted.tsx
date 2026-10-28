@@ -65,7 +65,8 @@ export default function GetStarted({ always = false }: { always?: boolean }) {
               <b>{s.title}</b>{s.optional && <span className="muted small"> · optional</span>}
               <div className="muted small">{s.detail}</div>
             </div>
-            {!s.done && SHOW_ME[s.id] && <button className="small" onClick={() => start(SHOW_ME[s.id])}>Show me</button>}
+            {/* done or not: the tour shows the way again */}
+            {SHOW_ME[s.id] && <button className="small" onClick={() => start(SHOW_ME[s.id])}>Show me</button>}
             {/* the sample data and an AI agent are set up right here */}
             {!s.done && INLINE.includes(s.id) && <button className="small" onClick={() => setOpen(open === s.id ? null : s.id)}>{open === s.id ? 'Close' : 'Set up'}</button>}
             {!s.done && !INLINE.includes(s.id) && <Link className="btn small" to={s.link}>Go</Link>}
