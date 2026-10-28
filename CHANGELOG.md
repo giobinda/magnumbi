@@ -56,6 +56,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Fixed
 
+- **The container image builds again** (none was published for 0.1.7 or 0.1.8): the program
+  carries the demo's models and dashboards, so the image's build stage needs `project/` too.
+- **react-grid-layout 1.5.4** (from 1.5.2): byte-identical, without the stray files 1.5.0–1.5.3
+  shipped (an `ip_fetcher` binary and its source, never part of the library or of the app).
 - Magnum light, Paper and Slate: three chart colours (green, amber, pink) were under 3:1 on
   white; they're a shade deeper now (same hue), as the default theme must be readable.
 - The chat's instructions to the AI provider had stray `\n` and `\` characters in them (a doubled
