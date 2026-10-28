@@ -61,7 +61,7 @@ export default function GetStarted() {
             {!s.done && s.id !== 'demo' && <Link className="btn small" to={s.link}>Go</Link>}
             {!s.done && SKIPPABLE.includes(s.id) && <button className="link small" onClick={() => skip(s.id)}>Skip</button>}
             <a className="small" href={SITE + s.guide} target="_blank" rel="noreferrer">How ↗</a>
-            {s.id === 'demo' && demo && <div className="step-demo"><DemoCard /></div>}
+            {s.id === 'demo' && demo && <div className="step-demo"><DemoCard months={1} /></div>}
           </li>
         ))}
       </ol>
