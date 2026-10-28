@@ -1,6 +1,7 @@
 :root {
-  --bg: #fff6e9; --surface: #fffdf8; --surface-2: #fdeed6; --border: #efd9b8;
-  --text: #2a1a12; --text-muted: #6e4f3a; --accent: #c8102e; --accent-soft: #fde3e1;
+  /* first paint: Magnum light, the default theme (themes.rs) */
+  --bg: #f6f7f9; --surface: #ffffff; --surface-2: #f1f3f6; --border: #e3e6eb;
+  --text: #1d2330; --text-muted: #5c6676; --accent: #4f6bed; --accent-soft: #e9edff;
   --dim: #0f8a84; --dim-soft: #e2f5f3; --mea: #b26b00; --mea-soft: #fff1dc; --flt: #7a4fd0; --flt-soft: #f0e9ff;
   --good: #12804f; --danger: #c4314b; --danger-soft: #fdecef; --warn-soft: #fff7e0; --warn: #8a6100;
   --radius: 10px; --shadow: 0 1px 2px rgba(16, 24, 40, .06), 0 1px 3px rgba(16, 24, 40, .04);
@@ -14,8 +15,8 @@
 }
 @media (prefers-color-scheme: dark) {
   :root:not([data-mode]) {
-    --bg: #0b1a2b; --surface: #11243a; --surface-2: #18304b; --border: #244463;
-    --text: #f7efe2; --text-muted: #b9c6d3; --accent: #ff6b6b; --accent-soft: #3d2232;
+    --bg: #0f1218; --surface: #171b23; --surface-2: #1f2430; --border: #2b3140;
+    --text: #e6e9ef; --text-muted: #a3adbd; --accent: #7b8ff5; --accent-soft: #232a4a;
     --dim: #4fd1c5; --dim-soft: #133331; --mea: #f5b453; --mea-soft: #3a2c12; --flt: #b69cf3; --flt-soft: #2a2140;
     --good: #4cc38a; --danger: #f2788c; --danger-soft: #3a1820; --warn-soft: #33290d; --warn: #f0c75e;
     --shadow: none; color-scheme: dark;
@@ -113,7 +114,6 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .period label select { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); }
 .period > input[type=date] { min-height: 32px; }
 .period > .muted { align-self: center; }
-.period-range { align-self: center; font-size: 12px; padding: 4px 10px; border-radius: 999px; background: var(--surface-2); white-space: nowrap; }
 .builder > .period { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
 .change { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .change.good { color: var(--good); } .change.bad { color: var(--danger); } .change.flat { color: var(--text-muted); }

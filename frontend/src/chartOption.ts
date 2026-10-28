@@ -107,8 +107,9 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
       seriesMap.get(sKey)!.data[ci] = r[m] as number
     }
   }
-  // split series in value order (numbers as numbers), so a value keeps its colour from chart to chart
-  const series = [...seriesMap.values()]
+  // split series in value order (numbers as numbers), so a value keeps its colour from chart to chart.
+  // A comparison period with nothing in it isn't drawn: a flat line at zero would look like data
+  const series = [...seriesMap.values()].filter(s => !s.previous || s.data.some(v => v !== null && v !== 0))
   // 100% stacked: each category's values as shares of its total (this period's series only)
   const percent = Boolean(opts.percent) && Boolean(opts.stacked)
   if (percent) {
@@ -169,10 +170,20 @@ export function buildOption(result: QueryResult, type: ChartType, opts: Record<s
     axisLabel: { color: text, hideOverlap: true }, axisLine: { lineStyle: { color: grid } }, axisTick: { show: false },
   }
   const n = categoriesRaw.length
+  // the legend: each measure (or split value) once, a year earlier being its dashed twin; under the
+  // chart unless the tile says otherwise (legend: top | right | none)
+  const named = series.filter(s => !s.previous).map(s => s.name)
+  const place = typeof opts.legend === 'string' ? opts.legend : 'bottom'
+  const legend = named.length > 1 && place !== 'none'
+    ? { type: 'scroll', data: named, textStyle: { color: text },
+        ...(place === 'top' ? { top: 0 } : place === 'right' ? { right: 0, top: 'middle', orient: 'vertical' } : { bottom: 0 }) }
+    : undefined
+  const at = (where: string) => Boolean(legend) && place === where
   return {
     ...base,
-    legend: series.length > 1 ? { type: 'scroll', top: 0, textStyle: { color: text } } : undefined,
-    grid: { left: 8, right: 16, top: dual && measures.length === 2 ? 52 : series.length > 1 ? 32 : 12, bottom: 8, containLabel: true },
+    legend,
+    grid: { left: 8, right: at('right') ? 140 : 16, top: dual && measures.length === 2 ? 52 : at('top') ? 32 : 12,
+            bottom: at('bottom') ? 32 : 8, containLabel: true },
     tooltip: {
       trigger: 'axis', confine: true, axisPointer: { type: type === 'line' || type === 'area' ? 'line' : 'shadow' },
       valueFormatter: undefined,

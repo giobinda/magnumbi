@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthGate, useAuth, useCan } from './auth'
 import { SecurityCard } from './components/Security'
+import GetStarted from './components/GetStarted'
 import { TourProvider, WelcomeOffer, useWelcomeTour } from './components/Tour'
 import { api, getOrg, getViewAs, setOrg, setViewAs } from './api'
 import type { Role } from './api'
@@ -63,6 +64,7 @@ function SignedIn() {
               </nav>
               <Routes>
                 <Route path="/" element={<Start />} />
+                <Route path="/get-started" element={<div className="page narrow"><GetStarted always /></div>} />
                 <Route path="/dashboards" element={<Home />} />
                 <Route path="/chat" element={<ChatPage />} />
                 <Route path="/chat-settings" element={<Guarded perm="manage_members" page><ChatSettingsPage /></Guarded>} />
@@ -213,6 +215,8 @@ function UserMenu() {
       {roleBadge}
       <span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span>
       <span className="user-name" title={auth.user?.email ?? undefined}>{name}</span>
+      {/* the checklist, back anytime (once left, hidden or done) */}
+      {(auth.lite || auth.permissions?.includes('manage_members')) && <NavLink className="link" to="/get-started">Get started</NavLink>}
       <TourButton />
       {/* lite: nobody signs in; its API tokens (for local agents) are still here */}
       <button className="link" onClick={() => setChanging(true)}>{auth.lite ? 'API tokens' : 'Security'}</button>

@@ -21,7 +21,7 @@ const readSkipped = (): string[] => {
 /** "Get started": what's left to set up, for the platform's owners or the organisation's
  *  admins, each step linked to where it's done and to its guide. Shown until the required steps
  *  are done (or hidden). */
-export default function GetStarted() {
+export default function GetStarted({ always = false }: { always?: boolean }) {
   const [data, setData] = useState<{ for: string | null; steps: SetupStep[] } | null>(null)
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(HIDE_KEY) === '1' } catch { return false } })
   const { start } = useTour()
@@ -39,7 +39,7 @@ export default function GetStarted() {
   if (!data?.for || !data.steps.length) return null
   const required = data.steps.filter(s => !s.optional)
   const done = required.filter(s => s.done).length
-  if (!cardShown(data.steps, hidden, demo)) return null
+  if (!cardShown(data.steps, hidden, demo, always)) return null
   const skip = (id: string) => {
     const next = [...skipped, id]
     setSkipped(next)
@@ -54,7 +54,7 @@ export default function GetStarted() {
         <span className="muted small">{done} of {required.length} done</span>
         <span className="grow" />
         <a className="small" href={SITE + guide} target="_blank" rel="noreferrer">The full guide ↗</a>
-        <button className="link small" onClick={hide}>Hide</button>
+        {!always && <button className="link small" title="It stays under Get started, in the top bar" onClick={hide}>Hide</button>}
       </div>
       <div className="progress"><i style={{ width: `${(done / required.length) * 100}%` }} /></div>
       <ol className="steps-list">

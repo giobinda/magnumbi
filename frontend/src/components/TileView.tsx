@@ -1,3 +1,4 @@
+import { tileStats } from '../tileStats'
 import { useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts'
 import type { ReactNode } from 'react'
@@ -88,7 +89,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
   return (
     <div className="tile" ref={box}>
       <div className="tile-head">
-        <div className="tile-title" title={tileTitle(tile, model, data?.columns)}>
+        <div className="tile-title" title={[tileTitle(tile, model, data?.columns), data && !editing ? tileStats(data) : ''].filter(Boolean).join('\n')}>
           {tileTitle(tile, model, data?.columns)}
           {steps.length > 0 && (
             <span className="crumbs">
@@ -122,7 +123,8 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
           : data ? <Chart result={data} type={tile.type} options={tile.options} onDrill={onDrill} />
           : <div className="empty">Loading…</div>}
       </div>
-      {data && !['kpi', 'trend', 'gauge'].includes(tile.type) && (
+      {/* rows and timings matter while building; on the dashboard they're in the title's tooltip */}
+      {data && editing && !['kpi', 'trend', 'gauge'].includes(tile.type) && (
         <div className="tile-foot">
           {data.rows.length} rows · {data.stats.duration_ms ?? '–'} ms
           {data.stats.cache_hit && <span title={data.stats.cached_at ? `Cached ${new Date(data.stats.cached_at).toLocaleString()}` : undefined}> · cached</span>}

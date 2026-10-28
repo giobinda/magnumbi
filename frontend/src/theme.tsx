@@ -10,12 +10,12 @@ export interface Theme {
 }
 
 const PREF_KEY = 'magnum.theme'  // the viewer's own choice ("auto" = follow the system)
-const FALLBACK: Theme = {  // until /api/themes answers (same values as aloha)
-  id: 'aloha', label: 'Aloha', mode: 'light', builtin: true, radius: 12,
+const FALLBACK: Theme = {  // until /api/themes answers (same values as magnum-light, the default)
+  id: 'magnum-light', label: 'Magnum light', mode: 'light', builtin: true, radius: 10,
   font: 'Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif',
-  palette: ['#0a8a9e', '#d62839', '#a87800', '#1f5fa8', '#c9327d', '#2b8a3e', '#d4580a', '#7a3fa0'],
-  colors: { bg: '#fff6e9', surface: '#fffdf8', surface_2: '#fdeed6', border: '#efd9b8', text: '#2a1a12', text_muted: '#6e4f3a',
-    accent: '#c8102e', accent_soft: '#fde3e1', good: '#13795b', bad: '#b3261e' },
+  palette: ['#2a78d6', '#eb6834', '#1aa674', '#c48500', '#e56a98', '#008300', '#4a3aa7', '#e34948'],
+  colors: { bg: '#f6f7f9', surface: '#ffffff', surface_2: '#f1f3f6', border: '#e3e6eb', text: '#1d2330', text_muted: '#5c6676',
+    accent: '#4f6bed', accent_soft: '#e9edff', good: '#006300', bad: '#c4314b' },
 }
 
 type Ctx = {
@@ -54,7 +54,7 @@ function apply(t: Theme) {
 
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themes, setThemes] = useState<Theme[]>([])
-  const [defaults, setDefaults] = useState({ light: 'aloha', dark: 'aloha-night' })
+  const [defaults, setDefaults] = useState({ light: 'magnum-light', dark: 'magnum-dark' })
   const [preference, setPref] = useState(readPref)
   const [override, setOverride] = useState<string | null>(null)
   const [adopted, setAdopted] = useState<Theme[]>([])  // apart from the fetched list, which a reload replaces
