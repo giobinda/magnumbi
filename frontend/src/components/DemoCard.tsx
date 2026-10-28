@@ -7,8 +7,9 @@ const MONTHS: [number, string][] = [[1, '1 month'], [13, '13 months (a month and
 /** System owners: set up the NYC demo (taxi trips x weather) for an organisation, in the background.
  *  With no organisations to choose from (lite, the platform's "Get started"): the platform workspace.
  *  `months`: what it offers first (13: a month and a year earlier, for the comparisons). */
-export default function DemoCard({ orgs = [], databases = {}, months: first = 13 }: {
+export default function DemoCard({ orgs = [], databases = {}, months: first = 13, onDone }: {
   orgs?: { id: string; name: string }[]; databases?: PlatformResponse['databases']; months?: number
+  /** called once it's set up (Get started then ticks its steps) */ onDone?: () => void
 }) {
   const [org, setOrgChoice] = useState('')
   const [months, setMonths] = useState(first)
@@ -27,6 +28,7 @@ export default function DemoCard({ orgs = [], databases = {}, months: first = 13
   }
   const open = (target: string) => { setOrg(target || null); location.assign('/dashboards/nyc_taxi_weather') }
   const finished = status && !status.running && status.step === 'Done'
+  useEffect(() => { if (finished) onDone?.() }, [finished, onDone])
   return (
     <div className="card person demo-card">
       <p className="small muted">New York yellow taxi trips (NYC TLC open data) with the hourly weather in each borough (Open-Meteo),

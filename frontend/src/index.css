@@ -448,7 +448,7 @@ table.data.pivot td.total { border-top: 0; border-left: 2px solid var(--border);
 .steps-list .step-demo .card { margin: 0; }
 .steps-list .tick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 700; }
 .steps-list li.done .tick { background: var(--good); border-color: var(--good); color: #fff; }
-.steps-list li.done b { color: var(--text-muted); font-weight: 500; text-decoration: line-through; }
+.steps-list li.done > .grow > b { color: var(--text-muted); font-weight: 500; text-decoration: line-through; }
 /* scheduled reports */
 .error-text { color: var(--danger); }
 td.nowrap { white-space: nowrap; }
