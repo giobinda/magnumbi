@@ -2,7 +2,7 @@
 # The desktop app's Linux packages (.deb where dpkg-deb is, .rpm where rpmbuild is), from a
 # desktop build, into target/packages (named without the version: the website links to the latest
 # release's files by name):
-#   cargo build --release --features desktop && packaging/linux.sh 0.1.7
+#   cargo build --release --features desktop && packaging/linux.sh 0.1.8
 # The window needs WebKitGTK 4.1 from the system; OpenSSL is built in.
 set -eu
 version=$1

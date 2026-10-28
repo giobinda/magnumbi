@@ -108,7 +108,7 @@ docker compose exec magnum magnum-bi seed-sample          # sample data (Sales o
 docker compose exec magnum magnum-bi demo --months 1      # optional: the NYC demo</code></pre>
       </div>
       <p>Sign in with the one-time password; you choose your own right away. The <strong>Get started</strong> list on the home page then takes you through the rest. Stop with <code>docker compose down</code>; your data stays in Docker volumes (<code>docker compose down -v</code> deletes it).</p>
-      <div class="note"><strong>Early alpha.</strong> It works and is tested, but settings, APIs and file formats will change between versions. Pin a version (<code>MAGNUM_IMAGE=ghcr.io/giobinda/magnum-bi:0.1.7</code>) if you build on it.</div>
+      <div class="note"><strong>Early alpha.</strong> It works and is tested, but settings, APIs and file formats will change between versions. Pin a version (<code>MAGNUM_IMAGE=ghcr.io/giobinda/magnum-bi:0.1.8</code>) if you build on it.</div>
     </section>
 
     <section id="how-it-runs">
@@ -198,7 +198,7 @@ helm test bi</code></pre>
       <div class="code">
         <span class="label">Upgrading</span>
 <pre><code>docker compose pull &amp;&amp; docker compose up -d          # Compose: the newest image
-helm upgrade bi oci://ghcr.io/giobinda/charts/magnum-bi --version 0.1.7 --reuse-values</code></pre>
+helm upgrade bi oci://ghcr.io/giobinda/charts/magnum-bi --version 0.1.8 --reuse-values</code></pre>
       </div>
       <p>Migrations run when the new version starts. Read the release's changes first: while Magnum BI is an alpha, there's no guaranteed upgrade path.</p>
     </section>
