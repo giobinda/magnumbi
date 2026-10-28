@@ -30,6 +30,20 @@
     });
   });
 
+  // The Download menu: closes on a click elsewhere, Escape, or a choice
+  const downloads = document.querySelector('.download-menu');
+  if (downloads) {
+    document.addEventListener('click', function (e) {
+      if (!downloads.contains(e.target)) downloads.open = false;
+    });
+    document.addEventListener('keydown', function (e) {
+      if (e.key === 'Escape' && downloads.open) { downloads.open = false; downloads.querySelector('summary').focus(); }
+    });
+    downloads.addEventListener('click', function (e) {
+      if (e.target.closest('a')) downloads.open = false;
+    });
+  }
+
   // Mobile menu
   const menuBtn = document.querySelector('.menu-btn');
   const nav = document.querySelector('.nav');
