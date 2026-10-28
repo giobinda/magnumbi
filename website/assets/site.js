@@ -58,7 +58,7 @@
         '<strong>Your download has started.</strong>' +
         '<p>Magnum BI isn\'t signed by Apple, so the first time you open it macOS says it can\'t check it. ' +
         'Choose <em>Done</em>, then <em>System Settings › Privacy &amp; Security › Open Anyway</em>.</p>' +
-        '<p>Or, in Terminal: <code>xattr -dr com.apple.quarantine "/Applications/Magnum BI.app"</code></p>' +
+        '<p>Or, in Terminal: <code>xattr -d com.apple.quarantine "/Applications/Magnum BI.app"</code></p>' +
         '<a href="' + docs + '">More on opening an unsigned app</a>';
       note.querySelector('button').addEventListener('click', function () { note.remove(); });
       document.body.appendChild(note);
