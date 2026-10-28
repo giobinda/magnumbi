@@ -62,6 +62,9 @@ type Props = {
   onModelsChanged?: () => void
 }
 
+/** Charts whose series have a legend (buildOption): its place is a tile option. */
+const LEGENDED: string[] = ['bar', 'hbar', 'line', 'area', 'combo']
+
 export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel, onModelsChanged }: Props) {
   const [modelName, setModelName] = useState(initial?.query.model ?? models[0]?.name ?? '')
   const [dims, setDims] = useState<string[]>(initial?.query.dimensions ?? [])
@@ -76,6 +79,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   const [picked, setPicked] = useState(Boolean(initial))
   const [stack, setStack] = useState<'none' | 'stacked' | 'percent'>(
     initial?.options?.percent ? 'percent' : initial?.options?.stacked ? 'stacked' : 'none')
+  // where the legend goes (charts with series): under the chart unless chosen
+  const [legend, setLegend] = useState<string>(typeof initial?.options?.legend === 'string' ? initial.options.legend : 'bottom')
   const [target, setTarget] = useState<number | ''>(typeof initial?.options?.target === 'number' ? initial.options.target : '')
   const [period, setPeriod] = useState<Period | null>(initial?.query.period ?? null)
   const [top, setTop] = useState<TopN | null>(initial?.query.top ?? null)
@@ -200,6 +205,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         ...(stack !== 'none' && ['bar', 'area', 'line'].includes(type) ? { stacked: true } : {}),
         ...(stack === 'percent' && ['bar', 'area'].includes(type) ? { percent: true } : {}),
         ...(type === 'gauge' && target !== '' ? { target } : {}),
+        ...(LEGENDED.includes(type) && legend !== 'bottom' ? { legend } : {}),
       },
       query: {
         model: model.name, dimensions: dims, measures,
@@ -209,7 +215,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         ...(formulas.length ? { formulas } : {}),
       },
     }
-  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, target, period, initial, validTop, formulas])
+  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, legend, target, period, initial, validTop, formulas])
 
 
   return (
@@ -357,6 +363,14 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                 <select value={drill} onChange={e => setDrill(e.target.value)}>
                   <option value="">none</option>
                   {Object.keys(model.hierarchies).map(h => <option key={h} value={h}>{h}</option>)}
+                </select>
+              </label>
+            )}
+            {LEGENDED.includes(type) && (
+              <label>Legend
+                <select value={legend} onChange={e => setLegend(e.target.value)}>
+                  <option value="bottom">below</option><option value="top">above</option>
+                  <option value="right">right</option><option value="none">none</option>
                 </select>
               </label>
             )}

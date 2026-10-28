@@ -26,6 +26,17 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   where one is needed: on a server, or in lite with a PIN). The step ticks once an agent has used
   a tool; it can be skipped.
 
+### Changed
+
+- **Quieter dashboards** (from a tester's first look): a tile's rows and timings are in its title's
+  tooltip (under it while editing); the comparison dates are on hover, not in the filter bar;
+  legends sit under the chart and name each measure once (a year earlier is its dashed twin), or
+  where the tile says (Legend: above, right, none).
+- **A KPI with nothing in its comparison period says so**, instead of "– vs 0" or "– vs –".
+- **Get started, back anytime**: a link in the top bar opens the checklist, hidden or done.
+- **Magnum light and Magnum dark are the default themes** (a tester found Aloha heavy); Aloha
+  stays a choice away.
+
 ### Security
 
 - **Uploads are the one route past the 1 MB request limit**, up to their own limit; a workbook's
@@ -38,6 +49,8 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Fixed
 
+- Magnum light, Paper and Slate: three chart colours (green, amber, pink) were under 3:1 on
+  white; they're a shade deeper now (same hue), as the default theme must be readable.
 - The chat's instructions to the AI provider had stray `\n` and `\` characters in them (a doubled
   escape): plain text now.
 - **Lite starts offline.** It asked GitHub for the newest PostgreSQL 16 on every start, so it

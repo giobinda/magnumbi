@@ -26,6 +26,8 @@ export default function PeriodControl({ model, period, onChange, editableField }
 
   if (!timeDims.length) return null
   const set = (patch: Partial<Period>) => period && onChange({ ...period, ...patch })
+  // the exact dates, on hover: the bar itself stays short
+  const dates = resolved ? `${windowLabel(resolved.current)}${resolved.previous ? ` vs ${windowLabel(resolved.previous)}` : ''}` : undefined
 
   return (
     <div className="period">
@@ -41,7 +43,7 @@ export default function PeriodControl({ model, period, onChange, editableField }
       )}
       {period && <>
         <label>{editableField ? 'Range' : 'Period'}
-          <select value={rangeKey(period.current)} onChange={e => set({ current: rangeFromKey(e.target.value, period.current) })}>
+          <select value={rangeKey(period.current)} title={dates} onChange={e => set({ current: rangeFromKey(e.target.value, period.current) })}>
             {RANGE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
@@ -51,18 +53,13 @@ export default function PeriodControl({ model, period, onChange, editableField }
           <input type="date" value={period.current.to ?? ''} onChange={e => set({ current: { ...period.current, to: e.target.value || undefined } })} />
         </>}
         <label>Compare to
-          <select value={compareKey(period.compare)} onChange={e => set({ compare: compareFromKey(e.target.value, period.compare) })}>
+          <select value={compareKey(period.compare)} title={dates} onChange={e => set({ compare: compareFromKey(e.target.value, period.compare) })}>
             {COMPARE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
           </select>
         </label>
         {typeof period.compare === 'object' && period.compare && (
           <input type="date" title="Comparison starts on" value={period.compare.from}
             onChange={e => e.target.value && set({ compare: { from: e.target.value } })} />
-        )}
-        {resolved && (
-          <span className="period-range" title={resolved.previous ? `Previous window shifted back ${resolved.offset_days} days` : undefined}>
-            {windowLabel(resolved.current)}{resolved.previous && <> <span className="muted">vs</span> {windowLabel(resolved.previous)}</>}
-          </span>
         )}
       </>}
     </div>

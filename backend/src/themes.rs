@@ -14,7 +14,8 @@ static THEME_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[a-z0-9][a-z0-
 const SYSTEM_FONT: &str = r#"Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif"#;
 
 // validated categorical palettes
-const REF_LIGHT: [&str; 8] = ["#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#4a3aa7", "#e34948"];
+// green, amber and pink deepened (same hue) to reach 3:1 on white once Magnum light became the default
+const REF_LIGHT: [&str; 8] = ["#2a78d6", "#eb6834", "#1aa674", "#c48500", "#e56a98", "#008300", "#4a3aa7", "#e34948"];
 const REF_DARK: [&str; 8] = ["#3987e5", "#d95926", "#199e70", "#c98500", "#d55181", "#008300", "#9085e9", "#e66767"];
 // every slot >= 3:1 on white and >= 8 adjacent CVD ΔE
 const HIGH_CONTRAST: [&str; 7] = ["#256abf", "#d24e1c", "#0e8a5f", "#5b4bc4", "#a87400", "#c94a7a", "#007000"];
@@ -25,8 +26,9 @@ const ALOHA: [&str; 8] = ["#0a8a9e", "#d62839", "#a87800", "#1f5fa8", "#c9327d",
 // Aloha night: the same, after sunset; every slot >= 5.7:1 on its surface
 const ALOHA_NIGHT: [&str; 8] = ["#2ec4b6", "#ff6b6b", "#ffb703", "#5aa9ff", "#ff70a6", "#8ac926", "#fb8b24", "#b39cff"];
 
-pub const DEFAULT_LIGHT: &str = "aloha";
-pub const DEFAULT_DARK: &str = "aloha-night";
+/// Magnum, calm and neutral, by default (a tester found Aloha heavy); Aloha stays, to choose
+pub const DEFAULT_LIGHT: &str = "magnum-light";
+pub const DEFAULT_DARK: &str = "magnum-dark";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 #[serde(deny_unknown_fields)]
@@ -294,7 +296,7 @@ pub fn builtin() -> Vec<Theme> {
     vec![
         // sand, a red Ferrari 308 for the accent, an aloha shirt for the charts
         t(
-            DEFAULT_LIGHT,
+            "aloha",
             "Aloha",
             "light",
             &ALOHA,
@@ -306,7 +308,7 @@ pub fn builtin() -> Vec<Theme> {
         ),
         // a Pacific night: coral and turquoise
         t(
-            DEFAULT_DARK,
+            "aloha-night",
             "Aloha night",
             "dark",
             &ALOHA_NIGHT,
@@ -487,11 +489,14 @@ mod tests {
     }
 
     #[test]
-    fn the_defaults_are_aloha_and_readable() {
+    fn the_defaults_are_magnum_and_readable() {
         let all = builtin();
+        // calmer than Aloha (a tester found it heavy); Aloha stays, to choose
+        assert_eq!((DEFAULT_LIGHT, DEFAULT_DARK), ("magnum-light", "magnum-dark"));
+        assert!(all.iter().any(|t| t.id == "aloha") && all.iter().any(|t| t.id == "aloha-night"));
         for (id, mode) in [(DEFAULT_LIGHT, "light"), (DEFAULT_DARK, "dark")] {
             let t = all.iter().find(|t| t.id == id).unwrap_or_else(|| panic!("{id} is built in"));
-            assert!(t.id.starts_with("aloha") && t.mode == mode, "{id}");
+            assert!(t.mode == mode, "{id}");
             let c = &t.colors;
             for (what, fg, bg, min) in [
                 ("text", &c.text, &c.bg, 4.5),

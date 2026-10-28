@@ -764,9 +764,10 @@ fields (MCP `save_docs`), and glossary terms (`save_term`), for its stewards to 
 
 ## Themes and company colours
 
-The default themes are **Aloha** (light) and **Aloha night** (dark); people can pick any theme
-for themselves, and a dashboard can pin one (`theme: <id>`). Built-in themes are frozen: an id
-always looks the same. Projects can add themes in `project/themes/*.yaml`.
+The default themes are **Magnum light** and **Magnum dark**; **Aloha** and **Aloha night** (the
+website's look) and the others are a choice away. People can pick any theme for themselves, and a
+dashboard can pin one (`theme: <id>`). Built-in themes keep their ids and their look: their colours
+change only to fix readability, and the changelog says so. Projects can add themes in `project/themes/*.yaml`.
 
 Each organisation can have its **own themes**, made by its Org admins under **Settings › Themes**:
 

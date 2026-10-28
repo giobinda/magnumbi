@@ -30,4 +30,10 @@ describe('Get started', () => {
     expect(cardShown(finished, false, true)).toBe(true)
     expect(cardShown(steps, true, false)).toBe(false)
   })
+
+  it('is always there when asked for (Get started in the top bar), done or hidden', () => {
+    const finished = steps.map(s => ({ ...s, done: true }))
+    expect(cardShown(finished, false, false, true)).toBe(true)
+    expect(cardShown(steps, true, false, true)).toBe(true)
+  })
 })

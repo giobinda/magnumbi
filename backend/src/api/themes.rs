@@ -189,7 +189,7 @@ mod tests {
         // everyone in the organisation gets it
         let (_, themes, _) = send("GET", "/api/themes".into(), None, None).await;
         assert_eq!(themes["default_light"], json!("acme"), "{themes}");
-        assert_eq!(themes["default_dark"], json!("aloha-night"));
+        assert_eq!(themes["default_dark"], json!("magnum-dark"));
         assert!(themes["themes"].as_array().unwrap().iter().any(|t| t["id"] == json!("acme")));
 
         // CSS tokens out, edited by the design team, back in

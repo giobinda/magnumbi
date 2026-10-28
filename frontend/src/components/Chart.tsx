@@ -1,3 +1,4 @@
+import { comparison } from '../kpi'
 import { useMemo, useState } from 'react'
 import type { ChartType, Column, QueryResult, Value } from '../api'
 import { formatChange, formatNumber, formatValue } from '../format'
@@ -46,14 +47,16 @@ function Kpi({ result }: { result: QueryResult }) {
     <div className="kpi">
       {measures.map(([c, i]) => {
         const pi = find(c.name, 'previous'), ci = find(c.name, 'change')
+        const against = ci >= 0 ? comparison(row[ci], pi >= 0 ? row[pi] : null) : null
         return (
           <div key={c.name} className="kpi-item">
             <div className="kpi-value">{typeof row[i] === 'number' ? formatNumber(row[i] as number, c.format, true) : formatValue(row[i], c)}</div>
             {measures.length > 1 && <div className="kpi-label">{c.label}</div>}
-            {ci >= 0 && (
+            {against === 'none' && <div className="kpi-compare muted">no data in the comparison period</div>}
+            {against && against !== 'none' && (
               <div className="kpi-compare">
-                <Change value={row[ci]} higherIsBetter={c.higher_is_better} />
-                <span className="muted"> vs {typeof row[pi] === 'number' ? formatNumber(row[pi] as number, c.format, true) : '–'}</span>
+                <Change value={against.change} higherIsBetter={c.higher_is_better} />
+                <span className="muted"> vs {typeof against.previous === 'number' ? formatNumber(against.previous, c.format, true) : '–'}</span>
               </div>
             )}
           </div>

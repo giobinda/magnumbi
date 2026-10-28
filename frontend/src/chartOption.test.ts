@@ -98,3 +98,49 @@ describe('a second dimension', () => {
     expect(slices.map(d => [d.name, d.itemStyle?.color])).toEqual([['Cloudy', '#222'], ['Clear', '#111'], ['Rain', '#333']])
   })
 })
+
+describe('the legend', () => {
+  const yoy = result(
+    [dim, measure('trips'), measure('trips', 'number', 'previous'), measure('trips', 'number', 'change'),
+     measure('temperature'), measure('temperature', 'number', 'previous'), measure('temperature', 'number', 'change')],
+    [['2026-07-01', 110695, 108349, 0.02, 28.8, 24.9, 0.16]],
+  )
+  type Legend = { data?: string[]; top?: number; bottom?: number; right?: number; orient?: string }
+
+  it('sits under the chart and names each measure once (the year earlier is its dashed twin)', () => {
+    const l = buildOption(yoy, 'line', {}, palette).legend as Legend
+    expect(l.bottom).toBe(0)
+    expect(l.top).toBeUndefined()
+    expect(l.data).toEqual(['trips', 'temperature'])
+  })
+
+  it('goes where the tile says, or nowhere', () => {
+    expect((buildOption(yoy, 'line', { legend: 'top' }, palette).legend as Legend).top).toBe(0)
+    const right = buildOption(yoy, 'line', { legend: 'right' }, palette).legend as Legend
+    expect([right.right, right.orient]).toEqual([0, 'vertical'])
+    expect(buildOption(yoy, 'line', { legend: 'none' }, palette).legend).toBeUndefined()
+  })
+
+  it('is left out for a single series', () => {
+    const one = result([dim, measure('trips')], [['2026-07-01', 1]])
+    expect(buildOption(one, 'line', {}, palette).legend).toBeUndefined()
+  })
+})
+
+describe('a comparison period with nothing in it', () => {
+  it("isn't drawn as a flat line at zero", () => {
+    const r = result(
+      [dim, measure('trips'), measure('trips', 'number', 'previous'), measure('trips', 'number', 'change')],
+      [['2026-08-01', 120000, 0, 0], ['2026-08-02', 103000, 0, 0]],
+    )
+    expect((buildOption(r, 'line', {}, palette).series as Series[]).map(s => s.name)).toEqual(['trips'])
+  })
+
+  it('is drawn when it has data, even partly', () => {
+    const r = result(
+      [dim, measure('trips'), measure('trips', 'number', 'previous'), measure('trips', 'number', 'change')],
+      [['2026-08-01', 120000, 0, 0], ['2026-08-02', 103000, 98000, 0.05]],
+    )
+    expect((buildOption(r, 'line', {}, palette).series as Series[]).length).toBe(2)
+  })
+})
