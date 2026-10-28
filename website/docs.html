@@ -141,44 +141,52 @@
 
     <section id="quick-start">
       <h2>Quick start</h2>
-      <h3 id="docker">With Docker (fastest)</h3>
-      <p>All you need is <strong>Docker or Podman</strong> with Compose (and <strong>git</strong>). The code is on GitHub at <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">giobinda/magnumbi</a>. Get it and start Magnum BI:</p>
-      <div class="code">
-<pre><code>git clone https://github.com/giobinda/magnumbi.git
+      <p>Two ways to run it: <strong>the desktop app</strong>, just for you on your computer (no Docker, no accounts), or <strong>the server</strong>, for your teams and customers.</p>
+      <div class="tabs" data-tabs="install">
+        <div class="tab-list" role="tablist" aria-label="How to run it"><button type="button" role="tab" data-tab="desktop">Desktop app</button><button type="button" role="tab" data-tab="server">Server</button></div>
+        <div class="tab-panel" role="tabpanel" data-tab="desktop" data-label="Desktop app">
+        <h3 id="desktop-app">The desktop app</h3>
+        <p>Lite in a window, ready to install, from the latest release:</p>
+        <div class="cta downloads">
+          <a class="btn primary" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-macos.dmg">macOS (.dmg)</a>
+          <a class="btn primary" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-windows-x64.zip">Windows (.zip)</a>
+          <a class="btn" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-amd64.deb">Debian, Ubuntu (.deb)</a>
+          <a class="btn" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-x86_64.rpm">Fedora, openSUSE (.rpm)</a>
+        </div>
+        <p>The macOS app runs on both chips. On Linux it needs WebKitGTK 4.1, which the package manager installs: <code>sudo apt install ./magnum-bi-linux-amd64.deb</code> or <code>sudo dnf install ./magnum-bi-linux-x86_64.rpm</code>. Every release is on <a href="https://github.com/giobinda/magnumbi/releases">GitHub</a>. Open it from the menu, the Applications folder or the <code>.exe</code>. It keeps everything in <code>~/.magnum-bi</code>, like <code>magnum-bi lite</code>, and opening it twice shows where the first one is.</p>
+        <p><strong>Opening an unsigned app.</strong> The builds aren't signed (signing costs a yearly fee to Apple and to a certificate seller), so macOS and Windows ask the first time. They're built in the open by the <a href="https://github.com/giobinda/magnumbi/blob/main/.github/workflows/desktop.yml">desktop workflow</a> from the tagged source, and each release lists their checksums in <code>SHA256SUMS</code>.</p>
+        <ul>
+          <li><strong>macOS:</strong> drag <em>Magnum BI</em> to Applications and open it. macOS says it can't check it: choose <em>Done</em>, then <em>System Settings › Privacy &amp; Security › Open Anyway</em>. Or, in Terminal: <code>xattr -d com.apple.quarantine "/Applications/Magnum BI.app"</code>.</li>
+          <li><strong>Windows:</strong> unzip it and open <code>magnum-bi.exe</code>. At "Windows protected your PC", choose <em>More info › Run anyway</em>. It uses WebView2, which Windows 10 and 11 have.</li>
+          <li><strong>Linux:</strong> nothing to confirm.</li>
+        </ul>
+        <p class="muted">The desktop build is the app only: on Windows its commands print nothing (there's no console behind the window). For the server, use the container.</p>
+        <h3 id="lite">From the command line</h3>
+        <p>No container, no accounts: Magnum BI for one person. It starts its own PostgreSQL in <code>~/.magnum-bi</code> (downloaded the first time) and opens in your browser. You own everything, in one workspace: connect a database, or CSV and Parquet files through DuckDB, then build models and dashboards as usual.</p>
+        <div class="code">
+  <pre><code>make lite                         <span class="c"># from a checkout: builds, then runs magnum-bi lite in your browser</span>
+make desktop                      <span class="c"># or in a window of its own</span>
+magnum-bi lite --set-pin          <span class="c"># optional: lock it with a PIN</span></code></pre>
+        </div>
+        <p class="muted">It answers only on this computer: it listens on <code>127.0.0.1</code> and refuses requests addressed to anything but <code>localhost</code>. The PIN keeps others at this computer out of the app; the data folder itself isn't encrypted, so disk encryption is what protects it at rest. There are no organisations, members or sign-in settings, and no public or guest links. In the window, links elsewhere open in your browser, downloads land in Downloads, and closing it stops everything. It picks its port the first time and keeps it. The window needs the system's web engine: built into Windows and macOS, WebKitGTK on Linux. Lite and the window come in addition to the server, which runs on ScramDB.</p>
+        </div>
+        <div class="tab-panel" role="tabpanel" data-tab="server" data-label="Server">
+        <h3 id="docker">With Docker</h3>
+        <p>All you need is <strong>Docker or Podman</strong> with Compose (and <strong>git</strong>). The code is on GitHub at <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">giobinda/magnumbi</a>. Get it and start Magnum BI:</p>
+        <div class="code">
+  <pre><code>git clone https://github.com/giobinda/magnumbi.git
 cd magnumbi
 MAGNUM_ADMIN_EMAIL=you@example.com docker compose up -d    <span class="c"># UI and API on http://localhost:8000</span>
 docker compose logs magnum | grep one-time                 <span class="c"># your first sign-in's password</span>
 docker compose exec magnum magnum-bi seed-sample          <span class="c"># sample data for the Sales overview dashboard</span>
 docker compose exec magnum magnum-bi demo --months 1       <span class="c"># optional: the NYC demo</span></code></pre>
+        </div>
+        <p class="muted">No git? Download just the Compose file and run the same commands next to it: <code>curl -O https://raw.githubusercontent.com/giobinda/magnumbi/main/compose.yaml</code>. Or download the whole repository as a ZIP from GitHub (<em>Code › Download ZIP</em>).</p>
+        <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>magnum-secrets</code> volume on first start: back it up.</p>
+        <div class="note"><strong>Step-by-step guides:</strong> <a href="guides/infrastructure.html">running Magnum BI</a> (Compose, Kubernetes, https, backups), <a href="guides/platform-owner.html">setting up organisations</a> (for platform owners) and <a href="guides/org-admin.html">setting up your organisation</a> (for Org admins: data, models, dashboards, team).</div>
+        <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
+        </div>
       </div>
-      <p class="muted">No git? Download just the Compose file and run the same commands next to it: <code>curl -O https://raw.githubusercontent.com/giobinda/magnumbi/main/compose.yaml</code>. Or download the whole repository as a ZIP from GitHub (<em>Code › Download ZIP</em>).</p>
-      <p>Open <code>http://localhost:8000</code> and sign in with the one-time password; you'll choose your own right away. To pick it up front, set <code>MAGNUM_ADMIN_PASSWORD</code>. The stack runs Magnum BI with its own ScramDB, and the encryption key is generated into the <code>magnum-secrets</code> volume on first start: back it up.</p>
-      <div class="note"><strong>Step-by-step guides:</strong> <a href="guides/infrastructure.html">running Magnum BI</a> (Compose, Kubernetes, https, backups), <a href="guides/platform-owner.html">setting up organisations</a> (for platform owners) and <a href="guides/org-admin.html">setting up your organisation</a> (for Org admins: data, models, dashboards, team).</div>
-      <p class="muted">Rather not type anything? <a href="#agent-setup">Let your AI agent do it.</a> Going to a server or Kubernetes? See <a href="#deploying">Deploying</a>.</p>
-      <h3>Lite: just you, on your computer</h3>
-      <p>No container, no accounts: Magnum BI for one person. It starts its own PostgreSQL in <code>~/.magnum-bi</code> (downloaded the first time) and opens in your browser. You own everything, in one workspace: connect a database, or CSV and Parquet files through DuckDB, then build models and dashboards as usual.</p>
-      <div class="code">
-<pre><code>make lite                         <span class="c"># from a checkout: builds, then runs magnum-bi lite in your browser</span>
-make desktop                      <span class="c"># or in a window of its own</span>
-magnum-bi lite --set-pin          <span class="c"># optional: lock it with a PIN</span></code></pre>
-      </div>
-      <p class="muted">It answers only on this computer: it listens on <code>127.0.0.1</code> and refuses requests addressed to anything but <code>localhost</code>. The PIN keeps others at this computer out of the app; the data folder itself isn't encrypted, so disk encryption is what protects it at rest. There are no organisations, members or sign-in settings, and no public or guest links. In the window, links elsewhere open in your browser, downloads land in Downloads, and closing it stops everything. It picks its port the first time and keeps it. The window needs the system's web engine: built into Windows and macOS, WebKitGTK on Linux. Lite and the window come in addition to the server, which runs on ScramDB.</p>
-      <h3 id="desktop-app">The desktop app</h3>
-      <p>Lite in a window, ready to install, from the latest release:</p>
-      <div class="cta downloads">
-        <a class="btn primary" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-macos.dmg">macOS (.dmg)</a>
-        <a class="btn primary" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-windows-x64.zip">Windows (.zip)</a>
-        <a class="btn" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-amd64.deb">Debian, Ubuntu (.deb)</a>
-        <a class="btn" href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-x86_64.rpm">Fedora, openSUSE (.rpm)</a>
-      </div>
-      <p>The macOS app runs on both chips. On Linux it needs WebKitGTK 4.1, which the package manager installs: <code>sudo apt install ./magnum-bi-linux-amd64.deb</code> or <code>sudo dnf install ./magnum-bi-linux-x86_64.rpm</code>. Every release is on <a href="https://github.com/giobinda/magnumbi/releases">GitHub</a>. Open it from the menu, the Applications folder or the <code>.exe</code>. It keeps everything in <code>~/.magnum-bi</code>, like <code>magnum-bi lite</code>, and opening it twice shows where the first one is.</p>
-      <p><strong>Opening an unsigned app.</strong> The builds aren't signed (signing costs a yearly fee to Apple and to a certificate seller), so macOS and Windows ask the first time. They're built in the open by the <a href="https://github.com/giobinda/magnumbi/blob/main/.github/workflows/desktop.yml">desktop workflow</a> from the tagged source, and each release lists their checksums in <code>SHA256SUMS</code>.</p>
-      <ul>
-        <li><strong>macOS:</strong> drag <em>Magnum BI</em> to Applications and open it. macOS says it can't check it: choose <em>Done</em>, then <em>System Settings › Privacy &amp; Security › Open Anyway</em>. Or, in Terminal: <code>xattr -d com.apple.quarantine "/Applications/Magnum BI.app"</code>.</li>
-        <li><strong>Windows:</strong> unzip it and open <code>magnum-bi.exe</code>. At "Windows protected your PC", choose <em>More info › Run anyway</em>. It uses WebView2, which Windows 10 and 11 have.</li>
-        <li><strong>Linux:</strong> nothing to confirm.</li>
-      </ul>
-      <p class="muted">The desktop build is the app only: on Windows its commands print nothing (there's no console behind the window). For the server, use the container.</p>
       <h3 id="from-source">From source</h3>
       <p>For development. You'll need <strong>Rust 1.94+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
       <div class="code">
