@@ -44,6 +44,28 @@
     });
   }
 
+  // Downloading the macOS app: it isn't signed by Apple, so say how to open it (the download goes on)
+  document.addEventListener('click', function (e) {
+    if (!e.target.closest('a[href$=".dmg"]')) return;
+    let note = document.querySelector('.download-note');
+    if (!note) {
+      const docs = (location.pathname.includes('/guides/') ? '../' : '') + 'docs.html#desktop-app';
+      note = document.createElement('div');
+      note.className = 'download-note';
+      note.setAttribute('role', 'status');
+      note.innerHTML =
+        '<button class="icon-btn" type="button" aria-label="Close">✕</button>' +
+        '<strong>Your download has started.</strong>' +
+        '<p>Magnum BI isn\'t signed by Apple, so the first time you open it macOS says it can\'t check it. ' +
+        'Choose <em>Done</em>, then <em>System Settings › Privacy &amp; Security › Open Anyway</em>.</p>' +
+        '<p>Or, in Terminal: <code>xattr -dr com.apple.quarantine "/Applications/Magnum BI.app"</code></p>' +
+        '<a href="' + docs + '">More on opening an unsigned app</a>';
+      note.querySelector('button').addEventListener('click', function () { note.remove(); });
+      document.body.appendChild(note);
+    }
+    note.querySelector('button').focus();
+  });
+
   // Mobile menu
   const menuBtn = document.querySelector('.menu-btn');
   const nav = document.querySelector('.nav');
