@@ -202,13 +202,16 @@ pub fn quote(s: &str) -> Result<String, QueryError> {
 }
 
 /// The column (or expression) behind a dimension.
+/// A column named as written: lowercase names quoted (same meaning, and safe for reserved words
+/// like "order"); mixed case is left as written, like any unquoted identifier.
+fn column_name(dl: Dialect, name: &str) -> String {
+    if name == name.to_lowercase() { dl.ident(name) } else { name.to_string() }
+}
+
 fn col_expr(dl: Dialect, d: &Dimension) -> String {
     let col = match d.sql.as_deref() {
         Some(sql) if !sql.trim().is_empty() => format!("({})", sql.trim()),
-        // lowercase names quoted (same meaning, and safe for reserved words like "order");
-        // mixed case is left as written, like any unquoted identifier
-        _ if d.name == d.name.to_lowercase() => dl.ident(&d.name),
-        _ => d.name.clone(),
+        _ => column_name(dl, d.column.as_deref().unwrap_or(&d.name)),
     };
     // DuckDB without ICU has no time-zone arithmetic: work on instants as UTC timestamps
     if dl == Dialect::DuckDb && d.kind == "time" { format!("CAST({col} AS TIMESTAMP)") } else { col }
@@ -218,12 +221,59 @@ fn from_clause(dl: Dialect, model: &Model) -> Result<String, QueryError> {
     if let Some(sql) = &model.sql {
         return Ok(format!("({}) AS base", sql.trim().trim_end_matches(';')));
     }
-    let table = model.table.as_deref().unwrap_or_default().trim_matches(|c| c == '`' || c == '"' || c == ' ');
+    let main = table_ref(dl, model.table.as_deref().unwrap_or_default())?;
+    if model.joins.is_empty() {
+        return Ok(main);
+    }
+    // lookups: LEFT JOIN, so rows without a match stay (and their numbers count once)
+    let mut from = format!("{main} AS base");
+    for j in &model.joins {
+        let alias = dl.ident(&j.alias);
+        let on: Vec<String> =
+            j.on.iter()
+                .map(|p| format!("base.{} = {alias}.{}", column_name(dl, &p[0]), column_name(dl, &p[1])))
+                .collect();
+        from.push_str(&format!("\n  LEFT JOIN {} AS {alias} ON {}", table_ref(dl, &j.table)?, on.join(" AND ")));
+    }
+    Ok(from)
+}
+
+/// schema.table (up to three parts), each part quoted.
+fn table_ref(dl: Dialect, table: &str) -> Result<String, QueryError> {
+    let table = table.trim_matches(|c| c == '`' || c == '"' || c == ' ');
     let parts: Vec<&str> = table.split('.').collect();
     if !(1..=3).contains(&parts.len()) || parts.iter().any(|p| p.is_empty()) {
         return err(format!("invalid table name {table:?}"));
     }
     Ok(parts.iter().map(|p| dl.ident(p.trim_matches(|c| c == '"' || c == '`'))).collect::<Vec<_>>().join("."))
+}
+
+/// A model with lookups, its fields made unambiguous: the main table's columns as base.<column>,
+/// a lookup's as <lookup>.<column>, and a measure that names a column on the main table. A
+/// model without lookups is used as it is.
+fn with_lookups(model: &Model, dl: Dialect) -> Cow<'_, Model> {
+    if model.joins.is_empty() {
+        return Cow::Borrowed(model);
+    }
+    let mut m = model.clone();
+    for d in &mut m.dimensions {
+        if d.sql.is_some() || d.formula.is_some() {
+            continue;
+        }
+        let col = column_name(dl, d.column.as_deref().unwrap_or(&d.name));
+        d.sql = Some(match d.from.take() {
+            Some(alias) => format!("{}.{col}", dl.ident(&alias)),
+            None => format!("base.{col}"),
+        });
+    }
+    static BARE: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r#"^([A-Za-z0-9_]+|"[A-Za-z0-9_]+"|`[A-Za-z0-9_]+`)$"#).unwrap());
+    for x in &mut m.measures {
+        if let Some(sql) = x.sql.as_deref().map(str::trim).filter(|s| BARE.is_match(s)) {
+            x.sql = Some(format!("base.{sql}"));
+        }
+    }
+    Cow::Owned(m)
 }
 
 fn dim_expr(dl: Dialect, d: &Dimension, grain: Option<&str>, col: Option<String>) -> Result<String, QueryError> {
@@ -793,6 +843,7 @@ pub fn compile_query_up_to(
     max_rows: i64,
 ) -> Result<Compiled, QueryError> {
     q.validate_up_to(max_rows).map_err(QueryError)?;
+    let model = &*with_lookups(model, dl);
     let model = &*with_row_formulas(model, dl)?;
     let mut selects: Vec<String> = vec![];
     let mut columns: Vec<Column> = vec![];
@@ -1126,6 +1177,88 @@ hierarchies:
         let q = q(json!({"model": "sales", "dimensions": ["amount"], "measures": ["revenue"]}));
         let duck = compile_query(&m, &q, Dialect::DuckDb, now(), &[]).unwrap();
         assert!(duck.sql.contains("\"amount\" AS \"amount\""), "{}", duck.sql);
+    }
+
+    /// An orders table with two lookups: its customers and its products.
+    fn orders() -> Model {
+        let m: Model = serde_yaml::from_str(
+            r#"
+name: orders
+connection: scramdb
+table: shop.orders
+joins:
+  - {table: shop.customers, as: customer, on: [[customer_id, id]]}
+  - {table: shop.products, as: product, on: [[product_id, id], [region, region]]}
+dimensions:
+  - {name: region}
+  - {name: ordered_at, type: time}
+  - {name: customer_country, from: customer, column: country}
+  - {name: product_name, from: product, column: name}
+  - {name: category, from: product}
+measures:
+  - {name: revenue, type: sum, sql: '"amount"', format: currency}
+  - {name: orders, type: count}
+"#,
+        )
+        .unwrap();
+        m.validate().unwrap();
+        m
+    }
+
+    #[test]
+    fn a_model_reads_its_lookups_alongside_its_table() {
+        let m = orders();
+        let q = q(json!({"model": "orders", "dimensions": ["customer_country", "category"], "measures": ["revenue"],
+                        "filters": [{"field": "region", "values": ["EMEA"]}]}));
+        let c = compile_query(&m, &q, Dialect::Postgres, now(), &[]).unwrap();
+        assert!(
+            c.sql.contains(
+                "FROM \"shop\".\"orders\" AS base\n  LEFT JOIN \"shop\".\"customers\" AS \"customer\" ON base.\"customer_id\" = \"customer\".\"id\"\n  \
+                 LEFT JOIN \"shop\".\"products\" AS \"product\" ON base.\"product_id\" = \"product\".\"id\" AND base.\"region\" = \"product\".\"region\""
+            ),
+            "{}",
+            c.sql
+        );
+        // each field from where it is: a lookup's column, or the main table's (never ambiguous)
+        assert!(c.sql.contains("(\"customer\".\"country\") AS \"customer_country\""), "{}", c.sql);
+        assert!(c.sql.contains("(\"product\".\"category\") AS \"category\""), "{}", c.sql);
+        assert!(c.sql.contains("SUM((base.\"amount\"))"), "{}", c.sql);
+        assert!(c.sql.contains("(base.\"region\") IN ('EMEA')"), "{}", c.sql);
+        // each engine quotes its own way
+        let bq = compile_query(&m, &q, Dialect::BigQuery, now(), &[]).unwrap();
+        assert!(
+            bq.sql.contains("LEFT JOIN `shop`.`customers` AS `customer` ON base.`customer_id` = `customer`.`id`"),
+            "{}",
+            bq.sql
+        );
+        // a model without lookups reads as before
+        let plain = compile(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"]})).unwrap();
+        assert!(plain.sql.contains("FROM \"public\".\"sample_sales\"\nGROUP BY"), "{}", plain.sql);
+    }
+
+    #[test]
+    fn lookups_are_checked() {
+        let base = serde_yaml::to_value(orders()).unwrap();
+        for (edit, says) in [
+            (json!({"joins": [{"table": "shop.customers", "as": "base", "on": [["customer_id", "id"]]}]}), "base"),
+            (json!({"joins": [{"table": "shop.customers", "as": "c", "on": []}]}), "match"),
+            (json!({"joins": [{"table": "x", "as": "c", "on": [["id"]]}]}), "pair"),
+            (json!({"joins": [{"table": "x", "as": "c", "on": [["a b", "id"]]}]}), "a b"),
+            (
+                json!({"joins": [{"table": "x", "as": "c", "on": [["a", "id"]]}, {"table": "y", "as": "c", "on": [["b", "id"]]}]}),
+                "twice",
+            ),
+            (json!({"dimensions": [{"name": "country", "from": "nobody"}]}), "nobody"),
+            (json!({"dimensions": [{"name": "country", "from": "customer", "sql": "upper(country)"}]}), "SQL"),
+        ] {
+            let mut v = base.clone();
+            for (k, x) in edit.as_object().unwrap() {
+                v[k.as_str()] = serde_yaml::to_value(x).unwrap();
+            }
+            let m: Model = serde_yaml::from_value(v).unwrap();
+            let e = m.validate().unwrap_err();
+            assert!(e.contains(says), "{edit} -> {e}");
+        }
     }
 
     #[test]

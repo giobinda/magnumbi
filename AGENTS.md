@@ -22,11 +22,13 @@ organisation owns.
   check.
 - **Never weaken a security property silently.** That covers:
   - data restrictions (row filters), and how they follow the same table into other models
-    (`access::same_data`);
+    (`access::same_data`) and into models that join it as a lookup (`access::row_filters_for`:
+    filtered on the lookup's matching field, or the model refused);
   - the network guard on organisation-supplied addresses (`netguard.rs`), the read-only DuckDB
     sandbox, CSRF/origin checks, session and token checks, write-only secrets;
   - organisations' own models (`org_models.rs`): no SQL, columns and aggregations only, Org
-    admins only;
+    admins only; lookups on the same connection, one row per key (checked when saved), adding
+    dimensions only;
   - each tenant's delivery settings (`api/delivery.rs`): the platform workspace and every
     organisation have their own mail server and webhooks, never shared or inherited; their
     addresses go through `netguard`, and passwords and webhook addresses are write-only;

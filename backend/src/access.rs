@@ -522,6 +522,28 @@ pub fn row_filters_for(scope: &Scope, project: &ProjectState, model_name: &str) 
     let model = &project.models[model_name];
     let mut out = vec![];
     for rule in scope.filters() {
+        // the rule's data may also come in through a lookup: then it filters the lookup's field
+        // for the same column (or, with none, refuses the model: fail closed)
+        for j in model.joins.iter().filter(|j| reads_table(project, &rule.model, &model.connection, &j.table)) {
+            let column = rule_column(project, rule);
+            let field = model.dimensions.iter().find(|d| {
+                d.from.as_deref() == Some(j.alias.as_str()) && Some(d.column.as_deref().unwrap_or(&d.name)) == column
+            });
+            let Some(field) = field else {
+                return Err(AccessDenied(format!(
+                    "an access rule on {}'s {} covers its lookup {:?}, which doesn't have that column as a field; \
+                     ask your administrator",
+                    rule.model, rule.dimension, j.alias
+                )));
+            };
+            if rule.values.is_empty() {
+                return Err(AccessDenied(format!(
+                    "you don't have access to any {}",
+                    field.label.as_deref().unwrap_or(&field.name)
+                )));
+            }
+            out.push(Filter::equals(&field.name, rule.values.clone()));
+        }
         if !same_data(project, &rule.model, model_name) {
             continue; // filters only apply to models reading the filtered data
         }
@@ -563,6 +585,27 @@ fn source(project: &ProjectState, name: &str) -> Option<(String, String)> {
     };
     let body = body.to_lowercase().trim_matches(|c| c == '`' || c == '"' || c == ' ').to_string();
     (!body.is_empty()).then(|| (m.connection.clone(), body))
+}
+
+/// Does `rule_model` read `table` on `connection` (a model's lookup)? The same table name on the same
+/// connection, however it's written (`customers`, `public.customers`): at worst more restrictions
+/// than needed, never fewer.
+fn reads_table(project: &ProjectState, rule_model: &str, connection: &str, table: &str) -> bool {
+    let Some((c, t)) =
+        project.models.keys().find(|n| n.eq_ignore_ascii_case(rule_model)).and_then(|n| source(project, n))
+    else {
+        return false;
+    };
+    let last = |t: &str| t.rsplit('.').next().unwrap_or_default().trim_matches(|c| c == '"' || c == '`').to_lowercase();
+    c == connection && last(&t) == last(table)
+}
+
+/// The column a rule's field reads, when it's one (not SQL or a formula: then None, and a lookup it
+/// covers can't be filtered, so the model is refused).
+fn rule_column<'a>(project: &'a ProjectState, rule: &'a RowRule) -> Option<&'a str> {
+    let m = project.models.iter().find(|(n, _)| n.eq_ignore_ascii_case(&rule.model))?.1;
+    let d = m.dimension(&rule.dimension)?;
+    (d.sql.is_none() && d.formula.is_none() && d.from.is_none()).then(|| d.column.as_deref().unwrap_or(&d.name))
 }
 
 /// Does a rule on `rule_model` cover queries on `model_name`? Same model, same extends family,
@@ -788,6 +831,56 @@ mod tests {
         let e = check_org_sign_in(&c, "acme", &with(json!({"require_two_factor": true}), None), &offered, false)
             .unwrap_err();
         assert!(e.contains("MAGNUM_SECRET_KEY"), "{e}");
+    }
+
+    #[test]
+    fn restrictions_follow_a_lookups_table() {
+        use crate::schema::Model;
+        let y = |s: &str| -> Model { serde_yaml::from_str(s).unwrap() };
+        let mut project = ProjectState::default();
+        project.models.insert(
+            "customers".into(),
+            y("name: customers\nconnection: shop\ntable: public.customers\ndimensions: [{name: id}, {name: country}]\n"),
+        );
+        // orders, with the customers table as a lookup (its country as customer_country)
+        let joins = "joins: [{table: customers, as: customer, on: [[customer_id, id]]}]";
+        project.models.insert(
+            "orders".into(),
+            y(&format!(
+                "name: orders\nconnection: shop\ntable: orders\n{joins}\n\
+                dimensions: [{{name: region}}, {{name: customer_country, from: customer, column: country}}]\n"
+            )),
+        );
+        // the same lookup, without its country: the restriction can't be applied
+        project.models.insert(
+            "orders_bare".into(),
+            y(&format!(
+                "name: orders_bare\nconnection: shop\ntable: orders\n{joins}\ndimensions: [{{name: region}}]\n"
+            )),
+        );
+        // a customers table elsewhere is other data
+        project.models.insert(
+            "orders_elsewhere".into(),
+            y("name: orders_elsewhere\nconnection: other\ntable: orders\n\
+               joins: [{table: customers, as: c, on: [[cid, id]]}]\ndimensions: [{name: country, from: c}]\n"),
+        );
+        let scope = Scope {
+            role: Some(Role::Viewer),
+            org_filters: vec![RowRule {
+                model: "customers".into(),
+                dimension: "country".into(),
+                values: vec![json!("FR")],
+            }],
+            ..Scope::default()
+        };
+        let f = row_filters_for(&scope, &project, "orders").unwrap();
+        assert_eq!(
+            f.iter().map(|f| (f.field.as_str(), f.values.clone())).collect::<Vec<_>>(),
+            [("customer_country", vec![json!("FR")])]
+        );
+        let e = row_filters_for(&scope, &project, "orders_bare").unwrap_err();
+        assert!(e.0.contains("customers") && e.0.contains("country"), "fails closed: {}", e.0);
+        assert!(row_filters_for(&scope, &project, "orders_elsewhere").unwrap().is_empty());
     }
 
     #[test]

@@ -517,7 +517,8 @@ export const api = {
     call<{ ok: boolean }>(`/api/formulas/${encodeURIComponent(model)}/${encodeURIComponent(f.name)}`, json('PUT', f)),
   deleteFormula: (model: string, name: string) =>
     call<{ ok: boolean }>(`/api/formulas/${encodeURIComponent(model)}/${encodeURIComponent(name)}`, { method: 'DELETE' }),
-  saveBlend: (b: Blend) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}`, json('PUT', { ...b, editable: undefined })),
+  saveBlend: (b: Blend, dryRun = false) =>
+    call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(b.name)}${dryRun ? '?dry_run=1' : ''}`, json('PUT', { ...b, editable: undefined })),
   deleteBlend: (name: string) => call<{ ok: boolean }>(`/api/blends/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   me: () => call<AuthState>('/api/auth/me'),
   /** the ways this email can sign in (sign-in page, step 2) */

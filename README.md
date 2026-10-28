@@ -698,6 +698,12 @@ ScramDB, and everyone in it can explore it and build dashboards and blends on it
   the browser: a dimension is a column, named by its name; a measure is count, distinct count,
   sum, average, min or max of a column; the table is a `schema.table` name. Saving checks every
   field against the table's actual columns.
+- **Lookups**, in the same editor: tables of the same connection with one row per key (customers
+  for orders), joined to the main table (rows without a match kept), whose columns become
+  dimensions (`joins: [{table: customers, as: customer, on: [[customer_id, id]]}]`, then
+  `{name: country, from: customer}`). The numbers stay the main table's, so they count once; a
+  lookup with several rows per key is refused when saving. A restriction on a lookup's table
+  applies to the model too, on the lookup's field for that column, or the model is refused.
 - **Drill paths**, in the same editor: a name and two dimensions or more, in drilling order
   (`location: [region, store]`), each once; a tile drills along one (its `drill`).
 - **Shared models, by system owners.** Made in the platform workspace, a model is one of the

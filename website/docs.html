@@ -305,6 +305,7 @@ curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview
             <li><strong>+ New model</strong>, then pick a connection and one of its tables.</li>
             <li>Magnum BI proposes the model from the table's columns: text and dates become dimensions, numbers summed measures, ids and calendar numbers (hour, month, year) stay dimensions, and a count of rows is always there.</li>
             <li>Adjust the names, what each column is used as and how it adds up.</li>
+            <li>Optionally, <strong>lookups</strong>: another table of the connection with one row per key (customers for orders), matched on a column (the editor proposes <code>customer_id</code> = <code>id</code>). Its ticked columns become the model's fields, while the numbers stay the main table's and count once. A lookup with several rows per key is refused, and restrictions on its table apply to the model too.</li>
             <li>Optionally, <strong>drill paths</strong>: a name and dimensions in order (region, then store), for clicking a bar to go one step down. A tile drills along the path chosen in its editor (<em>Drill</em>).</li>
             <li><strong>Save model</strong>. Saving checks every field against the table's real columns.</li>
           </ol>
@@ -630,7 +631,7 @@ POST /api/connections/budget/refresh                                   <span cla
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
-          <p>On <strong>Data › Blends</strong> (Power users and up): <strong>+ New blend</strong>, pick the base model (every row starts from it), then each model to join and the fields that match (a date can match at a grain, such as the hour). Choose how long results are reused, then <strong>Save</strong> and open it in Explore.</p>
+          <p>On <strong>Data › Blends</strong> (Power users and up): <strong>+ New blend</strong>, give it a name, choose what to <em>start from</em> (the model whose rows the others are added to), then <em>add the data of</em> another model. The form proposes the fields to match (the same name, a more precise name such as <code>pickup_borough</code> for <code>borough</code>, and two moments by the same hour) and says the match in a sentence. <strong>Check</strong> tries it without saving. Choose how long results are reused, then <strong>Save</strong> and open it in Explore.</p>
           <figure class="shot"><a href="assets/screens/blends.jpg"><img src="assets/screens/blends.jpg" alt="The blend editor: base model Store sales, joined with Stores on Store" width="760" height="947" loading="lazy"></a><figcaption>A blend of the platform's sales model and the organisation's own Stores model, on the store.</figcaption></figure>
         </div>
         <div class="tab-panel" role="tabpanel" data-tab="code" data-label="In code">

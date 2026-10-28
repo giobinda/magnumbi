@@ -6,7 +6,7 @@
 //! reaches, and restrictions are set per model (and follow the same table into new models): so
 //! only admins make them.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 
 use axum::Json;
@@ -116,7 +116,16 @@ pub async fn save(
     crate::org_models::quote_columns(&mut m, dialect);
     let table = m.table.clone().unwrap_or_default();
     let columns = c.columns(&table).await.map_err(|e| conn_error(&format!("table {table}"), e))?;
-    check_columns(&m, &columns)?;
+    // each lookup: its columns (for its fields and keys), and one row per key
+    let mut lookups = BTreeMap::new();
+    for j in &m.joins {
+        let cols = c.columns(&j.table).await.map_err(|e| conn_error(&format!("table {}", j.table), e))?;
+        lookups.insert(j.alias.clone(), cols);
+    }
+    check_columns(&m, &columns, &lookups)?;
+    for j in &m.joins {
+        one_row_per_key(dialect, c.as_ref(), j).await?;
+    }
     if p.dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));
     }
@@ -134,13 +143,66 @@ pub async fn save(
     Ok(Json(json!({"ok": true})))
 }
 
-/// Every dimension, and every measure's column, is a column of the table.
-fn check_columns(m: &Model, columns: &[(String, ColType)]) -> ApiResult<()> {
-    let have: BTreeSet<String> = columns.iter().map(|(c, _)| c.to_lowercase()).collect();
+/// A lookup has one row per key: with more, the main table's numbers would count twice. Checked
+/// when the model is saved (a table changed later is the next save's to find).
+async fn one_row_per_key(
+    dialect: Dialect,
+    c: &dyn crate::connectors::Connector,
+    j: &crate::schema::Join,
+) -> ApiResult<()> {
+    let table = j.table.split('.').map(|p| dialect.ident(p)).collect::<Vec<_>>().join(".");
+    let keys: Vec<String> = j.on.iter().map(|p| dialect.ident(&p[1])).collect();
+    let sql = format!("SELECT 1 AS repeated FROM {table} GROUP BY {} HAVING COUNT(*) > 1 LIMIT 1", keys.join(", "));
+    let r = c.run(&sql, &["repeated".to_string()]).await.map_err(|e| conn_error(&format!("table {}", j.table), e))?;
+    if !r.rows.is_empty() {
+        return Err(ApiError::bad_request(format!(
+            "lookup {:?}: {} has more than one row for some {}: a lookup needs one row per key",
+            j.alias,
+            j.table,
+            j.on.iter().map(|p| p[1].as_str()).collect::<Vec<_>>().join(" + ")
+        )));
+    }
+    Ok(())
+}
+
+/// Every dimension is a column of its table (the main one, or its lookup's), every measure's
+/// column the main table's, and a lookup's match columns are on both sides.
+fn check_columns(
+    m: &Model,
+    columns: &[(String, ColType)],
+    lookups: &BTreeMap<String, Vec<(String, ColType)>>,
+) -> ApiResult<()> {
+    let set = |cols: &[(String, ColType)]| cols.iter().map(|(c, _)| c.to_lowercase()).collect::<BTreeSet<String>>();
+    let have = set(columns);
     let table = m.table.as_deref().unwrap_or_default();
     for d in &m.dimensions {
-        if !have.contains(&d.name.to_lowercase()) {
-            return Err(ApiError::bad_request(format!("dimension {:?}: {table} has no column {:?}", d.name, d.name)));
+        let col = d.column.as_deref().unwrap_or(&d.name);
+        let (cols, where_) = match &d.from {
+            Some(alias) => {
+                let j = m.joins.iter().find(|j| &j.alias == alias).expect("checked by the model");
+                (set(&lookups[alias]), j.table.as_str())
+            }
+            None => (have.clone(), table),
+        };
+        if !cols.contains(&col.to_lowercase()) {
+            return Err(ApiError::bad_request(format!("dimension {:?}: {where_} has no column {col:?}", d.name)));
+        }
+    }
+    for j in &m.joins {
+        let theirs = set(&lookups[&j.alias]);
+        for pair in &j.on {
+            if !have.contains(&pair[0].to_lowercase()) {
+                return Err(ApiError::bad_request(format!(
+                    "lookup {:?}: {table} has no column {:?}",
+                    j.alias, pair[0]
+                )));
+            }
+            if !theirs.contains(&pair[1].to_lowercase()) {
+                return Err(ApiError::bad_request(format!(
+                    "lookup {:?}: {} has no column {:?}",
+                    j.alias, j.table, pair[1]
+                )));
+            }
         }
     }
     for x in &m.measures {
@@ -176,7 +238,7 @@ pub async fn delete(
 #[cfg(test)]
 mod tests {
     use axum::http::StatusCode;
-    use serde_json::json;
+    use serde_json::{Value, json};
 
     use crate::api::share::tests::{clean_up, org_with, send};
 
@@ -288,6 +350,49 @@ mod tests {
         assert_eq!(mine["hierarchies"], json!({"place": [a, b]}), "{mine}");
         let (_, list, _) = send(&app, c, &org, "GET", "/api/org-models", None, None).await;
         assert_eq!(list["models"][0]["model"]["hierarchies"], json!({"place": [a, b]}), "kept for editing: {list}");
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn models_made_in_the_app_look_up_other_tables() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+        // an orders table, its rows each one sale of sample_sales (its lookup)
+        let table = format!("lookup_orders_{suffix}");
+        let db = state.store.pool.get().await.unwrap();
+        db.batch_execute(&format!("CREATE TABLE {table} (sale_id BIGINT)")).await.unwrap();
+        db.batch_execute(&format!("INSERT INTO {table} SELECT id FROM sample_sales WHERE id <= 20")).await.unwrap();
+        let name = format!("orders_{suffix}");
+        let path = format!("/api/org-models/{name}");
+        let model = |joins: Value, dims: Value| {
+            json!({"name": name, "connection": "warehouse", "table": table, "joins": joins, "dimensions": dims,
+                   "measures": [{"name": "n", "type": "count"}]})
+        };
+        let sale = json!([{"table": "sample_sales", "as": "sale", "on": [["sale_id", "id"]]}]);
+        let dims = json!([{"name": "sale_id"}, {"name": "region", "from": "sale"}, {"name": "shop", "from": "sale", "column": "store"}]);
+        // what's refused: a lookup's field it doesn't have, a match column the table doesn't
+        // have, and a lookup with several rows per key (the numbers would count twice)
+        for (joins, dims, says) in [
+            (sale.clone(), json!([{"name": "nope", "from": "sale"}]), "nope"),
+            (json!([{"table": "sample_sales", "as": "sale", "on": [["missing", "id"]]}]), dims.clone(), "missing"),
+            (json!([{"table": "sample_sales", "as": "sale", "on": [["sale_id", "region"]]}]), dims.clone(), "one row"),
+        ] {
+            let (s, r, _) = send(&app, c, &org, "PUT", &path, Some(model(joins.clone(), dims)), None).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{joins} -> {r}");
+            assert!(r["detail"].as_str().unwrap().contains(says), "{joins} -> {r}");
+        }
+        let (s, r, _) = send(&app, c, &org, "PUT", &path, Some(model(sale, dims)), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        // the lookup's fields group the orders: each order once
+        let q = json!({"model": name, "dimensions": ["region"], "measures": ["n"]});
+        let (s, r, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let total: i64 = r["rows"].as_array().unwrap().iter().map(|row| row[1].as_i64().unwrap()).sum();
+        let rows: i64 = db.query_one(&format!("SELECT COUNT(*) FROM {table}"), &[]).await.unwrap().get(0);
+        assert_eq!(total, rows, "{r}");
+        send(&app, c, &org, "DELETE", &path, None, None).await;
+        db.batch_execute(&format!("DROP TABLE {table}")).await.unwrap();
         clean_up(&state, &org).await;
     }
 

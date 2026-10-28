@@ -7,11 +7,25 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Lookups in models made in the app** (Data › Models, step 5): another table of the same
+  connection with one row per key (customers for orders), matched on a column (proposed), whose
+  columns become the model's fields; the numbers stay the main table's and count once. A lookup with
+  several rows per key is refused when saving. In YAML: `joins:` and `from:`.
 - **Drill paths in the model editor** (Data › Models): a name and dimensions in order, so a
   model made in the app drills down like a YAML one (and its blends with it).
 
+### Security
+
+- **Restrictions follow a table into the models that look it up**: a restriction on customers
+  filters an orders model's customer fields, or the model is refused when it doesn't have the
+  restricted column (fail closed). A case in the attack suite.
+
 ### Changed
 
+- **The blend form is easier**: its id comes from its name; "Start from" and "Add the data of"
+  instead of base model and join; the fields to match are proposed (the same name or label, a more
+  precise name such as pickup_borough for borough, two moments by the same hour), and said in a
+  sentence; **Check** tries it without saving.
 - **A blend tile's automatic title names fields by their own name** ("Trips by Pickup time,
   Pickup borough"), keeping the model only where two fields would read the same.
 

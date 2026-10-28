@@ -45,6 +45,11 @@ pub fn check(m: &Model) -> Result<(), String> {
             return Err(format!("dimension {:?}: a dimension is a column, named by its name (no SQL)", d.name));
         }
     }
+    for j in &m.joins {
+        if !TABLE.is_match(&j.table) {
+            return Err(format!("lookup {:?}: invalid table name {:?}", j.alias, j.table));
+        }
+    }
     // drill paths: a name, then two dimensions or more, each once (that they're the model's own is
     // any model's rule)
     for (h, path) in &m.hierarchies {
@@ -125,6 +130,8 @@ pub fn propose(
             description: None,
             kind: kind.into(),
             sql: None,
+            from: None,
+            column: None,
             formula: None,
             hidden: false,
             aggregation: None,
@@ -146,6 +153,7 @@ pub fn propose(
         dimensions,
         measures,
         hierarchies: BTreeMap::new(),
+        joins: vec![],
         cache: None,
         tags: vec![],
     };
