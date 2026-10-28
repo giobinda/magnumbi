@@ -156,13 +156,14 @@
   // Footer year
   document.querySelectorAll('[data-year]').forEach(function (el) { el.textContent = new Date().getFullYear(); });
 
-  // Docs: "In the app" / "In code" tabs. Choosing one switches every section, and is remembered.
-  const groups = document.querySelectorAll('[data-tabs]');
+  // Docs: tabs. "In the app" / "In code" (data-tabs with no name): choosing one switches every such
+  // section, and is remembered. A named group (data-tabs="install": desktop app or server) goes with
+  // its own name only.
+  const groups = Array.prototype.slice.call(document.querySelectorAll('[data-tabs]'));
   if (groups.length) {
-    let stored = null;
-    try { stored = localStorage.getItem('docs-tab'); } catch (e) { /* private mode */ }
-    const choose = function (name, remember) {
-      groups.forEach(function (g) {
+    const keyOf = function (g) { return 'docs-tab' + (g.dataset.tabs ? '-' + g.dataset.tabs : ''); };
+    const choose = function (key, name, remember) {
+      groups.filter(function (g) { return keyOf(g) === key; }).forEach(function (g) {
         const tabs = g.querySelectorAll('[role="tab"]');
         const has = Array.prototype.some.call(tabs, function (t) { return t.dataset.tab === name; });
         const pick = has ? name : tabs[0].dataset.tab;
@@ -173,7 +174,7 @@
         });
         g.querySelectorAll('[role="tabpanel"]').forEach(function (p) { p.hidden = p.dataset.tab !== pick; });
       });
-      if (remember) { try { localStorage.setItem('docs-tab', name); } catch (e) { /* private mode */ } }
+      if (remember) { try { localStorage.setItem(key, name); } catch (e) { /* private mode */ } }
     };
     groups.forEach(function (g, i) {
       const tabs = Array.prototype.slice.call(g.querySelectorAll('[role="tab"]'));
@@ -185,7 +186,7 @@
         panel.setAttribute('aria-labelledby', t.id);
         t.addEventListener('click', function () {
           const top = t.getBoundingClientRect().top;
-          choose(t.dataset.tab, true);
+          choose(keyOf(g), t.dataset.tab, true);
           window.scrollBy(0, t.getBoundingClientRect().top - top); // stay on the section clicked
         });
         t.addEventListener('keydown', function (e) {
@@ -196,6 +197,22 @@
         });
       });
     });
-    choose(stored || 'ui', false);
+    const keys = groups.map(keyOf).filter(function (k, i, all) { return all.indexOf(k) === i; });
+    keys.forEach(function (key) {
+      let stored = null;
+      try { stored = localStorage.getItem(key); } catch (e) { /* private mode */ }
+      choose(key, stored || (key === 'docs-tab' ? 'ui' : ''), false);
+    });
+    // a link into a tab (docs.html#docker) opens that tab, then goes there
+    const reveal = function () {
+      const id = decodeURIComponent(location.hash.slice(1));
+      const target = id && document.getElementById(id);
+      const panel = target && target.closest('[role="tabpanel"]');
+      if (!panel || !panel.hidden) return;
+      choose(keyOf(panel.closest('[data-tabs]')), panel.dataset.tab, false);
+      target.scrollIntoView();
+    };
+    reveal();
+    window.addEventListener('hashchange', reveal);
   }
 })();
