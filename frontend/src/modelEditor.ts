@@ -4,6 +4,8 @@ export interface MeasureDef { name: string; label?: string | null; type: string;
 export interface ModelDef {
   name: string; label?: string | null; description?: string | null; connection: string; table?: string | null
   dimensions: DimDef[]; measures: MeasureDef[]
+  /** drill paths: a name, then its dimensions in drilling order (country › region › store) */
+  hierarchies?: Record<string, string[]>
 }
 
 /** One of the table's columns in the editor: in the model or not, as what. */
@@ -36,10 +38,16 @@ export function rowsFor(proposal: ModelDef, saved?: ModelDef): FieldRow[] {
 
 /** The model the rows describe: the count of rows first, then the columns kept (measures name
  *  their column bare: the server quotes it for its connection). */
-export function modelFrom(meta: { name: string; label: string; connection: string; table: string }, rows: FieldRow[], count: MeasureDef): ModelDef {
+export function modelFrom(meta: { name: string; label: string; connection: string; table: string }, rows: FieldRow[], count: MeasureDef,
+  paths: Record<string, string[]> = {}): ModelDef {
   const kept = rows.filter(r => r.include)
+  // a drill path keeps the dimensions still in the model; one left a step short goes
+  const dims = new Set(kept.filter(r => r.role === 'dimension').map(r => r.column))
+  const hierarchies = Object.fromEntries(Object.entries(paths)
+    .map(([h, p]) => [h, p.filter(d => dims.has(d))] as const).filter(([, p]) => p.length >= 2))
   return {
     ...meta,
+    hierarchies,
     dimensions: kept.filter(r => r.role === 'dimension').map(r => ({ name: r.column, label: r.label, type: r.type })),
     measures: [count, ...kept.filter(r => r.role === 'measure')
       .map(r => ({ name: r.column, label: r.label, type: r.type, sql: r.column, format: r.format ?? 'number' }))],

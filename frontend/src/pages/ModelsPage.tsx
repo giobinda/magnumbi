@@ -125,9 +125,10 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
   const save = async () => {
     if (!rows) return
     setError(null); setBusy(true)
-    const m = modelFrom({ name, label, connection, table }, rows, count)
+    const m = modelFrom({ name, label, connection, table }, rows, count, paths)
     try { await api.saveOrgModel(m, true); await api.saveOrgModel(m); onDone() } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
+  const [paths, setPaths] = useState<Record<string, string[]>>(initial?.hierarchies ?? {})
   const set = (i: number, patch: Partial<FieldRow>) => setRows(rs => rs!.map((r, j) => (j === i ? { ...r, ...patch } : r)))
   const nameTaken = !initial && taken.includes(name)
 
@@ -189,6 +190,8 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
           </tbody>
         </table>
         {skipped.length > 0 && <p className="muted small">Left out (names Magnum BI can't use as fields yet): {skipped.join(', ')}.</p>}
+        <DrillPaths paths={paths} onChange={setPaths}
+          dims={rows.filter(r => r.include && r.role === 'dimension').map(r => ({ name: r.column, label: r.label || r.column }))} />
         <div className="row">
           <button onClick={initial ? onCancel : () => setRows(null)}>{initial ? 'Cancel' : 'Back'}</button>
           <button className="primary" disabled={busy || !name || !label.trim() || nameTaken} onClick={save}>{busy ? 'Checking…' : 'Save model'}</button>
@@ -247,5 +250,46 @@ function SharedFormulas() {
         taken={[...model.dimensions.map(d => d.name), ...model.measures.map(m => m.name)]}
         onSave={save} onCancel={() => setEditing(null)} />
     )}
+  </>
+}
+
+/** The model's drill paths: clicking a bar goes one step down (Region, then its stores). Each a name
+ *  and its dimensions in order; one with fewer than two steps isn't saved. */
+function DrillPaths({ paths, onChange, dims }: {
+  paths: Record<string, string[]>; onChange: (p: Record<string, string[]>) => void; dims: { name: string; label: string }[]
+}) {
+  const labelOf = (d: string) => dims.find(x => x.name === d)?.label ?? d
+  const entries = Object.entries(paths)
+  const put = (i: number, name: string, steps: string[]) =>
+    onChange(Object.fromEntries(entries.map(([h, p], j) => (j === i ? [name, steps] : [h, p]))))
+  const add = () => {
+    let n = 1
+    while (paths[`path_${n}`]) n++
+    onChange({ ...paths, [`path_${n}`]: [] })
+  }
+  return <>
+    <div className="steps"><b>4. Drill paths</b> <span className="muted small">optional</span></div>
+    <p className="muted small">Clicking a bar or a slice goes one step down a path: a region, then its stores. A tile drills
+      along the path chosen in its editor (Drill).</p>
+    {entries.map(([h, steps], i) => (
+      <div key={i} className="drill-path row wrap">
+        <input className="mono small" aria-label="Path name" value={h} onChange={e => put(i, slug(e.target.value), steps)} />
+        <span className="drill-steps">
+          {steps.map((d, k) => (
+            <span key={d} className="chip dimension">
+              {k > 0 && <span className="muted">› </span>}{labelOf(d)}
+              <button className="link" title={`Take ${labelOf(d)} out`} onClick={() => put(i, h, steps.filter(x => x !== d))}>×</button>
+            </span>
+          ))}
+        </span>
+        <select value="" aria-label="Next step" onChange={e => e.target.value && put(i, h, [...steps, e.target.value])}>
+          <option value="">{steps.length ? '+ next step' : '+ first step'}</option>
+          {dims.filter(d => !steps.includes(d.name)).map(d => <option key={d.name} value={d.name}>{d.label}</option>)}
+        </select>
+        {steps.length < 2 && <span className="muted small">two steps or more</span>}
+        <button className="link danger" onClick={() => onChange(Object.fromEntries(entries.filter((_, j) => j !== i)))}>Remove</button>
+      </div>
+    ))}
+    <div className="row"><button onClick={add} disabled={dims.length < 2}>+ New drill path</button></div>
   </>
 }

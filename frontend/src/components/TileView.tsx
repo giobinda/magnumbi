@@ -1,3 +1,4 @@
+import { shortLabels } from '../fieldGroups'
 import { tileStats } from '../tileStats'
 import { useMemo, useRef, useState } from 'react'
 import * as echarts from 'echarts'
@@ -33,14 +34,17 @@ type Props = {
 
 export function tileTitle(tile: ChartTile, model?: ModelInfo, columns?: Column[]) {
   if (tile.title) return tile.title
-  if (columns?.length) {  // the server's labels: they know ad-hoc aggregations too
-    const m = columns.filter(c => c.kind === 'measure' && !c.compare).map(c => c.label).join(', ')
-    const d = columns.filter(c => c.kind === 'dimension').map(c => c.label).join(', ')
-    if (m || d) return [m, d].filter(Boolean).join(' by ')
+  // a blend's labels name their model ("NYC taxi trips · Trips"): shortened, as in its field list
+  const say = (ms: string[], ds: string[]) => {
+    const all = model?.blend ? shortLabels([...ms, ...ds]) : [...ms, ...ds]
+    return [all.slice(0, ms.length).join(', '), all.slice(ms.length).join(', ')].filter(Boolean).join(' by ')
   }
-  const m = (tile.query.measures ?? []).map(x => fieldLabel(model, x)).join(', ')
-  const d = (tile.query.dimensions ?? []).map(x => fieldLabel(model, x)).join(', ')
-  return [m, d].filter(Boolean).join(' by ') || tile.id
+  if (columns?.length) {  // the server's labels: they know ad-hoc aggregations too
+    const t = say(columns.filter(c => c.kind === 'measure' && !c.compare).map(c => c.label),
+      columns.filter(c => c.kind === 'dimension').map(c => c.label))
+    if (t) return t
+  }
+  return say((tile.query.measures ?? []).map(x => fieldLabel(model, x)), (tile.query.dimensions ?? []).map(x => fieldLabel(model, x))) || tile.id
 }
 
 export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onQuickEdit, onDelete, actions }: Props) {

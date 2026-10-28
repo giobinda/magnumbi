@@ -45,6 +45,19 @@ pub fn check(m: &Model) -> Result<(), String> {
             return Err(format!("dimension {:?}: a dimension is a column, named by its name (no SQL)", d.name));
         }
     }
+    // drill paths: a name, then two dimensions or more, each once (that they're the model's own is
+    // any model's rule)
+    for (h, path) in &m.hierarchies {
+        if !NAME_RE.is_match(h) {
+            return Err(format!("drill path {h:?}: name it with letters, digits and underscores"));
+        }
+        if path.len() < 2 {
+            return Err(format!("drill path {h:?}: give it two dimensions or more, in drilling order"));
+        }
+        if let Some(twice) = path.iter().enumerate().find(|(i, d)| path[..*i].contains(d)).map(|(_, d)| d) {
+            return Err(format!("drill path {h:?}: {twice:?} is in it twice"));
+        }
+    }
     for x in &m.measures {
         if !MEASURE_KINDS.contains(&x.kind.as_str()) {
             return Err(format!("measure {:?}: use count, count_distinct, sum, avg, min or max", x.name));

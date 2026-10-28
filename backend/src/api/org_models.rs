@@ -256,6 +256,42 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn models_made_in_the_app_have_drill_paths() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let name = format!("drill_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let proposal = format!("/api/connections/warehouse/tables/sample_sales/model?name={name}");
+        let (_, p, _) = send(&app, c, &org, "GET", &proposal, None, None).await;
+        let mut model = p["model"].clone();
+        let dims: Vec<String> =
+            model["dimensions"].as_array().unwrap().iter().map(|d| d["name"].as_str().unwrap().to_string()).collect();
+        let (a, b) = (dims[0].clone(), dims[1].clone());
+        let path = format!("/api/org-models/{name}");
+        // what's refused: unknown dimensions, a name that isn't one, one step, a step twice
+        for (paths, says) in [
+            (json!({"place": [a, "nope"]}), "nope"),
+            (json!({"a place": [a, b]}), "a place"),
+            (json!({"place": [a]}), "two"),
+            (json!({"place": [a, a]}), "twice"),
+        ] {
+            model["hierarchies"] = paths.clone();
+            let (s, r, _) = send(&app, c, &org, "PUT", &path, Some(model.clone()), None).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "{paths} -> {r}");
+            assert!(r["detail"].as_str().unwrap().contains(says), "{paths} -> {r}");
+        }
+        // saved: the model has it, for tiles to drill along
+        model["hierarchies"] = json!({"place": [a, b]});
+        let (s, r, _) = send(&app, c, &org, "PUT", &path, Some(model.clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{r}");
+        let (_, models, _) = send(&app, c, &org, "GET", "/api/models", None, None).await;
+        let mine = models["models"].as_array().unwrap().iter().find(|m| m["name"] == json!(name)).cloned().unwrap();
+        assert_eq!(mine["hierarchies"], json!({"place": [a, b]}), "{mine}");
+        let (_, list, _) = send(&app, c, &org, "GET", "/api/org-models", None, None).await;
+        assert_eq!(list["models"][0]["model"]["hierarchies"], json!({"place": [a, b]}), "kept for editing: {list}");
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
     async fn system_owners_make_the_platforms_models_in_the_app() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
         let c = Some(cookie.as_str());
