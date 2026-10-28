@@ -2,7 +2,8 @@
 #   a tag vX.Y.Z -> built and attached to that tag's GitHub release (made if there isn't one)
 #   run by hand  -> built and kept as the run's artifacts, to try before a release
 # Linux: .deb and .rpm (built on the oldest supported Ubuntu, for an old enough glibc);
-# macOS: a .dmg for both chips; Windows: a .zip with the .exe; and their SHA256SUMS.
+# macOS: a .dmg for both chips; Windows: a .zip with the .exe; and their SHA256SUMS. The files are
+# named without the version, so releases/latest/download/<file> (README, website) is the newest.
 # packaging/ has the scripts.
 name: desktop
 
@@ -82,7 +83,7 @@ jobs:
           cargo build --release --locked --features desktop
           New-Item -ItemType Directory -Force target/packages, target/zip | Out-Null
           Copy-Item target/release/magnum-bi.exe, LICENSE target/zip/
-          Compress-Archive -Path target/zip/* -DestinationPath "target/packages/magnum-bi-$env:VERSION-windows-x64.zip"
+          Compress-Archive -Path target/zip/* -DestinationPath "target/packages/magnum-bi-windows-x64.zip"
 
       - uses: actions/upload-artifact@v4
         with:

@@ -1,6 +1,7 @@
 #!/bin/sh
 # The desktop app's Linux packages (.deb where dpkg-deb is, .rpm where rpmbuild is), from a
-# desktop build, into target/packages:
+# desktop build, into target/packages (named without the version: the website links to the latest
+# release's files by name):
 #   cargo build --release --features desktop && packaging/linux.sh 0.1.6
 # The window needs WebKitGTK 4.1 from the system; OpenSSL is built in.
 set -eu
@@ -36,7 +37,7 @@ Homepage: https://giobinda.github.io/magnumbi/
 Description: semantic models and dashboards, on this computer
  Magnum BI lite in a window of its own, with its own PostgreSQL.
 EOF
-    dpkg-deb --root-owner-group --build "$work/deb" "$out/magnum-bi_${version}_$arch.deb"
+    dpkg-deb --root-owner-group --build "$work/deb" "$out/magnum-bi-linux-$arch.deb"
 fi
 
 if command -v rpmbuild >/dev/null; then
@@ -65,6 +66,6 @@ cp -a $work/rpm/. %{buildroot}/
 %license /usr/share/licenses/magnum-bi/LICENSE
 EOF
     rpmbuild -bb --quiet --define "_topdir $work/rpmbuild" --define "_rpmdir $out" \
-        --define '_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm' "$work/magnum-bi.spec"
+        --define '_build_name_fmt magnum-bi-linux-%%{ARCH}.rpm' "$work/magnum-bi.spec"
 fi
 ls "$out"

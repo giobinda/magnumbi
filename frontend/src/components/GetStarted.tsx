@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { api } from '../api'
+import { SKIPPABLE, shownSteps } from '../getStarted'
 import { SHOW_ME } from '../tour'
 import DemoCard from './DemoCard'
 import { useTour } from './Tour'
@@ -9,6 +10,11 @@ import type { SetupStep } from '../api'
 /** The website, where the how-to guides are. */
 export const SITE = 'https://giobinda.github.io/magnumbi/'
 const HIDE_KEY = 'magnum.get-started.hidden'
+const SKIP_KEY = 'magnum.get-started.skipped'
+
+const readSkipped = (): string[] => {
+  try { return JSON.parse(localStorage.getItem(SKIP_KEY) ?? '[]') as string[] } catch { return [] }
+}
 
 /** "Get started": what's left to set up, for the platform's owners or the organisation's
  *  admins, each step linked to where it's done and to its guide. Shown until the required steps
@@ -18,11 +24,17 @@ export default function GetStarted() {
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(HIDE_KEY) === '1' } catch { return false } })
   const { start } = useTour()
   const [demo, setDemo] = useState(false)
+  const [skipped, setSkipped] = useState(readSkipped)
   useEffect(() => { api.setup().then(setData, () => setData(null)) }, [])
   if (!data?.for || !data.steps.length) return null
   const required = data.steps.filter(s => !s.optional)
   const done = required.filter(s => s.done).length
   if (done === required.length || hidden) return null
+  const skip = (id: string) => {
+    const next = [...skipped, id]
+    setSkipped(next)
+    try { localStorage.setItem(SKIP_KEY, JSON.stringify(next)) } catch { /* private mode */ }
+  }
   const hide = () => { setHidden(true); try { localStorage.setItem(HIDE_KEY, '1') } catch { /* private mode */ } }
   const guide = data.for === 'platform' ? 'guides/platform-owner.html' : 'guides/org-admin.html'
   return (
@@ -36,7 +48,7 @@ export default function GetStarted() {
       </div>
       <div className="progress"><i style={{ width: `${(done / required.length) * 100}%` }} /></div>
       <ol className="steps-list">
-        {data.steps.map(s => (
+        {shownSteps(data.steps, skipped).map(s => (
           <li key={s.id} className={s.done ? 'done' : ''}>
             <span className="tick">{s.done ? '✓' : ''}</span>
             <div className="grow">
@@ -47,6 +59,7 @@ export default function GetStarted() {
             {/* the sample data is set up right here */}
             {!s.done && s.id === 'demo' && <button className="small" onClick={() => setDemo(!demo)}>{demo ? 'Close' : 'Set up'}</button>}
             {!s.done && s.id !== 'demo' && <Link className="btn small" to={s.link}>Go</Link>}
+            {!s.done && SKIPPABLE.includes(s.id) && <button className="link small" onClick={() => skip(s.id)}>Skip</button>}
             <a className="small" href={SITE + s.guide} target="_blank" rel="noreferrer">How ↗</a>
             {s.id === 'demo' && demo && <div className="step-demo"><DemoCard /></div>}
           </li>

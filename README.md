@@ -68,6 +68,27 @@ reviewed like code, next to what analysts build in the browser.
 **Quick to install, free to keep.** One small Docker image: `docker compose up` on a laptop, or
 the Helm chart on Kubernetes (see [Deploying](#deploying)). It's open source under the AGPL-3.0.
 
+## Magnum BI lite: just you, on your computer
+
+The same Magnum BI for one person, as an app: no server, no Docker, no accounts. It runs on your
+computer with its own database, opens in a window of its own, and answers only there. Connect a
+database or open CSV and Parquet files, then build models and dashboards as usual, or start with
+the sample data (New York taxi trips with the weather), one click away in *Get started*.
+
+| | Download |
+|---|---|
+| macOS (Apple Silicon and Intel) | [magnum-bi-macos.dmg](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-macos.dmg) |
+| Windows 10 and 11 | [magnum-bi-windows-x64.zip](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-windows-x64.zip) |
+| Linux: Debian, Ubuntu | [magnum-bi-linux-amd64.deb](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-amd64.deb) |
+| Linux: Fedora, openSUSE | [magnum-bi-linux-x86_64.rpm](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-x86_64.rpm) |
+
+Each [release](https://github.com/giobinda/magnumbi/releases) also lists their `SHA256SUMS`. The
+apps aren't signed, so macOS and Windows ask the first time you open one: on macOS, *System
+Settings › Privacy & Security › Open Anyway*; on Windows, *More info › Run anyway*
+([details](https://giobinda.github.io/magnumbi/docs.html#desktop-app)). Everything it keeps is in
+`~/.magnum-bi`. Lite has no organisations, members or sign-in (an optional PIN locks it), and no
+public or guest links: for a team, run the server.
+
 ## For developers
 
 Semantic models and dashboards as YAML, queries on [ScramDB](https://scramdb.com) and other
@@ -107,20 +128,9 @@ folder isn't encrypted, so disk encryption is what protects it at rest. Options:
 `--no-open`. Lite and the desktop window come in addition to the server, which is unchanged and
 runs on ScramDB.
 
-**The desktop app, ready to install**: each release on GitHub has a `.dmg` (macOS, both chips), a
-`.zip` (Windows) and a `.deb` / `.rpm` (Linux, needing WebKitGTK 4.1), built by
+**The desktop app** is lite in a window, ready to install: see
+[Magnum BI lite](#magnum-bi-lite-just-you-on-your-computer) for the downloads. It's built by
 `.github/workflows/desktop.yml` with the scripts in `packaging/` (the UI is built into the program).
-They aren't signed, so macOS and Windows ask the first time: on macOS, *System Settings › Privacy
-& Security › Open Anyway*; on Windows, *More info › Run anyway*
-([details](https://giobinda.github.io/magnumbi/docs.html)). Each release lists their `SHA256SUMS`.
-To try organisations: create one on **Settings › Organisations** (e.g. `acme`), then give it its own
-ScramDB with `make org-db ORG=acme PORT=55433` (or **Database › Set…** on that page).
-For one process serving the API and the built UI on :8000, run `make serve`. Run `make test`
-for the backend tests, the frontend typecheck and the frontend tests (Vitest) (`make test-db` also runs the tests that need
-ScramDB and, with `MAGNUM_TEST_POSTGRES_URL`, a real PostgreSQL), and `make check` to validate the project files.
-`make test-db` includes an attack suite that misuses the API as every kind of caller (other
-roles and organisations, read-only tokens, hostile input, planted secrets, row filters on every
-path to data); `make e2e-attack` opens hostile dashboards in a real browser (local only).
 
 **How-to guides** on the website: [infrastructure](https://giobinda.github.io/magnumbi/guides/infrastructure.html), [platform owner](https://giobinda.github.io/magnumbi/guides/platform-owner.html), [Org admin](https://giobinda.github.io/magnumbi/guides/org-admin.html).
 
