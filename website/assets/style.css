@@ -99,6 +99,18 @@ code, pre, kbd { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Me
 .icon-btn:hover { color: var(--text); border-color: var(--text-muted); }
 .menu-btn { display: none; margin-left: auto; }
 
+/* after downloading the macOS app: how to open an unsigned app */
+.download-note {
+  position: fixed; right: 16px; bottom: 16px; z-index: 50; max-width: 420px;
+  background: var(--surface); border: 1px solid var(--border); border-left: 4px solid var(--accent);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: 16px 48px 16px 18px; font-size: .92rem;
+}
+.download-note p { margin: 8px 0 0; color: var(--text-muted); }
+.download-note code { display: block; margin-top: 6px; padding: 6px 8px; white-space: nowrap; overflow-x: auto; }
+.download-note > a { display: inline-block; margin-top: 10px; }
+.download-note .icon-btn { position: absolute; top: 10px; right: 10px; width: 30px; height: 30px; }
+@media (max-width: 480px) { .download-note { left: 16px; max-width: none; } }
+
 /* the Download menu in the top bar: desktop app, server, source */
 .download-menu { position: relative; }
 .download-menu summary { list-style: none; cursor: pointer; }
