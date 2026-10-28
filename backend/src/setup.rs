@@ -142,6 +142,8 @@ pub struct OrgFacts {
     pub sign_in: bool,
     /// its own mail server or webhooks
     pub delivery: bool,
+    /// an AI agent has used it over MCP (usage: mcp_tool)
+    pub agent: bool,
 }
 
 pub fn org_steps(f: &OrgFacts) -> Vec<Step> {
@@ -203,6 +205,16 @@ pub fn org_steps(f: &OrgFacts) -> Vec<Step> {
             "Your own mail server, or Slack and Teams webhooks, for reports and alerts.".into(),
             "/delivery",
             "guides/org-admin.html#delivery",
+        )),
+        optional(step(
+            "agent",
+            "Connect your AI agent",
+            f.agent,
+            "Claude, Codex or Cursor explore your data and build dashboards for you, through MCP: pick yours for \
+             the settings to paste."
+                .into(),
+            "/security",
+            "docs.html#agents",
         )),
     ]
 }
@@ -266,6 +278,7 @@ mod tests {
             themed: false,
             sign_in: false,
             delivery: false,
+            agent: false,
         };
         let steps = org_steps(&fresh);
         assert_eq!(
@@ -277,12 +290,13 @@ mod tests {
                 ("members", false),
                 ("theme", false),
                 ("sign_in", false),
-                ("delivery", false)
+                ("delivery", false),
+                ("agent", false)
             ]
         );
         assert_eq!(
             steps.iter().filter(|s| s.optional).map(|s| s.id).collect::<Vec<_>>(),
-            ["theme", "sign_in", "delivery"]
+            ["theme", "sign_in", "delivery", "agent"]
         );
         let busy = OrgFacts {
             connections: 1,
@@ -292,6 +306,7 @@ mod tests {
             themed: true,
             sign_in: true,
             delivery: true,
+            agent: true,
         };
         assert!(org_steps(&busy).iter().all(|s| s.done));
     }

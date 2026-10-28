@@ -97,6 +97,12 @@ pub struct DuckDb {
     pub s3_endpoint: Option<String>,
     #[serde(default = "minute")]
     pub statement_timeout_ms: u64,
+    /// an uploaded file's name (api/files.rs): its tables are its sheets, kept in files/<connection>/
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub file: Option<String>,
+    /// a Google Sheet shared with anyone with the link, by its id: its tabs, refreshed hourly
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub google_sheet: Option<String>,
 }
 
 fn pg_port() -> u16 {

@@ -72,6 +72,7 @@ async fn workspace_steps(
         themed: !themes.themes.is_empty() || themes.default_light.is_some() || themes.default_dark.is_some(),
         sign_in: members.sign_in.is_some(),
         delivery: has_delivery(&store, &org).await?,
+        agent: crate::usage::happened(&state.store, &org, "mcp_tool").await?,
     };
     Ok(org_steps(&facts).iter().map(|s| json!(s)).collect())
 }

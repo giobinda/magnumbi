@@ -33,6 +33,7 @@ mod ui {
 }
 mod error;
 mod export;
+mod files;
 mod formula;
 mod governance;
 mod lineage;
@@ -435,6 +436,17 @@ async fn serve_until(
         loop {
             every.tick().await;
             api::tidy_caches(&caches).await;
+        }
+    });
+    // Google Sheets: read again every hour (the first round an hour after starting)
+    let sheets = state.clone();
+    tokio::spawn(async move {
+        let hour = std::time::Duration::from_secs(3600);
+        let mut every = tokio::time::interval_at(tokio::time::Instant::now() + hour, hour);
+        every.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        loop {
+            every.tick().await;
+            api::files::refresh_sheets(&sheets).await;
         }
     });
     let app = api::router(state).into_make_service_with_connect_info::<std::net::SocketAddr>();

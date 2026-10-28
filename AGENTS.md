@@ -39,6 +39,11 @@ organisation owns.
     drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or
     lower, the maker's row filters plus the link's).
 
+  - files and Google Sheets (`api/files.rs`, `files.rs`): the upload is the only route allowed past
+    the 1 MB body limit, up to `MAGNUM_UPLOAD_MAX_MB` (`security::is_upload`); a workbook's unpacked
+    size is capped before it's read (zip bombs); its tables are written only into the workspace's own
+    folder, under a checked connection name; a sheet is fetched only from Google, by its id (never a
+    given address), following redirects to Google's hosts only;
   - lite (`lite.rs`): no sign-in, so it must stay unreachable from anywhere else: it listens on
     loopback only, answers only requests addressed to localhost, and is switched on by
     `magnum-bi lite` only (never by a setting); its folder (database, its password, the secret key)

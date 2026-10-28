@@ -9,6 +9,7 @@ mod connections;
 mod dashboards;
 pub(crate) mod delivery;
 mod exports;
+pub(crate) mod files;
 mod formulas;
 pub(crate) mod governance;
 mod guest;
@@ -159,6 +160,13 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections", get(connections::list))
         .route("/api/connections/{name}", axum::routing::put(connections::save).delete(connections::delete))
         .route("/api/connections/{name}/test", post(connections::test))
+        // the only route taking more than the general body limit (security::is_upload)
+        .route(
+            "/api/connections/{name}/file",
+            post(files::upload).layer(axum::extract::DefaultBodyLimit::max(state.config.upload_max_bytes)),
+        )
+        .route("/api/connections/{name}/sheet", post(files::sheet))
+        .route("/api/connections/{name}/refresh", post(files::refresh))
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
         .route("/api/chat", get(chat::list).post(chat::ask))
@@ -572,7 +580,7 @@ pub mod tests {
         Some((app, state))
     }
 
-    async fn app_configured(
+    pub async fn app_configured(
         project: &str,
         tweak: impl FnOnce(&mut crate::config::Config),
     ) -> Option<(axum::Router, Arc<AppState>, String)> {

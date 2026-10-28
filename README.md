@@ -345,6 +345,17 @@ downloaded once into `MAGNUM_DUCKDB_DIR/_extensions` (or pre-installed there; se
 `MAGNUM_DUCKDB_INSTALL_EXTENSIONS=0` to forbid downloads). This DuckDB build has no ICU
 extension, so `time` columns are handled as UTC timestamps.
 
+**Spreadsheets, CSV files and Google Sheets.** On **Data › Connections**, **+ Add a file** takes an
+Excel workbook (`.xlsx`, `.xls`), an OpenDocument one (`.ods`) or a CSV, and **+ Add a Google Sheet**
+a sheet shared with anyone with the link. Each becomes a DuckDB connection with a table per sheet
+(or tab), kept as CSV files in the workspace's own folder (`files/<connection>/`), so models, the
+sandbox and everything else work as for any DuckDB connection. A file is a copy: **Replace** it with
+a new version. A Google Sheet is read again every hour, or with **Refresh**; confidential data
+belongs in a file, since a link-shared sheet is readable by anyone with its link. Uploads are up to
+`MAGNUM_UPLOAD_MAX_MB` (100 by default; 2 GB in lite). As code: `POST /api/connections/{name}/file?filename=Sales.xlsx`
+with the file as the body (`?dry_run=1` reads it and lists its tables), `POST
+/api/connections/{name}/sheet` with `{"link": "…"}`, `POST /api/connections/{name}/refresh`.
+
 `make seed` gives the platform workspace a `warehouse` connection to the sample; organisations
 add their own.
 
@@ -742,11 +753,14 @@ comes with the chart it's based on. It uses the organisation's own AI provider, 
 admins (`/api/chat/settings`: an OpenAI-compatible API or Anthropic, the model, the key sealed per
 organisation): Magnum BI includes no AI. The chat uses MCP's tools as the person asking
 (`api/chat.rs`, `chat.rs`): their role and data restrictions apply, admin tools stay out, and
-changes (dashboards, blends, reports, alerts, formulas) are checked and shown as proposals, made
-only when the person confirms (`POST /api/chat/{id}/proposals/{proposal}`). The provider sees at
+changes (dashboards, blends, reports, alerts, formulas, the catalog's documentation and glossary)
+are checked and shown as proposals, made only when the person confirms (`POST /api/chat/{id}/proposals/{proposal}`). The provider sees at
 most `rows_to_model` rows of a result (200 by default), never SQL, and with `keep_sensitive` (the
 default) no values of fields tagged pii, personal, confidential or restricted. A monthly limit
 per organisation; each person may start on the chat or on dashboards (`PUT /api/chat/home`).
+Ask it to document a model ("fill the catalog for orders") and it looks at the model and a few of
+its values, then proposes descriptions, other names, example values and tags for it and its
+fields (MCP `save_docs`), and glossary terms (`save_term`), for its stewards to confirm.
 
 ## Themes and company colours
 

@@ -121,6 +121,35 @@ terms, tags) or description: to find the right measure for a question.",
             description: "The organisation's business terms: definitions, synonyms, and the fields (model.field) that implement each.",
         },
         Tool {
+            name: "save_docs",
+            perm: "view",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"model": {"type": "string"},
+                "docs": {"type": "object", "description": "{description?, tags?: [..], fields?: {<field>: {description?, synonyms?: [..], examples?: [..], tags?: [..]}}}"},
+                "dry_run": {"type": "boolean"}}),
+                    &["model", "docs"],
+                )
+            },
+            description: "Document a model for the data catalog: what it and its fields mean, other words people use, \
+example values, classification tags (pii, finance...: information, no access rule). It replaces the model's \
+documentation: read it first (get_catalog) and send it whole. The model's stewards, owner or an Org admin.",
+        },
+        Tool {
+            name: "save_term",
+            perm: "view",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"term": {"type": "object", "description": "{name, definition, synonyms?: [..]}"},
+                "dry_run": {"type": "boolean"}}),
+                    &["term"],
+                )
+            },
+            description: "Add a business term to the glossary, or change one: its definition and other words for it.",
+        },
+        Tool {
             name: "run_query",
             perm: "explore",
             writes: false,
@@ -504,7 +533,8 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
 }
 
 /// The writing tools that check without saving when given `dry_run: true`.
-pub(crate) const DRY_RUNS: [&str; 4] = ["save_blend", "save_members", "create_report", "save_formula"];
+pub(crate) const DRY_RUNS: [&str; 6] =
+    ["save_blend", "save_members", "create_report", "save_formula", "save_docs", "save_term"];
 
 /// A tool run as `tools/call` runs it: Ok(what the API answered), or its error as text.
 async fn run_tool(state: &Shared, caller: &std::sync::Arc<Caller>, tool: &Tool, args: Value) -> Result<Value, String> {
@@ -582,6 +612,16 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
         "list_models" => models::list(s(), a()).await?,
         "describe_model" => models::get_model(s(), a(), Path(arg(&args, "name")?)).await?,
         "get_glossary" => super::governance::glossary(s(), a()).await?,
+        "save_docs" => {
+            let d: crate::governance::ModelDocs = arg(&args, "docs")?;
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            super::governance::save_docs(s(), a(), Path(arg(&args, "model")?), p, Body(d)).await?
+        }
+        "save_term" => {
+            let t: crate::governance::Term = arg(&args, "term")?;
+            let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
+            super::governance::save_term(s(), a(), Path(t.name.clone()), p, Body(t)).await?
+        }
         "search_catalog" => {
             let q = arg::<String>(&args, "q")?;
             super::governance::search(s(), a(), UrlQuery(super::governance::SearchParams::of(q))).await?

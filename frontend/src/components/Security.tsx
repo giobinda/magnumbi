@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
 import type { ApiToken, PasskeyInfo } from '../api'
+import AgentSetup from './AgentSetup'
 import { Brand, ChangePasswordCard, useAuth } from '../auth'
 import { createPasskey, passkeysSupported } from '../webauthn'
 
@@ -159,6 +160,11 @@ export function SecurityCard({ onClose }: { onClose: () => void }) {
         )}
         </>}
         <ApiTokens />
+        <section>
+          <h3>Connect an AI agent</h3>
+          <p className="muted small">Claude, Codex or Cursor explore your data and build dashboards for you, through MCP.</p>
+          <AgentSetup />
+        </section>
         <button type="button" className="primary" onClick={onClose}>Close</button>
       </div>
     </div>

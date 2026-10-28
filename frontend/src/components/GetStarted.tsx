@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom'
 import { api } from '../api'
 import { SKIPPABLE, cardShown, shownSteps } from '../getStarted'
 import { SHOW_ME } from '../tour'
+import AgentSetup from './AgentSetup'
 import DemoCard from './DemoCard'
 import { useTour } from './Tour'
 import type { SetupStep } from '../api'
@@ -11,6 +12,7 @@ import type { SetupStep } from '../api'
 export const SITE = 'https://giobinda.github.io/magnumbi/'
 const HIDE_KEY = 'magnum.get-started.hidden'
 const SKIP_KEY = 'magnum.get-started.skipped'
+const INLINE = ['demo', 'agent']
 
 const readSkipped = (): string[] => {
   try { return JSON.parse(localStorage.getItem(SKIP_KEY) ?? '[]') as string[] } catch { return [] }
@@ -23,7 +25,9 @@ export default function GetStarted() {
   const [data, setData] = useState<{ for: string | null; steps: SetupStep[] } | null>(null)
   const [hidden, setHidden] = useState(() => { try { return localStorage.getItem(HIDE_KEY) === '1' } catch { return false } })
   const { start } = useTour()
-  const [demo, setDemo] = useState(false)
+  // the step set up right in the list (the sample data, an AI agent), if one is open
+  const [open, setOpen] = useState<string | null>(null)
+  const demo = open === 'demo'
   const [skipped, setSkipped] = useState(readSkipped)
   const reload = useCallback(() => { api.setup().then(setData, () => setData(null)) }, [])
   useEffect(() => {
@@ -62,12 +66,13 @@ export default function GetStarted() {
               <div className="muted small">{s.detail}</div>
             </div>
             {!s.done && SHOW_ME[s.id] && <button className="small" onClick={() => start(SHOW_ME[s.id])}>Show me</button>}
-            {/* the sample data is set up right here */}
-            {!s.done && s.id === 'demo' && <button className="small" onClick={() => setDemo(!demo)}>{demo ? 'Close' : 'Set up'}</button>}
-            {!s.done && s.id !== 'demo' && <Link className="btn small" to={s.link}>Go</Link>}
+            {/* the sample data and an AI agent are set up right here */}
+            {!s.done && INLINE.includes(s.id) && <button className="small" onClick={() => setOpen(open === s.id ? null : s.id)}>{open === s.id ? 'Close' : 'Set up'}</button>}
+            {!s.done && !INLINE.includes(s.id) && <Link className="btn small" to={s.link}>Go</Link>}
             {!s.done && SKIPPABLE.includes(s.id) && <button className="link small" onClick={() => skip(s.id)}>Skip</button>}
             <a className="small" href={SITE + s.guide} target="_blank" rel="noreferrer">How ↗</a>
             {s.id === 'demo' && demo && <div className="step-demo"><DemoCard months={1} onDone={reload} /></div>}
+            {s.id === 'agent' && open === 'agent' && <div className="step-demo card"><AgentSetup /></div>}
           </li>
         ))}
       </ol>

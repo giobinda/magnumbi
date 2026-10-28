@@ -7,13 +7,30 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Spreadsheets, CSV files and Google Sheets as data** (Data › Connections, desktop and server):
+  **+ Add a file** takes an Excel workbook (.xlsx, .xls), an OpenDocument one (.ods) or a CSV,
+  copied into the workspace, a table per sheet (Replace puts in a new version); **+ Add a Google
+  Sheet** takes a sheet shared with anyone with the link, a table per tab, read again every hour or
+  with Refresh. Either is a DuckDB connection, so the model wizard proposes a model from its columns
+  (dates, numbers and text recognised). Up to `MAGNUM_UPLOAD_MAX_MB` (100 MB; 2 GB in lite). As
+  code: `POST /api/connections/{name}/file|sheet|refresh`.
+- **The chat fills the data catalog**: ask it to document a model and it looks at the model and a
+  few of its values, then proposes descriptions, other names, example values and tags for it and its
+  fields, and glossary terms, made once confirmed (MCP tools `save_docs` and `save_term`).
 - **The first start shows its download**: lite downloads its PostgreSQL (about 37 MB) with a
   progress bar in the desktop window ("Downloading PostgreSQL: 14 of 37 MB", then "Setting up its
   database…") and a line that keeps up in the terminal. The archive is checked against its
   published SHA-256, and extracted aside first, so a cut-off download never looks installed.
+- **Connect your AI agent, in Get started and under API tokens**: pick Claude Code, Claude Desktop,
+  Codex or Cursor and copy its MCP settings, with this app's address filled in (and the API token,
+  where one is needed: on a server, or in lite with a PIN). The step ticks once an agent has used
+  a tool; it can be skipped.
 
 ### Security
 
+- **Uploads are the one route past the 1 MB request limit**, up to their own limit; a workbook's
+  unpacked size is capped before it's read (a small file can unpack to gigabytes), and a Google Sheet
+  is fetched only from Google, by its id, never from an address given.
 - **Lite's folder is its owner's only.** The PostgreSQL library wrote the database's password to
   `.pgpass` readable by everyone, in a folder others could enter: another account on the same
   computer could have opened lite's database. Lite now makes its folder `0700` and `.pgpass`
@@ -21,6 +38,8 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Fixed
 
+- The chat's instructions to the AI provider had stray `\n` and `\` characters in them (a doubled
+  escape): plain text now.
 - **Lite starts offline.** It asked GitHub for the newest PostgreSQL 16 on every start, so it
   couldn't start without a network (or once GitHub's limit for unsigned requests was reached); it
   uses the one installed now, and asks only the first time.
