@@ -28,6 +28,8 @@ deadpool-postgres = "0.14"
 # 0.22.0 (2026-10-21) is under two weeks old: an exception the owner chose on 2026-10-27, since
 # 0.21 drops the archive's hard links (PostgreSQL then lacks the UTC time zone and won't connect)
 postgresql_embedded = { version = "=0.22.0", default-features = false, features = ["theseus", "tokio", "tls-rustls-ring"] }
+# its archive: lite downloads it itself, to show the progress (same version and features: nothing new)
+postgresql_archive = { version = "=0.22.0", default-features = false, features = ["theseus", "tls-rustls-ring"] }
 # the desktop window on lite (desktop.rs), only with --features desktop: never in the server's build
 tao = { version = "=0.37.1", optional = true }
 wry = { version = "=0.57.0", optional = true }

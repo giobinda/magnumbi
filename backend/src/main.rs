@@ -238,7 +238,14 @@ async fn run(cli: Cli) -> Result<()> {
                 lite::open_browser(address);
             }
         };
-        return lite(port, dir, open, shutdown()).await;
+        // the first start's download, on one line that keeps up
+        let progress = |done: u64, total: u64| {
+            eprint!("\r{}", lite::downloading(done, total));
+            if done == total {
+                eprintln!();
+            }
+        };
+        return lite(port, dir, open, progress, shutdown()).await;
     }
     let config = Config::from_env()?;
     match cli.command.unwrap_or(Command::Serve) {
@@ -622,11 +629,12 @@ async fn lite(
     port: Option<u16>,
     dir: std::path::PathBuf,
     ready: impl FnOnce(&str),
+    progress: impl Fn(u64, u64) + Sync,
     stop: impl Future<Output = ()> + Send + 'static,
 ) -> Result<()> {
     let port = lite::port(&dir, port)?;
     println!("Starting Magnum BI lite in {} (the first start downloads PostgreSQL)…", dir.display());
-    let (database, url) = lite::database(&dir).await.context("starting its PostgreSQL")?;
+    let (database, url) = lite::database(&dir, &progress).await.context("starting its PostgreSQL")?;
     let config = lite::config(&dir, &url, port, |k| std::env::var(k).ok())?;
     std::fs::create_dir_all(&config.project_dir)?;
     let address = format!("http://localhost:{port}");

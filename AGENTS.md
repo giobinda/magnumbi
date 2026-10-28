@@ -41,7 +41,8 @@ organisation owns.
 
   - lite (`lite.rs`): no sign-in, so it must stay unreachable from anywhere else: it listens on
     loopback only, answers only requests addressed to localhost, and is switched on by
-    `magnum-bi lite` only (never by a setting); the online version keeps every check.
+    `magnum-bi lite` only (never by a setting); its folder (database, its password, the secret key)
+    is its owner's only; the online version keeps every check.
 
   If a change needs to touch one, say so explicitly.
 - **Match the surrounding code:** short doc comments that say why, plain English in

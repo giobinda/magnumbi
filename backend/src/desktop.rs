@@ -15,6 +15,8 @@ use wry::{NewWindowResponse, WebContext, WebView, WebViewBuilder};
 enum Up {
     /// lite is listening at this address
     Ready(String),
+    /// the first start's download of its PostgreSQL: bytes so far, of the total (0: not known)
+    Downloading(u64, u64),
     /// it couldn't start, or stopped with this error
     Failed(String),
     /// it stopped (asked to from outside: Ctrl+C, logging out): the window goes too
@@ -25,9 +27,31 @@ enum Up {
 const ICON: &[u8] = include_bytes!("../../packaging/icon-64.rgba");
 
 const STARTING: &str = r#"<!doctype html><meta charset="utf-8"><title>Magnum BI</title>
-<body style="font:16px system-ui,sans-serif;display:grid;place-items:center;height:90vh;color:#444">
-<div style="text-align:center"><h1 style="font-weight:600">Magnum BI</h1>
-<p>Starting… The first time, it also downloads its PostgreSQL (about 30 MB).</p></div>"#;
+<style>
+  :root { color-scheme: light dark; --text: #444; --track: #eee; --bar: #c8102e; }
+  @media (prefers-color-scheme: dark) { :root { --text: #ddd; --track: #333; --bar: #ff6b6b; } }
+  body { font: 16px system-ui, sans-serif; display: grid; place-items: center; height: 90vh; margin: 0; color: var(--text); }
+  main { text-align: center; width: min(420px, 85vw); }
+  h1 { font-weight: 600; }
+  progress { width: 100%; height: 10px; appearance: none; border: 0; border-radius: 5px; background: var(--track); }
+  progress::-webkit-progress-bar { background: var(--track); border-radius: 5px; }
+  progress::-webkit-progress-value { background: var(--bar); border-radius: 5px; }
+  progress::-moz-progress-bar { background: var(--bar); border-radius: 5px; }
+  [hidden] { display: none; }
+</style>
+<main><h1>Magnum BI</h1>
+<p id="what">Starting…</p>
+<progress id="bar" max="1" value="0" hidden></progress></main>
+<script>
+  // the first start's download of its PostgreSQL (desktop.rs: Up::Downloading)
+  function progress(done, total, text) {
+    const bar = document.getElementById('bar');
+    bar.hidden = false;
+    if (total > 0) { bar.max = total; bar.value = done; } else { bar.removeAttribute('value'); }
+    document.getElementById('what').textContent =
+      total > 0 && done >= total ? 'Setting up its database…' : text;
+  }
+</script>"#;
 
 /// `magnum-bi desktop`: lite, in a window, until the window closes.
 pub fn run(dir: PathBuf) -> anyhow::Result<()> {
@@ -54,6 +78,10 @@ pub fn run(dir: PathBuf) -> anyhow::Result<()> {
                 let ready = move |address: &str| {
                     let _ = told.send_event(Up::Ready(address.to_string()));
                 };
+                let going = proxy.clone();
+                let progress = move |done, total| {
+                    let _ = going.send_event(Up::Downloading(done, total));
+                };
                 // the window closing, or the program being asked to stop from outside
                 let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
                 let asked_now = asked.clone();
@@ -68,7 +96,7 @@ pub fn run(dir: PathBuf) -> anyhow::Result<()> {
                     .enable_all()
                     .build()
                     .map_err(anyhow::Error::from)
-                    .and_then(|rt| rt.block_on(crate::lite(Some(port), server_dir, ready, until)));
+                    .and_then(|rt| rt.block_on(crate::lite(Some(port), server_dir, ready, progress, until)));
                 // asked to stop, it goes, whatever went wrong on the way out (a failure page
                 // would keep a window nobody asked for)
                 let asked = asked.load(std::sync::atomic::Ordering::SeqCst);
@@ -122,6 +150,10 @@ pub fn run(dir: PathBuf) -> anyhow::Result<()> {
     event_loop.run(move |event, _, control_flow| {
         *control_flow = ControlFlow::Wait;
         match event {
+            Event::UserEvent(Up::Downloading(done, total)) => {
+                let text = crate::lite::downloading(done, total);
+                let _ = webview.evaluate_script(&format!("progress({done}, {total}, {text:?})"));
+            }
             Event::UserEvent(Up::Ready(address)) => {
                 let _ = webview.load_url(&address);
             }

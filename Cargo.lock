@@ -2723,6 +2723,7 @@ dependencies = [
  "jsonwebtoken",
  "lettre",
  "openssl",
+ "postgresql_archive",
  "postgresql_embedded",
  "qrcode",
  "rand 0.8.8",

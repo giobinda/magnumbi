@@ -3,6 +3,31 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Added
+
+- **The first start shows its download**: lite downloads its PostgreSQL (about 37 MB) with a
+  progress bar in the desktop window ("Downloading PostgreSQL: 14 of 37 MB", then "Setting up its
+  database…") and a line that keeps up in the terminal. The archive is checked against its
+  published SHA-256, and extracted aside first, so a cut-off download never looks installed.
+
+### Security
+
+- **Lite's folder is its owner's only.** The PostgreSQL library wrote the database's password to
+  `.pgpass` readable by everyone, in a folder others could enter: another account on the same
+  computer could have opened lite's database. Lite now makes its folder `0700` and `.pgpass`
+  `0600` on every start, so folders made before (or with `--dir`) are fixed too.
+
+### Fixed
+
+- **Lite starts offline.** It asked GitHub for the newest PostgreSQL 16 on every start, so it
+  couldn't start without a network (or once GitHub's limit for unsigned requests was reached); it
+  uses the one installed now, and asks only the first time.
+- **After the sample data is set up, its models show at once** (Models, Explore, starter
+  dashboards): the app kept the list of models it had read before, until a reload.
+- The website's Terminal command for opening the macOS app is `xattr -d` (`-dr` failed).
+
 ## 0.1.8 (2026-10-28)
 
 ### Changed

@@ -7,6 +7,8 @@
 use axum::http::HeaderMap;
 use axum::response::{IntoResponse, Response};
 
+use anyhow::Context;
+
 use crate::config::Config;
 use crate::store::Store;
 
@@ -124,9 +126,12 @@ pub fn set_pin(dir: &std::path::Path, pin: Option<&str>) -> anyhow::Result<()> {
 }
 
 /// Holds `dir` for this lite until dropped: a second one on the same folder (opened twice) would
-/// fight over its PostgreSQL and its port, so it is told where the first one is instead.
+/// fight over its PostgreSQL and its port, so it is told where the first one is instead. The folder
+/// becomes its owner's only, on every start (one made before, by hand or with --dir, too): it holds
+/// the database, its password and everything shown.
 pub fn lock(dir: &std::path::Path) -> anyhow::Result<std::fs::File> {
     std::fs::create_dir_all(dir)?;
+    owner_only(dir, 0o700)?;
     let file = std::fs::OpenOptions::new().create(true).truncate(false).write(true).open(dir.join("lock"))?;
     match file.try_lock() {
         Ok(()) => Ok(file),
@@ -136,6 +141,19 @@ pub fn lock(dir: &std::path::Path) -> anyhow::Result<std::fs::File> {
         }
         Err(std::fs::TryLockError::Error(e)) => Err(e.into()),
     }
+}
+
+/// Readable (and, for a folder, enterable) by its owner only. Windows: a user's own folders are
+/// theirs already.
+fn owner_only(path: &std::path::Path, mode: u32) -> std::io::Result<()> {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(path, std::fs::Permissions::from_mode(mode))?;
+    }
+    #[cfg(not(unix))]
+    let _ = (path, mode);
+    Ok(())
 }
 
 /// The port lite listens on: the one asked for, else the one it had last time (kept in `dir`:
@@ -176,19 +194,29 @@ pub fn database_password(dir: &std::path::Path) -> anyhow::Result<String> {
 /// Lite's own PostgreSQL in `dir`, started: fetched the first time (version 16, the one Magnum BI
 /// is tested on; a data folder only opens with its own major version), on this computer only.
 /// Returns it (stop it when done) and its address.
-pub async fn database(dir: &std::path::Path) -> anyhow::Result<(postgresql_embedded::PostgreSQL, String)> {
+pub async fn database(
+    dir: &std::path::Path,
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> anyhow::Result<(postgresql_embedded::PostgreSQL, String)> {
+    let version = match installed_version(dir) {
+        Some(v) => v,
+        None => download(dir, progress).await.context("downloading its PostgreSQL")?,
+    };
     let mut s = postgresql_embedded::Settings::new();
-    s.version = postgresql_embedded::VersionReq::parse("=16")?;
-    s.installation_dir = dir.join("postgresql");
+    // exactly the one installed: nothing asked of the network once it's there
+    s.version = postgresql_embedded::VersionReq::parse(&format!("={version}"))?;
+    s.installation_dir = dir.join("postgresql").join(version.to_string());
     s.data_dir = dir.join("data");
     s.password_file = dir.join(".pgpass");
     s.password = database_password(dir)?;
     s.host = "127.0.0.1".into();
     s.temporary = false;
-    s.timeout = Some(std::time::Duration::from_secs(120)); // the first start downloads and sets up
+    s.timeout = Some(std::time::Duration::from_secs(120)); // the first start sets up its data
     s.configuration.insert("listen_addresses".into(), "127.0.0.1".into());
     let mut pg = postgresql_embedded::PostgreSQL::new(s);
     pg.setup().await?;
+    // the library writes the database password to .pgpass readable by everyone
+    owner_only(&dir.join(".pgpass"), 0o600)?;
     // one left running in this folder (the program killed, or crashed) is no other lite's: the
     // folder is locked (`lock`). Stop it, or it holds the data and this start fails.
     if pg.status() == postgresql_embedded::Status::Started {
@@ -201,6 +229,73 @@ pub async fn database(dir: &std::path::Path) -> anyhow::Result<(postgresql_embed
     }
     let url = pg.settings().url("magnum");
     Ok((pg, url))
+}
+
+/// Where its PostgreSQL builds come from (as postgresql_embedded's own).
+const ARCHIVES: &str = postgresql_archive::configuration::theseus::URL;
+
+pub const MB: u64 = 1024 * 1024;
+
+/// The newest PostgreSQL 16 installed in `dir` (a folder per version; `.partial`: still being
+/// extracted, or left half-done).
+fn installed_version(dir: &std::path::Path) -> Option<postgresql_embedded::Version> {
+    std::fs::read_dir(dir.join("postgresql"))
+        .ok()?
+        .filter_map(|e| postgresql_embedded::Version::parse(&e.ok()?.file_name().to_string_lossy()).ok())
+        .filter(|v| v.major == 16 && v.pre.is_empty())
+        .max()
+}
+
+/// The archive of one version, for this computer.
+fn archive_url(version: &postgresql_embedded::Version) -> String {
+    let target = postgresql_archive::matcher::target();
+    format!("{ARCHIVES}/releases/download/{version}/postgresql-{version}-{target}.tar.gz")
+}
+
+/// What the first start shows while it downloads (`total` 0: not known).
+pub fn downloading(done: u64, total: u64) -> String {
+    if total == 0 {
+        format!("Downloading PostgreSQL: {} MB", done / MB)
+    } else {
+        format!("Downloading PostgreSQL: {} of {} MB", done / MB, total / MB)
+    }
+}
+
+/// The first start: the newest PostgreSQL 16, downloaded (telling `progress` the bytes so far and
+/// the total), checked against its published SHA-256, and extracted into `dir`.
+async fn download(
+    dir: &std::path::Path,
+    progress: &(dyn Fn(u64, u64) + Sync),
+) -> anyhow::Result<postgresql_embedded::Version> {
+    use sha2::Digest;
+    let version = postgresql_archive::get_version(ARCHIVES, &postgresql_embedded::VersionReq::parse("=16")?).await?;
+    let url = archive_url(&version);
+    let http = reqwest::Client::new();
+    let mut response = http.get(&url).send().await?.error_for_status()?;
+    let total = response.content_length().unwrap_or(0);
+    let mut bytes = Vec::with_capacity(total as usize);
+    progress(0, total);
+    // told once a megabyte, and at the end: enough for a progress bar
+    let mut told = 0;
+    while let Some(chunk) = response.chunk().await? {
+        bytes.extend_from_slice(&chunk);
+        let done = bytes.len() as u64;
+        if done / MB > told || done == total {
+            told = done / MB;
+            progress(done, total);
+        }
+    }
+    let published = http.get(format!("{url}.sha256")).send().await?.error_for_status()?.text().await?;
+    let published = published.split_whitespace().next().unwrap_or_default().to_ascii_lowercase();
+    let got = format!("{:x}", sha2::Sha256::digest(&bytes));
+    anyhow::ensure!(got == published, "its PostgreSQL archive doesn't match its published SHA-256: try again");
+    // extracted next to where it goes, then moved there: never half there under its own name
+    let installed = dir.join("postgresql").join(version.to_string());
+    let partial = dir.join("postgresql").join(format!("{version}.partial"));
+    let _ = std::fs::remove_dir_all(&partial);
+    postgresql_archive::extract(ARCHIVES, &bytes, &partial).await?;
+    std::fs::rename(&partial, &installed)?;
+    Ok(version)
 }
 
 /// Open the app in the person's browser (best effort: the address is printed too).
@@ -475,6 +570,36 @@ mod tests {
         assert_eq!(r["steps"][0]["optional"], json!(true), "{r}");
     }
 
+    #[test]
+    fn an_installed_postgresql_is_used_without_asking_the_network() {
+        let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
+        assert_eq!(installed_version(&dir), None, "nothing yet: it's downloaded");
+        for d in ["16.4.0", "16.15.1", "16.9.0.partial", "15.8.0", "notes"] {
+            std::fs::create_dir_all(dir.join("postgresql").join(d)).unwrap();
+        }
+        // the newest PostgreSQL 16 there (never one half extracted)
+        assert_eq!(installed_version(&dir), Some(postgresql_embedded::Version::new(16, 15, 1)));
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn its_postgresql_comes_from_the_theseus_builds() {
+        let url = archive_url(&postgresql_embedded::Version::new(16, 15, 1));
+        let target = postgresql_archive::matcher::target();
+        assert_eq!(
+            url,
+            format!(
+                "https://github.com/theseus-rs/postgresql-binaries/releases/download/16.15.1/postgresql-16.15.1-{target}.tar.gz"
+            )
+        );
+    }
+
+    #[test]
+    fn the_download_says_how_far_it_is() {
+        assert_eq!(downloading(12 * MB, 31 * MB), "Downloading PostgreSQL: 12 of 31 MB");
+        assert_eq!(downloading(5 * MB, 0), "Downloading PostgreSQL: 5 MB");
+    }
+
     /// Needs its PostgreSQL (downloaded): MAGNUM_TEST_LITE_DATABASE=1.
     #[tokio::test]
     async fn a_postgresql_left_running_is_stopped_before_starting() {
@@ -482,14 +607,35 @@ mod tests {
             return;
         }
         let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
-        let (left, _) = database(&dir).await.unwrap();
+        let (left, _) = database(&dir, &|_, _| {}).await.unwrap();
         // the program went away without stopping it (killed, crashed, an older build)
         std::mem::forget(left);
-        let (pg, url) = database(&dir).await.expect("starts over the one left running");
+        let (pg, url) = database(&dir, &|_, _| {}).await.expect("starts over the one left running");
+        // its password, as the PostgreSQL library writes it, readable by its owner only
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = std::fs::metadata(dir.join(".pgpass")).unwrap().permissions().mode() & 0o777;
+            assert_eq!(mode, 0o600, "{mode:o}");
+        }
         let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
         tokio::spawn(conn);
         client.simple_query("SELECT 1").await.unwrap();
         pg.stop().await.unwrap();
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn its_folder_is_its_owners_only() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir().join(format!("magnum-lite-{}", uuid::Uuid::new_v4().simple()));
+        // one made before (or by hand, or with --dir) open to everyone
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        let _one = lock(&dir).unwrap();
+        let mode = std::fs::metadata(&dir).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o700, "{mode:o}");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 
