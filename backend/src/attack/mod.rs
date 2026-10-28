@@ -25,7 +25,7 @@ use std::sync::{Arc, OnceLock};
 use axum::http::{HeaderMap, StatusCode};
 use serde_json::{Value, json};
 
-use crate::api::tests::{OWNER, app, scramdb_config};
+use crate::api::tests::{OWNER, app_configured, scramdb_config};
 use crate::state::AppState;
 
 /// Who is asking.
@@ -107,7 +107,11 @@ pub const DASHBOARD: &str = "title: Attack target\nfilters:\n  - {model: sales, 
 
 impl World {
     pub async fn new() -> Option<World> {
-        let (app, state, owner_cookie) = app().await?;
+        // Google Sheets: nowhere (a connection connecting a sheet gets a quick refusal, not Google)
+        let (app, state, owner_cookie) = app_configured(concat!(env!("CARGO_MANIFEST_DIR"), "/../project"), |c| {
+            c.google_sheets_url = "http://127.0.0.1:9".into()
+        })
+        .await?;
         let suffix = uuid::Uuid::new_v4().simple().to_string()[..10].to_string();
         let (a, b) = (format!("atka{suffix}"), format!("atkb{suffix}"));
         let email = |role: &str| format!("{role}-{suffix}@attack.example");

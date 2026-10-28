@@ -4,7 +4,8 @@ import { api } from '../api'
 import type { ConnectionInfo, ConnectionType } from '../api'
 import { useAuth } from '../auth'
 import { useModels } from '../hooks'
-import { missingConnections } from '../connections'
+import { Link } from 'react-router-dom'
+import { missingConnections, nameForFile, sourceOf } from '../connections'
 
 type Field = { key: string; label: string; kind?: 'text' | 'number' | 'bool' | 'tables' | 'gib'; optional?: boolean; placeholder?: string }
 
@@ -82,6 +83,9 @@ export default function ConnectionsPage() {
   const [list, setList] = useState<ConnectionInfo[] | null>(null)
   const [keySet, setKeySet] = useState(true)
   const [editing, setEditing] = useState<ConnectionInfo | 'new' | null>(null)
+  // a file or a Google Sheet being added (or a file replaced: its connection's name)
+  const [adding, setAdding] = useState<{ kind: 'file' | 'sheet'; name?: string } | null>(null)
+  const [refreshing, setRefreshing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const load = () => api.connections().then(r => { setList(r.connections); setKeySet(r.secret_key) }, e => setError(e.message))
   useEffect(() => { load() }, [])
@@ -90,6 +94,10 @@ export default function ConnectionsPage() {
   const remove = async (c: ConnectionInfo) => {
     if (!confirm(`Delete the connection "${c.name}"? Models that use it stop working here.`)) return
     try { await api.deleteConnection(c.name); load() } catch (e) { setError((e as Error).message) }
+  }
+  const refresh = async (c: ConnectionInfo) => {
+    setRefreshing(c.name); setError(null)
+    try { await api.refreshSheet(c.name); load() } catch (e) { setError((e as Error).message) } finally { setRefreshing(null) }
   }
 
   return (
@@ -107,24 +115,114 @@ export default function ConnectionsPage() {
           <thead><tr><th>Name</th><th>Type</th><th>Where</th><th>Secret</th><th>Updated</th><th /></tr></thead>
           <tbody>{list.map(c => (
             <tr key={c.name}>
-              <td><b>{c.name}</b></td><td>{LABELS[c.type]}</td>
+              <td><b>{c.name}</b></td><td>{kindOf(c)}</td>
               <td className="small mono">{where(c)}</td>
               <td className="small">{c.has_secret ? 'set' : '–'}</td>
               <td className="small">{new Date(c.updated_at).toLocaleDateString()}{c.updated_by ? ` · ${c.updated_by}` : ''}</td>
-              <td><button className="link" onClick={() => setEditing(c)}>Edit</button> <button className="link danger" onClick={() => remove(c)}>Delete</button></td>
+              <td>
+                {sourceOf(c)?.kind === 'file' && <button className="link" onClick={() => setAdding({ kind: 'file', name: c.name })}>Replace</button>}
+                {sourceOf(c)?.kind === 'sheet' && <button className="link" disabled={refreshing === c.name} onClick={() => refresh(c)}>{refreshing === c.name ? 'Refreshing…' : 'Refresh'}</button>}
+                {!sourceOf(c) && <button className="link" onClick={() => setEditing(c)}>Edit</button>}
+                {' '}<button className="link danger" onClick={() => remove(c)}>Delete</button>
+              </td>
             </tr>
           ))}</tbody>
         </table>
       )}
       {list?.length === 0 && <p className="muted small">No connections yet.</p>}
-      {!editing && <div className="row"><button className="primary" data-tour="add-connection" onClick={() => setEditing('new')}>+ Add connection</button></div>}
+      {!editing && !adding && <div className="row">
+        <button onClick={() => setAdding({ kind: 'file' })}>+ Add a file</button>
+        <button onClick={() => setAdding({ kind: 'sheet' })}>+ Add a Google Sheet</button>
+        <button className="primary" data-tour="add-connection" onClick={() => setEditing('new')}>+ Add connection</button>
+      </div>}
+      {adding?.kind === 'file' && <FileForm replacing={adding.name} taken={(list ?? []).map(c => c.name)}
+        onDone={() => load()} onClose={() => setAdding(null)} />}
+      {adding?.kind === 'sheet' && <SheetForm taken={(list ?? []).map(c => c.name)}
+        onDone={() => load()} onClose={() => setAdding(null)} />}
       {editing && <ConnectionForm initial={editing === 'new' ? null : editing} suggested={needed[0]}
         onDone={() => { setEditing(null); load() }} onCancel={() => setEditing(null)} />}
     </div>
   )
 }
 
+/** Its type, or what it was made from (a file, a Google Sheet). */
+function kindOf(c: ConnectionInfo): string {
+  const s = sourceOf(c)
+  return s?.kind === 'file' ? 'File' : s?.kind === 'sheet' ? 'Google Sheet' : LABELS[c.type]
+}
+
+/** What was made, and where to go next: a model on one of its tables. */
+function Made({ name, tables, onClose }: { name: string; tables: string[]; onClose: () => void }) {
+  return (
+    <div className="ok">
+      <b>{name}</b> is ready, with {tables.length === 1 ? 'the table' : `${tables.length} tables`} {tables.map(t => <code key={t}>{t}</code>).reduce<React.ReactNode[]>((a, x, i) => (i ? [...a, ', ', x] : [x]), [])}.
+      {' '}Next: <Link to="/models">describe it in a model</Link> (Models › New model, connection {name}).
+      {' '}<button className="link" onClick={onClose}>Close</button>
+    </div>
+  )
+}
+
+/** A spreadsheet or CSV, copied into this workspace: a table per sheet. */
+function FileForm({ replacing, taken, onDone, onClose }: { replacing?: string; taken: string[]; onDone: () => void; onClose: () => void }) {
+  const [file, setFile] = useState<File | null>(null)
+  const [name, setName] = useState(replacing ?? '')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [made, setMade] = useState<string[] | null>(null)
+  const pick = (f: File | null) => { setFile(f); setMade(null); if (f && !replacing) setName(nameForFile(f.name)) }
+  const clash = !replacing && taken.includes(name)
+  const upload = async (e: FormEvent) => {
+    e.preventDefault()
+    if (!file) return
+    setBusy(true); setError(null)
+    try { setMade((await api.uploadFile(name, file)).tables); onDone() } catch (x) { setError((x as Error).message) } finally { setBusy(false) }
+  }
+  if (made) return <Made name={name} tables={made} onClose={onClose} />
+  return (
+    <form className="card org-card connection-form" onSubmit={upload}>
+      <h2>{replacing ? `Replace the file of ${replacing}` : 'Add a file'}</h2>
+      <p className="muted small">An Excel workbook (.xlsx, .xls), an OpenDocument one (.ods) or a CSV: a copy is kept in this
+        workspace, each sheet a table. To change it later, replace it with a new version.</p>
+      <input type="file" accept=".csv,.tsv,.xlsx,.xlsm,.xls,.ods" onChange={e => pick(e.target.files?.[0] ?? null)} required />
+      {!replacing && <label>Connection name <input value={name} onChange={e => setName(e.target.value)} pattern="[A-Za-z_][A-Za-z0-9_]*" maxLength={63} required /></label>}
+      {clash && <div className="warn">A connection named {name} exists: choose another name, or Replace it in the list.</div>}
+      {error && <div className="error">{error}</div>}
+      <div className="row"><button type="button" onClick={onClose}>Cancel</button><button className="primary" disabled={!file || busy || clash}>{busy ? 'Reading…' : replacing ? 'Replace' : 'Add'}</button></div>
+    </form>
+  )
+}
+
+/** A Google Sheet shared with anyone with the link: a table per tab, read again every hour. */
+function SheetForm({ taken, onDone, onClose }: { taken: string[]; onDone: () => void; onClose: () => void }) {
+  const [link, setLink] = useState('')
+  const [name, setName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [made, setMade] = useState<string[] | null>(null)
+  const clash = taken.includes(name)
+  const connect = async (e: FormEvent) => {
+    e.preventDefault()
+    setBusy(true); setError(null)
+    try { setMade((await api.connectSheet(name, link)).tables); onDone() } catch (x) { setError((x as Error).message) } finally { setBusy(false) }
+  }
+  if (made) return <Made name={name} tables={made} onClose={onClose} />
+  return (
+    <form className="card org-card connection-form" onSubmit={connect}>
+      <h2>Add a Google Sheet</h2>
+      <p className="muted small">Its link, shared with anyone who has it (in Google Sheets: Share › General access › Anyone with
+        the link). Each tab becomes a table, read again every hour or with Refresh. For confidential data, upload a file instead.</p>
+      <label>Link <input value={link} onChange={e => setLink(e.target.value)} placeholder="https://docs.google.com/spreadsheets/d/…" required /></label>
+      <label>Connection name <input value={name} onChange={e => setName(e.target.value)} pattern="[A-Za-z_][A-Za-z0-9_]*" maxLength={63} required /></label>
+      {clash && <div className="warn">A connection named {name} exists: choose another name.</div>}
+      {error && <div className="error">{error}</div>}
+      <div className="row"><button type="button" onClick={onClose}>Cancel</button><button className="primary" disabled={busy || clash}>{busy ? 'Reading…' : 'Add'}</button></div>
+    </form>
+  )
+}
+
 function where(c: ConnectionInfo): string {
+  const s = sourceOf(c)
+  if (s) return [...(s.kind === 'file' ? [s.file] : []), ...Object.keys((c.config.tables as object) ?? {})].join(' · ')
   const x = c.config as Record<string, string>
   if (c.type === 'bigquery') return `${x.project}${x.dataset ? `.${x.dataset}` : ''}`
   if (c.type === 'duckdb') return [x.database, ...Object.keys((c.config.tables as object) ?? {})].filter(Boolean).join(', ')

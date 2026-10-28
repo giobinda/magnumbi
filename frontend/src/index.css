@@ -445,6 +445,12 @@ table.data.pivot td.total { border-top: 0; border-left: 2px solid var(--border);
 .steps-list li { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid var(--border); }
 .steps-list li:first-child { border-top: 0; }
 .steps-list .step-demo { flex-basis: 100%; }
+.agent-setup { display: flex; flex-direction: column; gap: 8px; align-self: stretch; min-width: 0; }
+.agent-pick { display: flex; flex-wrap: wrap; gap: 6px; }
+.agent-setup p { margin: 0; }
+.agent-code { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+.agent-code pre { margin: 0; padding: 10px 12px; background: var(--surface-2); border-radius: var(--radius); white-space: pre; overflow-x: auto; }
+.agent-code button { align-self: flex-end; }
 .steps-list .step-demo .card { margin: 0; }
 .steps-list .tick { width: 22px; height: 22px; border-radius: 50%; border: 2px solid var(--border); display: grid; place-items: center; flex: none; font-size: 13px; font-weight: 700; }
 .steps-list li.done .tick { background: var(--good); border-color: var(--good); color: #fff; }

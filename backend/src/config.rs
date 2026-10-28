@@ -46,6 +46,10 @@ pub struct Config {
     pub usage_retention_days: i64,
     /// rows of cached results each organisation may keep (MAGNUM_CACHE_MAX_ROWS; cache.rs)
     pub cache_max_rows: i64,
+    /// how big an uploaded spreadsheet or CSV may be (MAGNUM_UPLOAD_MAX_MB, 100; lite: 2048)
+    pub upload_max_bytes: usize,
+    /// where Google Sheets are downloaded from: Google's, never a setting (tests use a stand-in)
+    pub google_sheets_url: String,
     /// one person on their own computer, no sign-in (lite.rs): set by `magnum-bi lite` only, never
     /// by a setting
     pub lite: bool,
@@ -127,6 +131,8 @@ impl Config {
             lite: false,
             lite_pin: None,
             cache_max_rows: env("MAGNUM_CACHE_MAX_ROWS").map(|n| n.parse()).transpose()?.unwrap_or(5_000_000),
+            google_sheets_url: "https://docs.google.com".into(),
+            upload_max_bytes: env("MAGNUM_UPLOAD_MAX_MB").map(|n| n.parse::<usize>()).transpose()?.unwrap_or(100) << 20,
             duckdb_dir: env("MAGNUM_DUCKDB_DIR").unwrap_or_else(|| "data/duckdb".into()).into(),
             duckdb_install_extensions: flag("MAGNUM_DUCKDB_INSTALL_EXTENSIONS", true),
             allow_private_connections: flag("MAGNUM_ALLOW_PRIVATE_CONNECTIONS", !deployed),

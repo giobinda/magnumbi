@@ -503,7 +503,7 @@ measures:
       <h3>What the chat may do</h3>
       <ul>
         <li><strong>It is the person asking.</strong> It uses the same tools as <a href="#agents">agents (MCP)</a>, run as that person: their role decides what it may do, and their data restrictions apply to every query. A person who can't explore gets no free queries from the chat either.</li>
-        <li><strong>Analytics only.</strong> It can search the catalog, query, and prepare dashboards, blends, reports, alerts and formulas. Members, connections, themes and delivery settings stay out of the chat.</li>
+        <li><strong>Analytics only.</strong> It can search the catalog, query, and prepare dashboards, blends, reports, alerts, formulas, and the catalog's documentation and glossary terms (ask it to "fill the catalog for orders": it looks at the model and a few of its values first, then proposes descriptions and tags). Members, connections, themes and delivery settings stay out of the chat.</li>
         <li><strong>Changes wait for a yes.</strong> A change is checked first (a mistake goes back to the AI to fix), then shown to the person (for a dashboard, its title and each tile), and made only when they confirm it, with their permissions at that moment; then a link opens what it made.</li>
       </ul>
       <h3>What leaves your servers</h3>
@@ -578,6 +578,7 @@ tiles:
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p>Spreadsheets: <strong>+ Add a file</strong> takes an Excel workbook, an OpenDocument one or a CSV, and <strong>+ Add a Google Sheet</strong> the link of a sheet shared with anyone with the link. Each sheet (or tab) becomes a table: then <strong>Models › New model</strong> on it. <strong>Replace</strong> puts in a new version of a file; a Google Sheet is read again every hour, or with <strong>Refresh</strong>. For confidential data, upload a file: a link-shared sheet is readable by anyone with its link.</p>
           <p>On <strong>Data › Connections</strong> (Org admins): <strong>+ Add connection</strong>, choose the type, fill in where it is and its password or key, <strong>Test</strong> it, then <strong>Save</strong>. A warning lists the connections your models need that aren't set up yet.</p>
           <figure class="shot"><a href="assets/screens/connections.jpg"><img src="assets/screens/connections.jpg" alt="The Connections page with the warehouse connection open: type ScramDB, host, port, database, user, schema, TLS, password" width="760" height="897" loading="lazy"></a><figcaption>Editing the <code>warehouse</code> connection; <em>Test</em> checks it before saving.</figcaption></figure>
         </div>
@@ -596,6 +597,13 @@ tiles:
             "s3_region": "eu-west-1"},
  "secret": "{\"key_id\": \"…\", \"secret\": \"…\"}"}</code></pre>
       </div>
+          <div class="code">
+        <span class="label">A spreadsheet, a CSV or a Google Sheet</span>
+<pre><code>curl -X POST "$URL/api/connections/sales/file?filename=Sales.xlsx" \
+     -H "Authorization: Bearer $TOKEN" --data-binary @Sales.xlsx      <span class="c"># a table per sheet; ?dry_run=1 lists them</span>
+POST /api/connections/budget/sheet    {"link": "https://docs.google.com/spreadsheets/d/…"}
+POST /api/connections/budget/refresh                                   <span class="c"># or wait: every hour</span></code></pre>
+      </div>
           <p><code>POST /api/connections/{name}/test</code> checks settings without saving; <code>GET /api/connections</code> lists them (no secrets). Agents use the MCP tools <code>save_connection</code> and <code>list_connections</code>.</p>
         </div>
       </div>
@@ -606,6 +614,7 @@ tiles:
             <tr><td>ScramDB, PostgreSQL</td><td>The connection's <code>schema</code></td><td>Read-only transactions, statement timeout, verified TLS.</td></tr>
             <tr><td>BigQuery</td><td>The connection's <code>project</code> + <code>dataset</code></td><td>Every query is dry-run first and refused above <code>max_bytes_billed</code>.</td></tr>
             <tr><td>DuckDB</td><td>Files you list under <code>tables:</code>, or a <code>.duckdb</code> file</td><td>Parquet, CSV, JSON, Avro, Iceberg; local or on S3, GCS, HTTPS.</td></tr>
+            <tr><td>File, Google Sheet</td><td>A table per sheet (or tab)</td><td>Excel, OpenDocument or CSV, copied into the workspace (up to 100 MB; 2 GB in the desktop app); a Google Sheet shared with anyone with the link, read again every hour.</td></tr>
           </tbody>
         </table>
       </div>

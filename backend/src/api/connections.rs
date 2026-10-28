@@ -77,8 +77,17 @@ pub async fn delete(
     Path(name): Path<String>,
 ) -> ApiResult<Json<Value>> {
     let store = store(&state, &caller).await?;
+    let file = state
+        .connectors
+        .list(&store, caller.org())
+        .await?
+        .iter()
+        .any(|c| c.name == name && super::files::is_file(&c.config));
     if !state.connectors.delete(&store, caller.org(), &name).await? {
         return Err(ApiError::not_found(format!("no connection named {name:?}")));
+    }
+    if file {
+        super::files::remove(&state, &caller, &name);
     }
     state.usage.record(Event { connection: Some(name), ..caller.event("connection_deleted") });
     Ok(Json(json!({"ok": true})))

@@ -25,7 +25,7 @@ use crate::state::{AppState, Shared};
 use crate::store::random_token;
 
 /// The tools the chat offers: reading, and the analytics changes (proposed, then confirmed).
-const CHAT_TOOLS: [&str; 24] = [
+const CHAT_TOOLS: [&str; 26] = [
     "search_catalog",
     "get_glossary",
     "get_catalog",
@@ -50,6 +50,8 @@ const CHAT_TOOLS: [&str; 24] = [
     "delete_report",
     "save_formula",
     "delete_formula",
+    "save_docs",
+    "save_term",
 ];
 
 /// Tool rounds per question, before the chat gives up.
@@ -57,12 +59,14 @@ const MAX_ROUNDS: usize = 8;
 /// The most of a tool's answer (other than a query's rows) the provider sees.
 const MAX_TOOL_TEXT: usize = 30_000;
 
-const CHAT_RULES: &str = "\\n\\nYou are the chat inside Magnum BI, answering people in their organisation. Find \\
-the right model and measures first (search_catalog with the question's words, then describe_model), then \\
-run_query. Answer briefly, in the person's language, with the numbers you got: never invent one. Say which \\
-model you used. A query's chart is shown to the person next to your answer, so don't repeat every row. \\
-Changes (dashboards, reports, alerts, formulas, blends) are never made by you: calling a tool that changes \\
-something shows the person a proposal they confirm or not. Say what you proposed; don't call it again.";
+const CHAT_RULES: &str = "\n\nYou are the chat inside Magnum BI, answering people in their organisation. Find \
+the right model and measures first (search_catalog with the question's words, then describe_model), then \
+run_query. Answer briefly, in the person's language, with the numbers you got: never invent one. Say which \
+model you used. A query's chart is shown to the person next to your answer, so don't repeat every row. \
+Changes (dashboards, reports, alerts, formulas, blends, the catalog's documentation and glossary) are never \
+made by you: calling a tool that changes something shows the person a proposal they confirm or not. Say what \
+you proposed; don't call it again. To document a model, look at it (describe_model, get_catalog) and at a few \
+of its values (run_query) first, then describe what you saw: never guess a meaning the data doesn't show.";
 
 fn key(state: &AppState) -> ApiResult<&crate::crypto::SecretKey> {
     state
@@ -751,6 +755,60 @@ pub(crate) mod tests {
             .unwrap()["content"]
             .clone();
         assert!(told.as_str().unwrap().contains("I confirmed: Share the formula per_sale"), "{told}");
+        clean_up(&state, &org).await;
+    }
+
+    #[test]
+    fn the_rules_are_plain_text() {
+        // after the organisation's own instructions, then sentences (no stray escapes)
+        assert!(super::CHAT_RULES.starts_with("\n\nYou are the chat"));
+        assert!(!super::CHAT_RULES.contains('\\'), "{}", super::CHAT_RULES);
+        assert!(super::CHAT_RULES.contains("never guess a meaning"));
+    }
+
+    #[tokio::test]
+    async fn the_chat_fills_the_catalog_once_confirmed() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let docs = json!({"model": "sales", "docs": {"description": "Sales in our shops, one row a sale.",
+            "fields": {"region": {"description": "The shop's sales region.", "examples": ["EMEA", "APAC"]},
+                       "revenue": {"description": "What customers paid, tax included.", "synonyms": ["turnover"]}}}});
+        let wrong = json!({"model": "sales", "docs": {"fields": {"nope": {"description": "?"}}}});
+        let term = json!({"term": {"name": "Region", "definition": "Where a shop is: EMEA, APAC or AMER."}});
+        let (port, asked) = fake_provider(vec![
+            calls("c1", "save_docs", wrong),
+            calls("c2", "save_docs", docs),
+            calls("c3", "save_term", term),
+            says("I've proposed the documentation and a glossary term."),
+        ])
+        .await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        let (st, r, _) =
+            send(&app, c, &org, "POST", "/api/chat", Some(json!({"message": "Fill the catalog for sales"})), None)
+                .await;
+        assert_eq!(st, StatusCode::OK, "{r}");
+        // a field that isn't there went back to the model
+        let back = asked.lock().unwrap()[1].1["messages"].as_array().unwrap().last().unwrap()["content"].clone();
+        assert!(back.as_str().unwrap().contains("nope"), "{back}");
+        let ps = r["reply"]["proposals"].as_array().unwrap().clone();
+        assert_eq!(ps.len(), 2, "{r}");
+        assert_eq!(ps[0]["summary"], json!("Document the model sales"), "{r}");
+        let details = ps[0]["details"].to_string();
+        assert!(details.contains("region: The shop's sales region.") && details.contains("revenue"), "{details}");
+        assert_eq!(ps[1]["summary"], json!("Add \"Region\" to the glossary"), "{r}");
+        let (_, cat, _) = send(&app, c, &org, "GET", "/api/governance", None, None).await;
+        assert!(!cat.to_string().contains("one row a sale"), "nothing written yet: {cat}");
+        // confirmed: written
+        for p in &ps {
+            let path =
+                format!("/api/chat/{}/proposals/{}", r["conversation"].as_str().unwrap(), p["id"].as_str().unwrap());
+            let (st, done, _) = send(&app, c, &org, "POST", &path, None, None).await;
+            assert_eq!((st, &done["status"]), (StatusCode::OK, &json!("applied")), "{done}");
+        }
+        let (_, m, _) = send(&app, c, &org, "GET", "/api/models/sales", None, None).await;
+        assert!(m.to_string().contains("one row a sale") && m.to_string().contains("turnover"), "{m}");
+        let (_, g, _) = send(&app, c, &org, "GET", "/api/glossary", None, None).await;
+        assert!(g.to_string().contains("Where a shop is"), "{g}");
         clean_up(&state, &org).await;
     }
 

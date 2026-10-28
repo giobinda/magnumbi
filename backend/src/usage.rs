@@ -146,6 +146,16 @@ async fn purge(store: &Store, retention_days: i64) -> Result<()> {
     Ok(())
 }
 
+/// Whether an organisation (or the platform workspace, "") has had an event of `kind`, within the
+/// usage log's retention (for "Get started": has an agent come by over MCP).
+pub async fn happened(store: &Store, org: &str, kind: &str) -> Result<bool> {
+    let c = store.pool.get().await?;
+    let r = c
+        .query_opt("SELECT 1 FROM usage_events WHERE org = $1::TEXT AND kind = $2::TEXT LIMIT 1", &[&org, &kind])
+        .await?;
+    Ok(r.is_some())
+}
+
 /// The usage summary for the last `days` days: one organisation, or (None) the whole platform.
 /// A model's queries in an organisation over the last `days`: (queries, people, last query).
 pub async fn of_model(store: &Store, org: &str, model: &str, days: i64) -> Result<(i64, i64, Option<DateTime<Utc>>)> {
@@ -292,6 +302,23 @@ mod tests {
         tokio::time::sleep(FLUSH_EVERY * 3).await;
         usage.record(Event::new(kind));
         assert_eq!(written(&store, kind, 4).await, 4, "the writer must survive quiet periods");
+    }
+
+    /// Needs a ScramDB (MAGNUM_TEST_DATABASE_URL); skipped without it.
+    #[tokio::test]
+    async fn whether_an_organisation_has_had_an_event() {
+        let Some(pool) = crate::db::test_pool(4).await else { return };
+        let store = Store::new(pool);
+        let usage = Usage::start(store.clone(), 400);
+        let kind: &'static str = Box::leak(format!("test_{}", uuid::Uuid::new_v4().simple()).into_boxed_str());
+        let (org, other) =
+            (format!("o{}", uuid::Uuid::new_v4().simple()), format!("o{}", uuid::Uuid::new_v4().simple()));
+        assert!(!happened(&store, &org, kind).await.unwrap());
+        usage.record(Event { org: org.clone(), ..Event::new(kind) });
+        written(&store, kind, 1).await;
+        assert!(happened(&store, &org, kind).await.unwrap());
+        assert!(!happened(&store, &other, kind).await.unwrap(), "another organisation's isn't");
+        store.pool.get().await.unwrap().execute("DELETE FROM usage_events WHERE kind = $1", &[&kind]).await.unwrap();
     }
 
     /// How many events of `kind` are written, once there are `n` (or after 30 s: a busy database

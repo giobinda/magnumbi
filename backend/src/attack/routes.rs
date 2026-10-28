@@ -122,6 +122,9 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     ("PUT", "/api/connections/{name}", ADMIN),
     ("DELETE", "/api/connections/{name}", ADMIN),
     ("POST", "/api/connections/{name}/test", ADMIN),
+    ("POST", "/api/connections/{name}/file", ADMIN),
+    ("POST", "/api/connections/{name}/sheet", ADMIN),
+    ("POST", "/api/connections/{name}/refresh", ADMIN),
     ("GET", "/api/connections/{name}/tables", ADMIN),
     ("GET", "/api/connections/{name}/tables/{table}/model", ADMIN),
     // ownership isn't a role: any member may own a model (the handler decides; see below)
@@ -270,6 +273,9 @@ pub fn body(w: &World, method: &str, path: &str) -> Option<Value> {
         "/api/platform/demo" => json!({"org": w.a, "months": 1}),
         "/api/platform/organisations/{org}/database" => json!({"dsn": "postgresql://evil@127.0.0.1:1/x"}),
         "/api/connections/{name}" | "/api/connections/{name}/test" => json!({"config": scramdb_config()}),
+        "/api/connections/{name}/sheet" => {
+            json!({"link": "https://docs.google.com/spreadsheets/d/1AttackSheetAbcdefghijklmnopqrstuv/edit"})
+        }
         "/api/chat" => json!({"message": "evil question"}),
         "/api/chat/home" => json!({"home": "chat"}),
         "/api/tour" => json!({"seen": true}),

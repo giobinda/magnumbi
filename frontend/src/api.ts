@@ -460,6 +460,15 @@ export const api = {
     call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, json('PUT', { config, secret: secret || undefined })),
   testConnection: (name: string, config: Record<string, unknown>, secret?: string) =>
     call<{ ok: boolean; message: string }>(`/api/connections/${encodeURIComponent(name)}/test`, json('POST', { config, secret: secret || undefined })),
+  /** A spreadsheet or CSV as the connection `name` (a table per sheet; replaces the file it had). */
+  uploadFile: (name: string, file: File) =>
+    call<{ ok: boolean; tables: string[] }>(`/api/connections/${encodeURIComponent(name)}/file?filename=${encodeURIComponent(file.name)}`,
+      { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: file }),
+  /** A Google Sheet shared with anyone with the link, as the connection `name` (a table per tab). */
+  connectSheet: (name: string, link: string) =>
+    call<{ ok: boolean; tables: string[] }>(`/api/connections/${encodeURIComponent(name)}/sheet`, json('POST', { link })),
+  refreshSheet: (name: string) =>
+    call<{ ok: boolean; tables: string[] }>(`/api/connections/${encodeURIComponent(name)}/refresh`, { method: 'POST' }),
   deleteConnection: (name: string) => call<{ ok: boolean }>(`/api/connections/${encodeURIComponent(name)}`, { method: 'DELETE' }),
   resolvePeriod: (model: string, p: Period) => call<ResolvedPeriod>(guestPath(guestBase, '', { model }), json('POST', p)),
   dashboards: () => call<{ dashboards: DashboardSummary[] }>('/api/dashboards'),

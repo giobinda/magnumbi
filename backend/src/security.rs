@@ -80,7 +80,13 @@ pub fn csrf_rejection(config: &Config, method: &Method, headers: &HeaderMap) -> 
     }
 }
 
-fn size_rejection(method: &Method, headers: &HeaderMap) -> Option<Response> {
+/// The upload of a spreadsheet or CSV (api/files.rs): the only request with a body over the
+/// general limit, up to the upload limit.
+pub fn is_upload(path: &str) -> bool {
+    path.strip_prefix("/api/connections/").and_then(|r| r.strip_suffix("/file")).is_some_and(|n| !n.contains('/'))
+}
+
+fn size_rejection(method: &Method, headers: &HeaderMap, limit: usize) -> Option<Response> {
     if !unsafe_method(method) {
         return None;
     }
@@ -90,11 +96,8 @@ fn size_rejection(method: &Method, headers: &HeaderMap) -> Option<Response> {
         }
         None => None,
         Some(n) => match n.parse::<usize>() {
-            Ok(n) if n <= MAX_BODY_BYTES => None,
-            _ => Some(reject(
-                StatusCode::PAYLOAD_TOO_LARGE,
-                &format!("request body larger than {} KB", MAX_BODY_BYTES / 1024),
-            )),
+            Ok(n) if n <= limit => None,
+            _ => Some(reject(StatusCode::PAYLOAD_TOO_LARGE, &format!("request body larger than {} KB", limit / 1024))),
         },
     }
 }
@@ -133,7 +136,8 @@ pub fn logged_path(path: &str) -> String {
 pub async fn hardening(State(state): State<Shared>, request: Request, next: Next) -> Response {
     let (method, headers, path) =
         (request.method().clone(), request.headers().clone(), request.uri().path().to_string());
-    let rejection = size_rejection(&method, &headers)
+    let limit = if is_upload(&path) { state.config.upload_max_bytes } else { MAX_BODY_BYTES };
+    let rejection = size_rejection(&method, &headers, limit)
         .or_else(|| crate::lite::host_rejection(&state.config, &headers))
         .or_else(|| crate::lite::route_rejection(&state.config, &path))
         .or_else(|| csrf_rejection(&state.config, &method, &headers));
@@ -203,11 +207,25 @@ mod tests {
     }
 
     #[test]
+    fn only_the_upload_takes_a_bigger_body() {
+        assert!(is_upload("/api/connections/sales/file"));
+        for other in [
+            "/api/connections/sales",
+            "/api/connections/a/b/file",
+            "/api/connections//x/file",
+            "/api/connections/file",
+            "/api/files",
+        ] {
+            assert!(!is_upload(other), "{other}");
+        }
+    }
+
+    #[test]
     fn sizes() {
         let big = headers(&[("content-length", "2000000")]);
-        assert!(size_rejection(&Method::POST, &big).is_some());
+        assert!(size_rejection(&Method::POST, &big, MAX_BODY_BYTES).is_some());
         let chunked = headers(&[("transfer-encoding", "chunked")]);
-        assert!(size_rejection(&Method::PUT, &chunked).is_some());
-        assert!(size_rejection(&Method::POST, &headers(&[("content-length", "12")])).is_none());
+        assert!(size_rejection(&Method::PUT, &chunked, MAX_BODY_BYTES).is_some());
+        assert!(size_rejection(&Method::POST, &headers(&[("content-length", "12")]), MAX_BODY_BYTES).is_none());
     }
 }

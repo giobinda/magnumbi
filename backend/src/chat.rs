@@ -288,12 +288,44 @@ pub fn summary(tool: &str, args: &Value) -> String {
             format!("Share the formula {} on {}", args["formula"]["name"].as_str().unwrap_or("?"), s("model"))
         }
         "delete_formula" => format!("Remove the shared formula {} from {}", s("name"), s("model")),
+        "save_docs" => format!("Document the model {}", s("model")),
+        "save_term" => format!("Add \"{}\" to the glossary", args["term"]["name"].as_str().unwrap_or("?")),
         other => format!("Run {other}"),
     }
 }
 
+/// A model's documentation, a line for it and one per field: what it will say, its other names and tags.
+fn docs_lines(docs: &Value) -> Vec<String> {
+    let list = |v: &Value| v.as_array().map(|a| a.iter().filter_map(Value::as_str).collect::<Vec<_>>().join(", "));
+    let line = |what: String, d: &Value| {
+        let mut extra = vec![];
+        if let Some(s) = list(&d["synonyms"]).filter(|s| !s.is_empty()) {
+            extra.push(format!("also: {s}"));
+        }
+        if let Some(t) = list(&d["tags"]).filter(|t| !t.is_empty()) {
+            extra.push(format!("tags: {t}"));
+        }
+        let text = d["description"].as_str().unwrap_or_default();
+        let extra = if extra.is_empty() { String::new() } else { format!(" ({})", extra.join("; ")) };
+        format!("{what}: {text}{extra}").replace(":  (", ": (")
+    };
+    let mut out = vec![];
+    if docs["description"].is_string() || docs["tags"].as_array().is_some_and(|t| !t.is_empty()) {
+        out.push(line("The model".into(), docs));
+    }
+    for (name, d) in docs["fields"].as_object().into_iter().flatten() {
+        out.push(line(name.clone(), d));
+    }
+    out
+}
+
 /// What a proposal holds, a line each, for the card: a dashboard's tiles.
 pub fn details(tool: &str, args: &Value) -> Vec<String> {
+    match tool {
+        "save_docs" => return docs_lines(&args["docs"]),
+        "save_term" => return args["term"]["definition"].as_str().map(|d| vec![d.to_string()]).unwrap_or_default(),
+        _ => {}
+    }
     let Some(d) = dashboard_yaml(args).filter(|_| tool == "save_dashboard") else { return vec![] };
     let tiles = d["tiles"].as_array().cloned().unwrap_or_default();
     tiles
@@ -476,6 +508,25 @@ mod tests {
             "Share the formula per_sale on sales"
         );
         assert_eq!(summary("delete_dashboard", &json!({"id": "old"})), "Delete the dashboard old");
+    }
+
+    #[test]
+    fn a_catalog_proposal_shows_what_it_will_say() {
+        let docs = json!({"model": "orders", "docs": {"description": "One row an order.", "tags": ["sales"],
+            "fields": {"amount": {"description": "Paid, tax included.", "synonyms": ["total"], "tags": ["finance"]},
+                       "email": {"tags": ["pii"]}}}});
+        assert_eq!(summary("save_docs", &docs), "Document the model orders");
+        assert_eq!(
+            details("save_docs", &docs),
+            [
+                "The model: One row an order. (tags: sales)",
+                "amount: Paid, tax included. (also: total; tags: finance)",
+                "email: (tags: pii)"
+            ]
+        );
+        let term = json!({"term": {"name": "Churn", "definition": "Customers who left this month."}});
+        assert_eq!(summary("save_term", &term), "Add \"Churn\" to the glossary");
+        assert_eq!(details("save_term", &term), ["Customers who left this month."]);
     }
 
     #[test]

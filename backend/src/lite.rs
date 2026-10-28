@@ -97,6 +97,10 @@ pub fn config(
     let lookup = |k: &str| fixed.iter().find(|(n, _)| *n == k).map(|(_, v)| v.clone()).or_else(|| env(k));
     let mut c = Config::from_lookup(lookup)?;
     c.lite = true;
+    // one person's own spreadsheets, on their own disk (MAGNUM_UPLOAD_MAX_MB still decides, if set)
+    if env("MAGNUM_UPLOAD_MAX_MB").is_none() {
+        c.upload_max_bytes = 2048 << 20;
+    }
     c.lite_pin = std::fs::read_to_string(dir.join("pin")).ok().map(|h| h.trim().to_string()).filter(|h| !h.is_empty());
     check_bind(&c.host).map_err(anyhow::Error::msg)?;
     Ok(c)
@@ -566,7 +570,7 @@ mod tests {
         assert_eq!(s, StatusCode::OK);
         let ids: Vec<&str> = r["steps"].as_array().unwrap().iter().map(|s| s["id"].as_str().unwrap()).collect();
         // sample data first, to look around before connecting one's own
-        assert_eq!(ids, ["demo", "connection", "model", "dashboard", "theme", "delivery"], "{r}");
+        assert_eq!(ids, ["demo", "connection", "model", "dashboard", "theme", "delivery", "agent"], "{r}");
         assert_eq!(r["steps"][0]["optional"], json!(true), "{r}");
     }
 
