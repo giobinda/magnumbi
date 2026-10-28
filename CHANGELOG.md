@@ -3,6 +3,14 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Changed
+
+- **Get started offers one month of sample data first** (about 60 MB, quick to set up); more
+  months, for the comparisons with a year earlier, are one choice away. Settings › Organisations ›
+  Demo data still offers 13 months first.
+
 ## 0.1.7 (2026-10-28)
 
 ### Added

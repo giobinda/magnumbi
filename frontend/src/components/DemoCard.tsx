@@ -5,10 +5,13 @@ import type { DemoStatus, PlatformResponse } from '../api'
 const MONTHS: [number, string][] = [[1, '1 month'], [13, '13 months (a month and a year earlier)'], [24, '2 years'], [60, '5 years']]
 
 /** System owners: set up the NYC demo (taxi trips x weather) for an organisation, in the background.
- *  With no organisations to choose from (lite, the platform's "Get started"): the platform workspace. */
-export default function DemoCard({ orgs = [], databases = {} }: { orgs?: { id: string; name: string }[]; databases?: PlatformResponse['databases'] }) {
+ *  With no organisations to choose from (lite, the platform's "Get started"): the platform workspace.
+ *  `months`: what it offers first (13: a month and a year earlier, for the comparisons). */
+export default function DemoCard({ orgs = [], databases = {}, months: first = 13 }: {
+  orgs?: { id: string; name: string }[]; databases?: PlatformResponse['databases']; months?: number
+}) {
   const [org, setOrgChoice] = useState('')
-  const [months, setMonths] = useState(13)
+  const [months, setMonths] = useState(first)
   const [status, setStatus] = useState<DemoStatus | null>(null)
   const [err, setErr] = useState<string | null>(null)
   useEffect(() => { api.demoStatus().then(setStatus, e => setErr(e.message)) }, [])
