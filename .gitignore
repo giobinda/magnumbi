@@ -8,3 +8,7 @@ project/access.yaml
 /data/
 testcreds.txt
 e2e/node_modules/
+
+# the live demo kit: local only for now
+deploy/demo/
+tmp/
