@@ -55,7 +55,31 @@
       <a href="docs.html" aria-current="page">Docs</a>
       <a href="guides/infrastructure.html">Guides</a>
       <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
-      <a class="btn small primary" href="#quick-start">Get started</a>
+      <details class="download-menu">
+        <summary class="btn small primary">Download</summary>
+        <div class="download-panel">
+          <div class="download-group">
+            <b>Desktop standalone</b>
+            <span>Just you, on your computer</span>
+            <a href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-amd64.deb">Linux (.deb)</a>
+            <a href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-x86_64.rpm">Linux (.rpm)</a>
+            <a href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-windows-x64.zip">Windows</a>
+            <a href="https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-macos.dmg">macOS</a>
+          </div>
+          <div class="download-group">
+            <b>Distributed</b>
+            <span>A server for your teams and customers</span>
+            <a href="docs.html#helm">Helm (Kubernetes)</a>
+            <a href="docs.html#docker">Docker</a>
+          </div>
+          <div class="download-group">
+            <b>Source</b>
+            <span>Build it yourself</span>
+            <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">GitHub</a>
+          </div>
+        </div>
+      </details>
+      <a class="btn small" href="#quick-start">Get started</a>
     </nav>
     <button class="icon-btn theme-toggle" type="button" aria-label="Toggle theme"></button>
   </div>
@@ -117,7 +141,7 @@
 
     <section id="quick-start">
       <h2>Quick start</h2>
-      <h3>With Docker (fastest)</h3>
+      <h3 id="docker">With Docker (fastest)</h3>
       <p>All you need is <strong>Docker or Podman</strong> with Compose (and <strong>git</strong>). The code is on GitHub at <a href="https://github.com/giobinda/magnumbi" target="_blank" rel="noopener">giobinda/magnumbi</a>. Get it and start Magnum BI:</p>
       <div class="code">
 <pre><code>git clone https://github.com/giobinda/magnumbi.git
@@ -155,7 +179,7 @@ magnum-bi lite --set-pin          <span class="c"># optional: lock it with a PIN
         <li><strong>Linux:</strong> nothing to confirm.</li>
       </ul>
       <p class="muted">The desktop build is the app only: on Windows its commands print nothing (there's no console behind the window). For the server, use the container.</p>
-      <h3>From source</h3>
+      <h3 id="from-source">From source</h3>
       <p>For development. You'll need <strong>Rust 1.94+</strong>, <strong>Node 20+</strong>, <strong>Podman or Docker</strong> (for the local ScramDB) and the system's <strong>OpenSSL</strong> development library (for passkeys). Then:</p>
       <div class="code">
 <pre><code>git clone https://github.com/giobinda/magnumbi.git &amp;&amp; cd magnumbi
@@ -966,7 +990,7 @@ magnum-bi code apply ./setup --prune   # shows the plan, asks, applies (--yes in
       <p>Releases are published as <code>ghcr.io/giobinda/magnum-bi</code> (<code>latest</code> and <code>X.Y.Z</code>; <code>edge</code> follows the main branch). It's one image of about 150 MB with the server, the CLI, the built UI and the project files. It runs as an unprivileged user and keeps DuckDB files in <code>/data</code>. Build your own with <code>docker build -t magnum-bi .</code>.</p>
       <h3>Docker Compose: one machine</h3>
       <p><code>compose.yaml</code> runs Magnum BI with its own ScramDB (see <a href="#quick-start">Quick start</a>). <code>MAGNUM_HTTP_PORT</code> changes the port. On first start, with no accounts yet, the admin gets a one-time password, printed in the log or set with <code>MAGNUM_ADMIN_PASSWORD</code>. For a shared server, put https in front and set <code>MAGNUM_PUBLIC_URL</code> and <code>MAGNUM_ENV=production</code>.</p>
-      <h3>Kubernetes: the Helm chart</h3>
+      <h3 id="helm">Kubernetes: the Helm chart</h3>
       <p>Published as <code>oci://ghcr.io/giobinda/charts/magnum-bi</code>:</p>
       <div class="code">
 <pre><code><span class="c"># try it: bundled ScramDB, no ingress (kubectl port-forward svc/bi-magnum-bi 8000:80)</span>

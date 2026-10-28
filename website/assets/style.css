@@ -99,6 +99,23 @@ code, pre, kbd { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Me
 .icon-btn:hover { color: var(--text); border-color: var(--text-muted); }
 .menu-btn { display: none; margin-left: auto; }
 
+/* the Download menu in the top bar: desktop app, server, source */
+.download-menu { position: relative; }
+.download-menu summary { list-style: none; cursor: pointer; }
+.download-menu summary::-webkit-details-marker { display: none; }
+.download-menu summary::after { content: "▾"; margin-left: 6px; font-size: .8em; }
+.download-panel {
+  position: absolute; right: 0; top: calc(100% + 10px); z-index: 20;
+  display: grid; grid-template-columns: repeat(3, minmax(150px, auto)); gap: 22px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  box-shadow: var(--shadow); padding: 18px 20px;
+}
+.download-group { display: flex; flex-direction: column; gap: 6px; }
+.download-group b { color: var(--text); font-size: .95rem; }
+.download-group span { color: var(--text-muted); font-size: .8rem; margin-bottom: 4px; }
+.nav .download-group a { color: var(--text-muted); }
+.nav .download-group a:hover { color: var(--accent); }
+
 @media (max-width: 820px) {
   .menu-btn { display: grid; }
   .nav {
@@ -109,6 +126,9 @@ code, pre, kbd { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Me
   .nav.open { display: flex; }
   .nav a { padding: 12px 8px; font-size: 1rem; }
   .nav .btn { margin-top: 8px; justify-content: center; }
+  .download-menu summary { display: flex; }
+  .download-panel { position: static; grid-template-columns: 1fr; gap: 14px; margin-top: 8px; box-shadow: none; }
+  .nav .download-group a { padding: 6px 8px; }
   .site-header .wrap > .theme-toggle { margin-left: 0; }
 }
 
