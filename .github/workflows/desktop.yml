@@ -26,9 +26,9 @@ jobs:
           - {os: windows, runner: windows-2022}
     runs-on: ${{ matrix.runner }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
@@ -85,7 +85,7 @@ jobs:
           Copy-Item target/release/magnum-bi.exe, LICENSE target/zip/
           Compress-Archive -Path target/zip/* -DestinationPath "target/packages/magnum-bi-windows-x64.zip"
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.os }}
           path: target/packages/*
@@ -96,7 +96,7 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: packages
           merge-multiple: true

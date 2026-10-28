@@ -34,7 +34,7 @@ jobs:
       MAGNUM_TEST_POSTGRES_URL: postgresql://postgres:ci@127.0.0.1:55440/postgres
       MAGNUM_TEST_DUCKDB_EXTENSIONS: /tmp/duckdb-extensions
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: "1.98.0"   # pinned: a new release's lints shouldn't fail an unchanged branch
@@ -72,8 +72,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
