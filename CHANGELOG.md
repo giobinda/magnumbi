@@ -19,7 +19,12 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   stops lite and its PostgreSQL when it closes. The server's build never includes it.
 - **Sample data in Get started**: the checklist on the home page offers the NYC taxi × weather demo
   (*Try it with sample data*, optional) and sets it up right there, with its progress: for system
-  owners in the platform workspace, and first in lite.
+  owners in the platform workspace, and first in lite, where it can be skipped (*Skip*: it leaves
+  the list for good on that computer).
+- **Downloads for lite**: README and website (a "Magnum BI lite" section on the landing page, the
+  desktop app in the docs) link to the latest release's app for macOS, Windows and Linux. The
+  packages are named without the version (`magnum-bi-macos.dmg`, `magnum-bi-windows-x64.zip`,
+  `magnum-bi-linux-amd64.deb`, `magnum-bi-linux-x86_64.rpm`) so those links stay the same.
 - **The desktop app, packaged** (`.github/workflows/desktop.yml`, `packaging/`): each release gets a
   `.dmg` for macOS (both chips), a `.zip` for Windows and a `.deb` / `.rpm` for Linux, unsigned, with
   their `SHA256SUMS`. The UI and OpenSSL are built into the program; opened with no command, it

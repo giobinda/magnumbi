@@ -132,6 +132,8 @@ code, pre, kbd { font-family: ui-monospace, SFMono-Regular, "JetBrains Mono", Me
 }
 .lead { font-size: 1.2rem; color: var(--text-muted); max-width: 34em; }
 .cta { display: flex; gap: 12px; flex-wrap: wrap; margin-top: 28px; }
+.cta.downloads { margin: 16px 0; }
+#lite .cta.downloads { margin-top: 24px; }
 .hero-points { list-style: none; padding: 0; margin: 28px 0 0; display: flex; gap: 20px; flex-wrap: wrap; color: var(--text-muted); font-size: .93rem; }
 .hero-points li::before { content: "✓"; color: var(--ok); font-weight: 700; margin-right: 6px; }
 @media (max-width: 920px) {
