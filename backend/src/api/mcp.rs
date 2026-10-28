@@ -866,7 +866,7 @@ mod tests {
         // themes: list, CSS out and in, the organisation's own (a dry run here: the shared test
         // database's platform workspace keeps its themes)
         let themes = tool(&app, &ro, "list_themes", json!({})).await;
-        assert_eq!(themes["structuredContent"]["default_light"], json!("aloha"), "{themes}");
+        assert_eq!(themes["structuredContent"]["default_light"], json!("magnum-light"), "{themes}");
         let css = tool(&app, &ro, "export_theme_css", json!({"id": "aloha"})).await;
         let css_text = css["structuredContent"]["css"].as_str().unwrap().to_string();
         assert!(css_text.contains("--mbi-accent: #c8102e;"), "{css}");

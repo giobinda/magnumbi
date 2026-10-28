@@ -16,6 +16,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends libssl-dev pkg-
 WORKDIR /src
 COPY Cargo.toml Cargo.lock rustfmt.toml ./
 COPY backend/ backend/
+# the demo's models, blend and dashboards are built into the program (backend/src/demo.rs)
+COPY project/ project/
 RUN cargo build --release --locked && strip target/release/magnum-bi
 
 FROM docker.io/library/debian:bookworm-slim
