@@ -1,7 +1,7 @@
 #!/bin/sh
 # The desktop app for macOS (Magnum BI.app in a .dmg, both chips), from a universal desktop build at
 # target/release/magnum-bi, into target/packages:
-#   packaging/macos.sh 0.1.7
+#   packaging/macos.sh 0.1.8
 # Unsigned: signed ad hoc only (Apple Silicon runs nothing without a signature), so macOS asks the
 # first time it opens (docs: "Opening an unsigned app").
 set -eu
