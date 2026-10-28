@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { api, setOrg } from '../api'
+import { forgetModels } from '../hooks'
 import type { DemoStatus, PlatformResponse } from '../api'
 
 const MONTHS: [number, string][] = [[1, '1 month'], [13, '13 months (a month and a year earlier)'], [24, '2 years'], [60, '5 years']]
@@ -28,7 +29,8 @@ export default function DemoCard({ orgs = [], databases = {}, months: first = 13
   }
   const open = (target: string) => { setOrg(target || null); location.assign('/dashboards/nyc_taxi_weather') }
   const finished = status && !status.running && status.step === 'Done'
-  useEffect(() => { if (finished) onDone?.() }, [finished, onDone])
+  // its models are new: every page reads them again (Models, Explore, starter dashboards)
+  useEffect(() => { if (finished) { forgetModels(); onDone?.() } }, [finished, onDone])
   return (
     <div className="card person demo-card">
       <p className="small muted">New York yellow taxi trips (NYC TLC open data) with the hourly weather in each borough (Open-Meteo),
