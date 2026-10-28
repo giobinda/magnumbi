@@ -698,6 +698,8 @@ ScramDB, and everyone in it can explore it and build dashboards and blends on it
   the browser: a dimension is a column, named by its name; a measure is count, distinct count,
   sum, average, min or max of a column; the table is a `schema.table` name. Saving checks every
   field against the table's actual columns.
+- **Drill paths**, in the same editor: a name and two dimensions or more, in drilling order
+  (`location: [region, store]`), each once; a tile drills along one (its `drill`).
 - **Shared models, by system owners.** Made in the platform workspace, a model is one of the
   platform's, like the YAML ones (shared master data, say): every organisation whose list of models
   allows it (**Settings › Organisations**) uses it on its own connection of that name, with its own

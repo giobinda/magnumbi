@@ -3,6 +3,18 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Added
+
+- **Drill paths in the model editor** (Data › Models): a name and dimensions in order, so a
+  model made in the app drills down like a YAML one (and its blends with it).
+
+### Changed
+
+- **A blend tile's automatic title names fields by their own name** ("Trips by Pickup time,
+  Pickup borough"), keeping the model only where two fields would read the same.
+
 ## 0.1.9 (2026-10-28)
 
 ### Added

@@ -304,7 +304,9 @@ curl -H "$H" -X PUT -H 'If-Match: &lt;version&gt;' --data-binary @sales_overview
           <ol>
             <li><strong>+ New model</strong>, then pick a connection and one of its tables.</li>
             <li>Magnum BI proposes the model from the table's columns: text and dates become dimensions, numbers summed measures, ids and calendar numbers (hour, month, year) stay dimensions, and a count of rows is always there.</li>
-            <li>Adjust the names, what each column is used as and how it adds up, then <strong>Save model</strong>. Saving checks every field against the table's real columns.</li>
+            <li>Adjust the names, what each column is used as and how it adds up.</li>
+            <li>Optionally, <strong>drill paths</strong>: a name and dimensions in order (region, then store), for clicking a bar to go one step down. A tile drills along the path chosen in its editor (<em>Drill</em>).</li>
+            <li><strong>Save model</strong>. Saving checks every field against the table's real columns.</li>
           </ol>
           <figure class="shot"><a href="assets/screens/models.jpg"><img src="assets/screens/models.jpg" alt="The new model page: the columns of a table, each as a dimension or a measure" width="760" height="665" loading="lazy"></a><figcaption>A model proposed from the warehouse's <code>sample_sales</code> table, ready to adjust and save.</figcaption></figure>
           <p><strong>Starter dashboard</strong>, next to any model, makes a first dashboard from it in one click.</p>

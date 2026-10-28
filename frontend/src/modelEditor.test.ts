@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { modelFrom, rowsFor } from './modelEditor'
-import type { ModelDef } from './modelEditor'
+import type { FieldRow, ModelDef } from './modelEditor'
 
 const proposal: ModelDef = {
   name: 'trips', label: 'Trips', connection: 'warehouse', table: 'trips',
@@ -36,5 +36,23 @@ describe('model editor', () => {
       { name: 'borough', label: 'Boroughs', type: 'count_distinct', sql: 'borough', format: 'number' },
       { name: 'fare', label: 'Fare', type: 'sum', sql: 'fare', format: 'number' },
     ])
+  })
+})
+
+describe('drill paths in the model editor', () => {
+  const row = (column: string, include = true): FieldRow => ({ column, include, role: 'dimension', type: 'string', label: column })
+  const meta = { name: 'sales', label: 'Sales', connection: 'warehouse', table: 'sample_sales' }
+  const count = { name: 'count', type: 'count' }
+
+  it('saves them with the model', () => {
+    const m = modelFrom(meta, [row('region'), row('store')], count, { location: ['region', 'store'] })
+    expect(m.hierarchies).toEqual({ location: ['region', 'store'] })
+  })
+
+  it('follows the dimensions left in the model', () => {
+    const rows = [row('country'), row('region'), row('store', false)]
+    const m = modelFrom(meta, rows, count, { location: ['country', 'region', 'store'], shop: ['region', 'store'] })
+    // store is out: it leaves the first path, and the second, one step short, goes
+    expect(m.hierarchies).toEqual({ location: ['country', 'region'] })
   })
 })

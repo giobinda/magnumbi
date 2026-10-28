@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fieldGroups } from './fieldGroups'
+import { fieldGroups, shortLabels } from './fieldGroups'
 
 const f = (name: string, label?: string) => ({ name, label })
 
@@ -24,5 +24,17 @@ describe('the field list', () => {
   it('leaves a blend field without a model in its label in a list of its own', () => {
     const g = fieldGroups([f('a.x', 'Trips · Day'), f('ratio', 'Ratio')], true)
     expect(g.map(x => x.group)).toEqual(['Trips', null])
+  })
+})
+
+describe("a blend tile's title", () => {
+  it('names each field by its own name', () => {
+    expect(shortLabels(['NYC taxi trips · Trips', 'NYC taxi trips · Pickup time (month)', 'NYC taxi trips · Pickup borough']))
+      .toEqual(['Trips', 'Pickup time (month)', 'Pickup borough'])
+  })
+
+  it('keeps the model where two fields would read the same', () => {
+    expect(shortLabels(['NYC taxi trips · Time', 'NYC weather (hourly) · Time', 'NYC weather (hourly) · Temperature']))
+      .toEqual(['NYC taxi trips · Time', 'NYC weather (hourly) · Time', 'Temperature'])
   })
 })

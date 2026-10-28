@@ -15,3 +15,10 @@ export function fieldGroups<T extends { name: string; label?: string | null }>(
   }
   return groups
 }
+
+/** A blend's field labels without their model ("NYC taxi trips · Trips" is Trips), for a tile's
+ *  title; a field keeps its model where another would read the same. */
+export function shortLabels(labels: string[]): string[] {
+  const short = labels.map(l => (l.includes(' · ') ? l.slice(l.indexOf(' · ') + 3) : l))
+  return short.map((s, i) => (short.filter(x => x === s).length > 1 ? labels[i] : s))
+}
