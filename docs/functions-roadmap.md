@@ -51,15 +51,25 @@ change, so they learn the language by seeing it.
 
 Who sees Advanced: everyone who may explore, hidden by default.
 
-## Step 2: Dates (per row, and in conditions on totals)
+## Step 2: Dates (per row) — done
 
 Easy: `year(d) quarter(d) month(d) week(d) day(d) weekday(d) hour(d)`, `today()`,
 `days_between(a, b)`.
-Advanced: `date_trunc(d, 'month')`, `date_add(d, 3, 'day')`, `date_diff(a, b, 'month')`,
-`format_date(d, 'YYYY-MM')`.
+Advanced: `date_trunc(d, 'month')`, `date_add(d, 3, 'day')`, `date_diff(a, b, 'month')` (calendar
+days, months or years).
 
-Per engine: DuckDB compares times as UTC `TIMESTAMP`s (no ICU); BigQuery's `DATE_DIFF`/`DATE_TRUNC`
-take their parts the other way round. Weekdays and months sort as on a calendar, as dimensions do.
+How it went:
+- Weeks are ISO (from Monday), weekdays 1 (Monday) to 7, on every engine (BigQuery counts from
+  Sunday: translated). `date_add` takes a whole number; a BigQuery timestamp adds months through
+  its date-time.
+- `today()` is written into the query as today's UTC date: DuckDB's sandbox has no ICU (so no
+  `CURRENT_DATE`), and a cached result is never yesterday's today.
+- One table of answers (`formula::tests::DATES`) runs on ScramDB, PostgreSQL and in DuckDB's
+  sandbox; BigQuery is checked as SQL. `api::formulas::dates_in_fields_of_each_row` uses them as
+  fields end to end.
+- Left for later: date literals (`'2026-01-01'` compared with a date), `format_date` (patterns
+  differ per engine; `year`/`month` with `concat` cover most of it), dates in conditions on totals
+  (with step 4's `sum_if`).
 
 ## Step 3: Text and choices
 

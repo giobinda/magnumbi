@@ -418,6 +418,9 @@ pub fn with_row_formulas(model: &Model, dl: Dialect) -> Result<Cow<'_, Model>, Q
             formula::Type::Number => "number",
             formula::Type::Text => "string",
             formula::Type::Condition => "boolean",
+            formula::Type::Date => "date",
+            formula::Type::Time => "time",
+            formula::Type::DateTime => "datetime",
         };
         if d.kind.is_empty() {
             d.kind = kind.into();
@@ -460,11 +463,9 @@ fn row_formula_sql(
             "number" => formula::Type::Number,
             "boolean" => formula::Type::Condition,
             "string" => formula::Type::Text,
-            _ => {
-                return Err(format!(
-                    "{name}: dates aren't available in formulas yet; group by {name}:month and the like"
-                ));
-            }
+            "date" => formula::Type::Date,
+            "time" => formula::Type::Time,
+            _ => formula::Type::DateTime,
         };
         Ok((col_expr(dl, field), t))
     })?;
@@ -1599,7 +1600,8 @@ measures:
         };
         assert!(f("sum(amount)").contains("one row at a time"), "{}", f("sum(amount)"));
         assert!(f("revenue * 2").contains("one row at a time"));
-        assert!(f("sold_at").contains("dates"));
+        // a date isn't a number: the functions that move one and count days are named
+        assert!(f("sold_at + 1").contains("date_add"), "{}", f("sold_at + 1"));
         assert!(f("amont * 2").contains("did you mean amount"));
         let e = compile(json!({"model": "sales", "dimensions": ["a"], "formulas": [
             {"name": "a", "expr": "b + 1", "per_row": true}, {"name": "b", "expr": "a * 2", "per_row": true}]}))

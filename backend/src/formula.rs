@@ -15,7 +15,31 @@ const MAX_LENGTH: usize = 1000;
 /// How deep brackets, functions and signs may nest (the parser recurses on them).
 const MAX_DEPTH: usize = 32;
 /// The functions a formula may call, besides aggregations.
-pub const FUNCTIONS: [&str; 9] = ["if", "coalesce", "round", "abs", "least", "greatest", "lower", "upper", "concat"];
+pub const FUNCTIONS: [&str; 21] = [
+    "if",
+    "coalesce",
+    "round",
+    "abs",
+    "least",
+    "greatest",
+    "lower",
+    "upper",
+    "concat", // numbers, logic, text
+    "year",
+    "quarter",
+    "month",
+    "week",
+    "day",
+    "weekday",
+    "hour",
+    "today",
+    "days_between", // dates
+    "date_trunc",
+    "date_add",
+    "date_diff",
+];
+/// The parts of a date the functions of that name give, as numbers.
+const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
 /// Calculations on a chart's results (window functions, run on ScramDB: results.rs).
 pub const RESULT_FUNCTIONS: [&str; 5] = ["running_sum", "moving_avg", "previous", "rank", "percent_of_total"];
 /// Aggregations of a column, as in Explore's Σ: `sum(amount)`.
@@ -422,6 +446,11 @@ pub enum Type {
     Number,
     Text,
     Condition,
+    Date,
+    /// an instant (a `time` field)
+    Time,
+    /// a date and time of day, without a time zone (a `datetime` field)
+    DateTime,
 }
 
 /// The SQL of a formula, and what it gives. `resolve` gives the SQL of a field or aggregation and
@@ -438,6 +467,9 @@ pub fn compile(
     let t = match kind {
         Kind::Text => Type::Text,
         Kind::Condition => Type::Condition,
+        Kind::Date => Type::Date,
+        Kind::Time => Type::Time,
+        Kind::DateTime => Type::DateTime,
         Kind::Number | Kind::Any => Type::Number,
     };
     Ok((sql, t))
@@ -448,8 +480,17 @@ enum Kind {
     Number,
     Text,
     Condition,
+    Date,
+    Time,
+    DateTime,
     /// null: fits any
     Any,
+}
+
+impl Kind {
+    fn is_date(self) -> bool {
+        matches!(self, Kind::Date | Kind::Time | Kind::DateTime)
+    }
 }
 
 impl From<Type> for Kind {
@@ -458,6 +499,9 @@ impl From<Type> for Kind {
             Type::Number => Kind::Number,
             Type::Text => Kind::Text,
             Type::Condition => Kind::Condition,
+            Type::Date => Kind::Date,
+            Type::Time => Kind::Time,
+            Type::DateTime => Kind::DateTime,
         }
     }
 }
@@ -485,6 +529,10 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         match self.node(n)? {
             (_, Kind::Condition) => fail(at, "a number is expected here, not a condition"),
             (_, Kind::Text) => fail(at, "a number is expected here, not text"),
+            (_, k) if k.is_date() => fail(
+                at,
+                "a number is expected here, not a date: date_add(…) moves a date, days_between(…) counts the days",
+            ),
             (sql, _) => Ok(sql),
         }
     }
@@ -493,6 +541,31 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         match self.node(n)? {
             (sql, Kind::Text | Kind::Any) => Ok(sql),
             _ => fail(at, "text is expected here"),
+        }
+    }
+
+    /// A date, time or date-time, and which.
+    fn date(&mut self, n: &Node, at: usize) -> Result<(String, Kind), FormulaError> {
+        match self.node(n)? {
+            (sql, k) if k.is_date() => Ok((sql, k)),
+            _ => fail(at, "a date is expected here, such as a date field"),
+        }
+    }
+
+    /// A function's unit, one of `units`, in quotes ('month').
+    fn unit(&self, n: &Node, at: usize, name: &str, units: &[&'static str]) -> Result<&'static str, FormulaError> {
+        let listed = match units.split_last() {
+            Some((last, rest)) => {
+                format!("{} or '{last}'", rest.iter().map(|u| format!("'{u}'")).collect::<Vec<_>>().join(", "))
+            }
+            None => String::new(),
+        };
+        match n {
+            Node::Text(t) => match units.iter().find(|u| u.eq_ignore_ascii_case(t.trim())) {
+                Some(u) => Ok(u),
+                None => fail(at, format!("{name}(…)'s unit is {listed}")),
+            },
+            _ => fail(at, format!("{name}(…)'s unit goes in quotes, such as 'month': {listed}")),
         }
     }
 
@@ -549,8 +622,14 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             Node::Binary { op, left, right } => {
                 let ((l, a), (r, b)) = (self.node(left)?, self.node(right)?);
                 match same(a, b) {
-                    Some(Kind::Number | Kind::Text | Kind::Any) => (format!("({l} {op} {r})"), Kind::Condition),
-                    _ => return fail(0, "compare numbers with numbers, and text with text"),
+                    Some(k) if k != Kind::Condition => (format!("({l} {op} {r})"), Kind::Condition),
+                    _ => {
+                        return fail(
+                            0,
+                            "compare numbers with numbers, text with text and dates with dates of the same kind \
+                             (days_between(a, b) counts the days from one to the other)",
+                        );
+                    }
                 }
             }
             Node::Call { name, args, at } => self.call(name, args, *at)?,
@@ -645,11 +724,83 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 for a in args {
                     parts.push(match self.node(a)? {
                         (sql, Kind::Text | Kind::Any) => sql,
-                        (sql, Kind::Number) => format!("CAST({sql} AS {})", self.dl.text()),
                         (_, Kind::Condition) => return fail(at, "concat(…) joins text and numbers, not conditions"),
+                        (sql, _) => format!("CAST({sql} AS {})", self.dl.text()),
                     });
                 }
                 Ok((format!("CONCAT({})", parts.join(", ")), Kind::Text))
+            }
+            part if DATE_PARTS.contains(&part) => {
+                count(args.len() == 1, &format!("one date, such as {part}(sold_at)"))?;
+                let (x, k) = self.date(&args[0], at)?;
+                if part == "hour" && k == Kind::Date {
+                    return fail(at, "hour(…) needs a time; this is a date, without one");
+                }
+                Ok((date_part(self.dl, part, &x), Kind::Number))
+            }
+            "today" => {
+                count(args.is_empty(), "nothing, as today()")?;
+                // written in, in UTC: the same on every engine (DuckDB's CURRENT_DATE needs ICU), and a
+                // cached result is never yesterday's today
+                Ok((format!("CAST('{}' AS DATE)", chrono::Utc::now().date_naive()), Kind::Date))
+            }
+            "days_between" => {
+                count(args.len() == 2, "two dates: days_between(from, to)")?;
+                let (from, to) = (self.date(&args[0], at)?, self.date(&args[1], at)?);
+                Ok((days_between(self.dl, from, to), Kind::Number))
+            }
+            "date_diff" => {
+                count(args.len() == 3, "two dates and a unit: date_diff(from, to, 'month')")?;
+                let (from, to) = (self.date(&args[0], at)?, self.date(&args[1], at)?);
+                let sql = match self.unit(&args[2], at, name, &["day", "month", "year"])? {
+                    "day" => days_between(self.dl, from, to),
+                    // calendar months and years: from March to April is one, whatever the day
+                    unit => {
+                        let years = format!(
+                            "({} - {})",
+                            date_part(self.dl, "year", &to.0),
+                            date_part(self.dl, "year", &from.0)
+                        );
+                        match unit {
+                            "year" => years,
+                            _ => format!(
+                                "({years} * 12 + {} - {})",
+                                date_part(self.dl, "month", &to.0),
+                                date_part(self.dl, "month", &from.0)
+                            ),
+                        }
+                    }
+                };
+                Ok((sql, Kind::Number))
+            }
+            "date_trunc" => {
+                count(args.len() == 2, "a date and a unit: date_trunc(sold_at, 'month')")?;
+                let (x, k) = self.date(&args[0], at)?;
+                let unit = self.unit(&args[1], at, name, &["hour", "day", "week", "month", "quarter", "year"])?;
+                if unit == "hour" && k == Kind::Date {
+                    return fail(at, "date_trunc(…, 'hour') needs a time; this is a date, without one");
+                }
+                Ok((self.dl.trunc(unit, &x, trunc_type(self.dl, k)), k))
+            }
+            "date_add" => {
+                count(args.len() == 3, "a date, how many and a unit: date_add(sold_on, 30, 'day')")?;
+                let (x, k) = self.date(&args[0], at)?;
+                let n = match &args[1] {
+                    Node::Number(n) => n.parse::<i64>().ok(),
+                    Node::Neg(inner) => match inner.as_ref() {
+                        Node::Number(n) => n.parse::<i64>().ok().map(|n| -n),
+                        _ => None,
+                    },
+                    _ => None,
+                };
+                let Some(n) = n.filter(|n| n.abs() <= 100_000) else {
+                    return fail(at, "date_add(…)'s how many is a whole number, such as 30 or -7");
+                };
+                let unit = self.unit(&args[2], at, name, &["hour", "day", "week", "month", "year"])?;
+                if unit == "hour" && k == Kind::Date {
+                    return fail(at, "date_add(…, 'hour') needs a time; this is a date, without one");
+                }
+                Ok((date_add(self.dl, &x, k, n, unit), k))
             }
             _ => {
                 count(args.len() >= 2, "two or more numbers")?;
@@ -657,6 +808,61 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 Ok((format!("{}({})", name.to_uppercase(), parts.join(", ")), Kind::Number))
             }
         }
+    }
+}
+
+/// A part of a date as a whole number: weeks as in ISO 8601, weekdays from 1 (Monday) to 7.
+fn date_part(dl: Dialect, part: &str, x: &str) -> String {
+    match (dl, part) {
+        // BigQuery's day of the week starts on Sunday (1)
+        (Dialect::BigQuery, "weekday") => format!("(MOD(EXTRACT(DAYOFWEEK FROM {x}) + 5, 7) + 1)"),
+        (Dialect::BigQuery, "week") => format!("EXTRACT(ISOWEEK FROM {x})"),
+        (Dialect::BigQuery, _) => format!("EXTRACT({} FROM {x})", part.to_uppercase()),
+        _ => {
+            let p = if part == "weekday" { "ISODOW".to_string() } else { part.to_uppercase() };
+            format!("CAST(EXTRACT({p} FROM {x}) AS INTEGER)")
+        }
+    }
+}
+
+fn as_date((x, k): &(String, Kind)) -> String {
+    if *k == Kind::Date { x.clone() } else { format!("CAST({x} AS DATE)") }
+}
+
+/// The days from one date to the other (negative when it's before).
+fn days_between(dl: Dialect, from: (String, Kind), to: (String, Kind)) -> String {
+    let (a, b) = (as_date(&from), as_date(&to));
+    match dl {
+        Dialect::BigQuery => format!("DATE_DIFF({b}, {a}, DAY)"),
+        Dialect::DuckDb => format!("DATE_DIFF('day', {a}, {b})"),
+        Dialect::Postgres => format!("({b} - {a})"),
+    }
+}
+
+/// The dimension type `Dialect::trunc` takes for a kind of date (DuckDB reads instants as UTC
+/// timestamps: see `compiler::col_expr`).
+fn trunc_type(dl: Dialect, k: Kind) -> &'static str {
+    match k {
+        Kind::Date => "date",
+        Kind::Time if dl != Dialect::DuckDb => "time",
+        _ => "datetime",
+    }
+}
+
+/// A date moved by `n` units, still a date of its kind.
+fn date_add(dl: Dialect, x: &str, k: Kind, n: i64, unit: &str) -> String {
+    let u = unit.to_uppercase();
+    match (dl, k) {
+        (Dialect::BigQuery, Kind::Date) => format!("DATE_ADD({x}, INTERVAL {n} {u})"),
+        (Dialect::BigQuery, Kind::Time) => match unit {
+            "hour" | "day" => format!("TIMESTAMP_ADD({x}, INTERVAL {n} {u})"),
+            // a timestamp adds days at most: weeks as days, months and years on its date-time
+            "week" => format!("TIMESTAMP_ADD({x}, INTERVAL {} DAY)", n * 7),
+            _ => format!("TIMESTAMP(DATETIME_ADD(DATETIME({x}), INTERVAL {n} {u}))"),
+        },
+        (Dialect::BigQuery, _) => format!("DATETIME_ADD({x}, INTERVAL {n} {u})"),
+        (_, Kind::Date) => format!("CAST(({x} + INTERVAL '{n} {unit}') AS DATE)"),
+        _ => format!("({x} + INTERVAL '{n} {unit}')"),
     }
 }
 
@@ -685,7 +891,7 @@ pub fn closest<'a>(name: &str, names: impl IntoIterator<Item = &'a str>) -> Opti
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::compiler::Dialect;
 
@@ -717,6 +923,9 @@ mod tests {
             "region" | "store" => Ok((format!("\"{name}\""), Type::Text)),
             "amount" | "qty" => Ok((format!("\"{name}\""), Type::Number)),
             "returned" => Ok(("\"returned\"".into(), Type::Condition)),
+            "sold_at" => Ok(("\"sold_at\"".into(), Type::Time)),
+            "sold_on" | "ordered_on" => Ok((format!("\"{name}\""), Type::Date)),
+            "naive" => Ok(("\"naive\"".into(), Type::DateTime)),
             other => Err(format!("unknown column {other:?}")),
         }
     }
@@ -902,5 +1111,154 @@ mod tests {
         assert!(is_on_results("revenue / running_sum(revenue)").unwrap());
         assert!(!is_on_results("revenue / units").unwrap());
         assert_eq!(references("previous(revenue) + sum(qty) - revenue").unwrap(), ["revenue", "sum(qty)"]);
+    }
+
+    /// The date functions' answers, on 2026-03-15 (a Sunday; 13:45 UTC) and 2025-11-30.
+    const DATES: [(&str, &str); 31] = [
+        ("year(sold_at)", "2026"),
+        ("quarter(sold_at)", "1"),
+        ("month(sold_on)", "3"),
+        ("day(naive)", "15"),
+        ("hour(sold_at)", "13"),
+        ("hour(naive)", "13"),
+        ("week(sold_on)", "11"),
+        ("weekday(sold_on)", "7"),
+        ("weekday(date_add(sold_on, 1, 'day'))", "1"),
+        ("weekday(sold_at)", "7"),
+        ("days_between(ordered_on, sold_on)", "105"),
+        ("days_between(sold_on, ordered_on)", "-105"),
+        ("days_between(ordered_on, sold_at)", "105"),
+        ("date_diff(ordered_on, sold_on, 'month')", "4"),
+        ("date_diff(ordered_on, sold_on, 'year')", "1"),
+        ("date_diff(ordered_on, sold_at, 'day')", "105"),
+        ("date_trunc(sold_on, 'month')", "2026-03-01"),
+        ("date_trunc(sold_on, 'week')", "2026-03-09"),
+        ("date_trunc(sold_at, 'quarter')", "2026-01-01"),
+        ("date_trunc(naive, 'year')", "2026-01-01"),
+        ("hour(date_trunc(naive, 'hour'))", "13"),
+        ("date_add(sold_on, 1, 'month')", "2026-04-15"),
+        ("date_add(sold_on, -2, 'week')", "2026-03-01"),
+        ("date_add(sold_at, 1, 'month')", "2026-04-15"),
+        ("hour(date_add(sold_at, 2, 'hour'))", "15"),
+        ("date_add(naive, 1, 'year')", "2027-03-15"),
+        ("date_add(sold_at, -1, 'week')", "2026-03-08"),
+        ("if(sold_on > ordered_on, 'later', 'earlier')", "later"),
+        ("days_between(today(), today())", "0"),
+        ("if(year(today()) >= 2026, 'yes', 'no')", "yes"),
+        ("coalesce(null, sold_on)", "2026-03-15"),
+    ];
+
+    /// The dates of [`DATES`] as each engine writes them.
+    fn date_columns(dl: Dialect) -> impl FnMut(&str) -> Result<(String, Type), String> {
+        move |name| {
+            let time = match dl {
+                // as the compiler reads a `time` column on DuckDB (col_expr): a UTC timestamp
+                Dialect::DuckDb => "CAST(CAST('2026-03-15 13:45:00' AS TIMESTAMP) AS TIMESTAMP)".to_string(),
+                Dialect::BigQuery => "TIMESTAMP('2026-03-15 13:45:00+00')".to_string(),
+                Dialect::Postgres => "CAST('2026-03-15 13:45:00+00' AS TIMESTAMPTZ)".to_string(),
+            };
+            match name {
+                "sold_at" => Ok((time, Type::Time)),
+                "sold_on" => Ok(("CAST('2026-03-15' AS DATE)".into(), Type::Date)),
+                "ordered_on" => Ok(("CAST('2025-11-30' AS DATE)".into(), Type::Date)),
+                "naive" => Ok(("CAST('2026-03-15 13:45:00' AS TIMESTAMP)".into(), Type::DateTime)),
+                other => Err(format!("unknown column {other:?}")),
+            }
+        }
+    }
+
+    /// Each of [`DATES`] as a query giving its answer as text (a date as its day).
+    pub(crate) fn date_queries(dl: Dialect) -> Vec<(String, &'static str, &'static str)> {
+        DATES
+            .iter()
+            .map(|(expr, want)| {
+                let (sql, t) = compile(expr, dl, &mut date_columns(dl)).unwrap_or_else(|e| panic!("{expr}: {e}"));
+                let sql = match t {
+                    Type::Date | Type::Time | Type::DateTime => format!("CAST({sql} AS DATE)"),
+                    _ => sql,
+                };
+                (format!("SELECT CAST({sql} AS {})", dl.text()), *expr, *want)
+            })
+            .collect()
+    }
+
+    /// On ScramDB (MAGNUM_TEST_DATABASE_URL) and a real PostgreSQL (MAGNUM_TEST_POSTGRES_URL);
+    /// each skipped without its database.
+    #[tokio::test]
+    async fn date_functions_give_the_same_answers_on_scramdb_and_postgresql() {
+        for var in ["MAGNUM_TEST_DATABASE_URL", "MAGNUM_TEST_POSTGRES_URL"] {
+            let Ok(url) = std::env::var(var) else { continue };
+            let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
+            tokio::spawn(conn);
+            for (sql, expr, want) in date_queries(Dialect::Postgres) {
+                let row = client.query_one(&sql, &[]).await.unwrap_or_else(|e| panic!("{var}: {expr}: {sql}: {e}"));
+                assert_eq!(row.get::<_, String>(0), want, "{var}: {expr}: {sql}");
+            }
+        }
+    }
+
+    #[test]
+    fn date_functions_on_bigquery() {
+        let bq = |e| per_row(e, Dialect::BigQuery).unwrap().0;
+        assert_eq!(bq("year(sold_at)"), "EXTRACT(YEAR FROM \"sold_at\")");
+        assert_eq!(bq("week(sold_on)"), "EXTRACT(ISOWEEK FROM \"sold_on\")");
+        // BigQuery counts from Sunday (1); Monday is 1 here, as elsewhere
+        assert_eq!(bq("weekday(sold_on)"), "(MOD(EXTRACT(DAYOFWEEK FROM \"sold_on\") + 5, 7) + 1)");
+        // today is written in (UTC): a cached result is never yesterday's today
+        let today = chrono::Utc::now().date_naive();
+        assert_eq!(bq("today()"), format!("CAST('{today}' AS DATE)"));
+        assert_eq!(per_row("today()", Dialect::DuckDb).unwrap().0, format!("CAST('{today}' AS DATE)"));
+        assert_eq!(
+            bq("days_between(ordered_on, sold_at)"),
+            "DATE_DIFF(CAST(\"sold_at\" AS DATE), \"ordered_on\", DAY)"
+        );
+        assert_eq!(bq("date_trunc(sold_at, 'month')"), "TIMESTAMP_TRUNC(\"sold_at\", MONTH, 'UTC')");
+        assert_eq!(bq("date_add(sold_on, 2, 'month')"), "DATE_ADD(\"sold_on\", INTERVAL 2 MONTH)");
+        assert_eq!(bq("date_add(naive, 2, 'hour')"), "DATETIME_ADD(\"naive\", INTERVAL 2 HOUR)");
+        // a timestamp adds days and hours only: weeks as days, months through its date-time
+        assert_eq!(bq("date_add(sold_at, 1, 'week')"), "TIMESTAMP_ADD(\"sold_at\", INTERVAL 7 DAY)");
+        assert_eq!(
+            bq("date_add(sold_at, -1, 'month')"),
+            "TIMESTAMP(DATETIME_ADD(DATETIME(\"sold_at\"), INTERVAL -1 MONTH))"
+        );
+        // and the answers run the same, as the other engines' (the SQL is the one checked above)
+        assert_eq!(date_queries(Dialect::BigQuery).len(), DATES.len());
+    }
+
+    #[test]
+    fn date_mistakes_are_explained() {
+        let pg = |e| per_row(e, Dialect::Postgres).unwrap_err().message;
+        assert!(pg("hour(sold_on)").contains("hour(…) needs a time"), "{}", pg("hour(sold_on)"));
+        assert!(pg("year(amount)").contains("a date is expected here"));
+        assert!(pg("year(sold_on, 2)").contains("one date"));
+        assert!(pg("date_trunc(sold_on, 'decade')").contains("'month'"));
+        assert!(pg("date_trunc(sold_on, region)").contains("in quotes"));
+        assert!(pg("date_trunc(sold_on, 'hour')").contains("needs a time"));
+        assert!(pg("date_add(sold_on, qty, 'day')").contains("whole number"));
+        assert!(pg("date_add(sold_on, 1.5, 'day')").contains("whole number"));
+        assert!(pg("date_diff(sold_on, sold_at, 'week')").contains("'day', 'month' or 'year'"));
+        assert!(pg("today(1)").contains("today()"));
+        assert!(pg("sold_on + 1").contains("date_add"), "{}", pg("sold_on + 1"));
+        assert!(pg("sold_on > sold_at").contains("days_between"), "{}", pg("sold_on > sold_at"));
+        assert!(pg("sold_on > 3").contains("compare"));
+        // what they give
+        assert_eq!(per_row("date_trunc(sold_at, 'day')", Dialect::Postgres).unwrap().1, Type::Time);
+        assert_eq!(per_row("date_add(sold_on, 1, 'day')", Dialect::Postgres).unwrap().1, Type::Date);
+        assert_eq!(per_row("if(returned, naive, null)", Dialect::Postgres).unwrap().1, Type::DateTime);
+        assert_eq!(per_row("concat('Q', quarter(sold_on))", Dialect::Postgres).unwrap().1, Type::Text);
+        // on totals, dates come only through per-row formulas (for now)
+        assert!(sql("year(revenue)").unwrap_err().message.contains("a date is expected here"));
+    }
+
+    /// The formula editor (frontend/src/formula.ts) offers every function, and only those.
+    #[test]
+    fn the_editor_offers_the_functions_there_are() {
+        let editor = include_str!("../../frontend/src/formula.ts");
+        let offered: Vec<&str> = editor.split("{ name: '").skip(1).filter_map(|rest| rest.split('\'').next()).collect();
+        let mut there: Vec<&str> = FUNCTIONS.iter().chain(&RESULT_FUNCTIONS).copied().collect();
+        let mut offered = offered;
+        there.sort_unstable();
+        offered.sort_unstable();
+        assert_eq!(offered, there);
     }
 }
