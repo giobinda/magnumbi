@@ -612,6 +612,26 @@ mod tests {
         .await;
         assert!(close(num(&by_if[0][0]), num(&by_filter[0][0])), "{by_if:?} {by_filter:?}");
         assert!(close(num(&by_if[0][1]), num(&by_filter[0][1])), "previous: {by_if:?} {by_filter:?}");
+        // the rest of them, the same as the filtered aggregations
+        let filtered =
+            run(json!({"model": "sales", "measures": ["min(amount)", "max(amount)", "count_distinct(store)"],
+            "filters": emea}))
+            .await;
+        let ifs = run(json!({"model": "sales", "measures": ["lo", "hi", "stores"], "formulas": [
+            {"name": "lo", "expr": "min_if(amount, region = 'EMEA')"},
+            {"name": "hi", "expr": "max_if(amount, region = 'EMEA')"},
+            {"name": "stores", "expr": "count_distinct_if(store, region = 'EMEA')"}]}))
+        .await;
+        for i in 0..3 {
+            assert!(close(num(&ifs[0][i]), num(&filtered[0][i])), "{ifs:?} {filtered:?}");
+        }
+        // the spread of a sample: the variance as written out by hand, and its square root
+        let spread = run(json!({"model": "sales", "measures": ["sd", "var", "by_hand"], "formulas": [
+            {"name": "sd", "expr": "stddev(amount)"}, {"name": "var", "expr": "variance(amount)"},
+            {"name": "by_hand", "expr": "(sum_if(amount * amount, true) - power(sum_if(amount, true), 2) / count_if(true)) / (count_if(true) - 1)"}]}))
+        .await;
+        let (sd, var, by_hand) = (num(&spread[0][0]), num(&spread[0][1]), num(&spread[0][2]));
+        assert!(close(var, by_hand) && close(sd * sd, var), "{spread:?}");
         clean_up(&state, &org).await;
     }
 

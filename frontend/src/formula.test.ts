@@ -22,10 +22,16 @@ describe('formulas', () => {
   })
 
   it('knows the functions the server allows', () => {
-    expect(FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'in', 'case'])
-    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'in', 'case',
+    const numbers = ['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'in', 'case',
+      'floor', 'ceil', 'mod', 'power', 'sqrt', 'ln', 'log10', 'exp']
+    expect(FUNCTIONS.map(f => f.name)).toEqual(numbers)
+    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual([...numbers,
       'lower', 'upper', 'concat', 'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace',
-      'year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'date_trunc', 'date_add', 'date_diff'])
+      'substring', 'position', 'split_part', 'to_number', 'to_text',
+      'year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'date_trunc', 'date_add', 'date_diff',
+      'hours_between', 'minutes_between'])
+    expect(TOTAL_FUNCTIONS.map(f => f.name).slice(numbers.length))
+      .toEqual(['sum_if', 'count_if', 'avg_if', 'min_if', 'max_if', 'count_distinct_if', 'stddev', 'variance'])
   })
 
   it('adds a formula to a query as a measure, and takes it away', () => {
@@ -102,14 +108,15 @@ describe('formulas', () => {
     expect(groups.map(g => g.group)).toEqual(['Numbers', 'Logic', 'Text', 'Dates'])
     // the easy dates first; truncating, moving and counting in units under Advanced
     expect(groups.find(g => g.group === 'Dates')!.functions.map(f => f.name))
-      .toEqual(['year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between'])
+      .toEqual(['year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'hours_between', 'minutes_between'])
     expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Dates')!.functions.map(f => f.name))
       .toContain('date_add')
     expect(groups.flatMap(g => g.functions.map(f => f.name))).not.toContain('coalesce')
     // choosing among values: in for everyone, case under Advanced
     expect(groups.find(g => g.group === 'Logic')!.functions.map(f => f.name)).toEqual(['if', 'in'])
     expect(groups.find(g => g.group === 'Text')!.functions.map(f => f.name)).toEqual(['lower', 'upper', 'concat',
-      'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace'])
+      'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace', 'substring', 'to_number', 'to_text'])
+    expect(groups.find(g => g.group === 'Numbers')!.functions.map(f => f.name)).toEqual(['round', 'abs', 'floor', 'ceil'])
     expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Logic')!.functions.map(f => f.name))
       .toEqual(['if', 'coalesce', 'in', 'case'])
     const all = functionGroups(ROW_FUNCTIONS, true).flatMap(g => g.functions.map(f => f.name))
@@ -117,7 +124,9 @@ describe('formulas', () => {
     expect(all.length).toBe(ROW_FUNCTIONS.length)
     // on totals: no text functions, but totals with a condition (not per row)
     expect(functionGroups(TOTAL_FUNCTIONS, false).map(g => g.group)).toEqual(['Numbers', 'Logic', 'Totals with a condition'])
-    expect(functionGroups(TOTAL_FUNCTIONS, false).at(-1)!.functions.map(f => f.name)).toEqual(['sum_if', 'count_if', 'avg_if'])
+    expect(functionGroups(TOTAL_FUNCTIONS, false).at(-1)!.functions.map(f => f.name)).toEqual(['sum_if', 'count_if', 'avg_if', 'min_if', 'max_if'])
+    // the spread of values, under Advanced
+    expect(functionGroups(TOTAL_FUNCTIONS, true).map(g => g.group)).toEqual(['Numbers', 'Logic', 'Totals with a condition', 'Spread'])
     expect(ROW_FUNCTIONS.map(f => f.name)).not.toContain('sum_if')
   })
 

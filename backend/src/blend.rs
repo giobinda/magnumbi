@@ -427,7 +427,7 @@ fn with_formulas(
             if let Some(c) = crate::formula::calls(&f.expr)
                 .map_err(what)?
                 .into_iter()
-                .find(|c| matches!(c.as_str(), "sum_if" | "avg_if" | "count_if"))
+                .find(|c| crate::formula::OVER_ROWS.contains(&c.as_str()))
             {
                 return err(format!(
                     "{}: {c}(…) adds up a model's rows, and after the join they're totals already: \

@@ -142,6 +142,22 @@ Never: copying raw rows across engines to make a formula work (the blends rule).
 model's columns (`sum(taxi.fare)`), sharing a formula on a blend (shared formulas belong to a
 model).
 
+## Next: what's still missing (2026-10-29), in rounds
+
+Left aside for now (the user's call): `median` / `percentile` (no exact percentile in ScramDB) and
+patterns (`matches`, `extract`: regex safety). Everything else, round by round:
+
+1. **Quick wins** (done): written dates (`sold_on >= '2026-01-01'`); `floor`, `ceil`, `mod`, `power`,
+   `sqrt`, `ln`, `log10`, `exp`; `stddev`, `variance`, `min_if`, `max_if`, `count_distinct_if`;
+   `substring`, `position`, `split_part`, `to_number`, `to_text`; `hours_between`,
+   `minutes_between`. What a database can't compute (√ of a negative, text that isn't a number)
+   is empty, never an error that fails the chart, as for division by zero.
+2. **Dates and results**: `format_date`, fiscal years; `first`, `last`, `ntile`; calculations on
+   results that use one another.
+3. **Blends**: `sum_if` and the like, aggregations of a model's columns (`sum(taxi.fare)`), shared
+   formulas on a blend.
+4. **Totals at a fixed level** ("revenue per region, whatever the chart shows"): design first.
+
 ## Later, to decide
 
 - Fixed-level totals ("revenue per region, whatever the chart shows"): powerful, hard to explain;
