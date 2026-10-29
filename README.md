@@ -641,8 +641,13 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   (`[{name, expr, label?, format?}]`, each a column too), or a **shared formula** that Org admins
   add to a model for the whole organisation (Explore's **ƒ New formula** with *Share*, or
   Models › Shared formulas; API: `GET /api/formulas`, `PUT|DELETE /api/formulas/{model}/{name}`
-  with `?dry_run=1`). Explore's editor offers the fields and functions to click and checks as you
-  type (`POST /api/formulas/check` says what's wrong and where).
+  with `?dry_run=1`). Explore's editor offers the fields and functions to click, grouped by what
+  they do (the harder ones under **Advanced ▸**, closed until opened), and checks as you type
+  (`POST /api/formulas/check` says what's wrong and where).
+- **Quick calculations:** **+** on a chart's measure offers, in plain words, share of total,
+  change and % change from previous, running total, average of last 3, rank, and divided by another
+  measure. Each is an ordinary query formula (`percent_of_total(revenue)`,
+  `(revenue - previous(revenue)) / previous(revenue)`, …), to open and change.
 - **The language:** on totals, measures and formulas by name, and columns through `sum`, `avg`,
   `min`, `max`, `count`, `count_distinct`; per row, the row's columns by name (not dates yet).
   `+ - * /` (dividing by zero gives an empty value), comparisons, `and`/`or`/`not`; `if`,

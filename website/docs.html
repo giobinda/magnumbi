@@ -364,9 +364,10 @@ cache: 15m                     <span class="c"># optional</span></code></pre>
       <div class="tabs" data-tabs>
         <div class="tab-list" role="tablist" aria-label="Where to do it"><button type="button" role="tab" data-tab="ui">In the app</button><button type="button" role="tab" data-tab="code">In code</button></div>
         <div class="tab-panel" role="tabpanel" data-tab="ui" data-label="In the app">
+          <p><strong>Quickest:</strong> click <strong>+</strong> on a measure in the chart for <em>Calculate</em>: share of total, change and % change from previous, running total, average of last 3, rank, or divided by another of the chart's measures. Each adds an ordinary formula, named in plain words ("Revenue, share of total"), to open and change like any other. Comparing rows needs a dimension, so with none only dividing is offered.</p>
           <ol>
             <li>In <strong>Discover › Explore</strong>, click <strong>ƒ New formula</strong> next to <em>Measures</em> (on totals), or <strong>ƒ New field</strong> next to <em>Dimensions</em> (per row).</li>
-            <li>Name it, and build it by clicking the model's measures, its columns (as Σ aggregations) and the functions, or by typing. It's checked as you type, and a mistake is shown where it is (<em>unknown field "revnue"; did you mean revenue?</em>).</li>
+            <li>Name it, and build it by clicking the model's measures, its columns (as Σ aggregations) and the functions, grouped by what they do (numbers, logic, text, comparing with other rows), or by typing. The harder ones (<code>coalesce</code>, <code>least</code>, <code>greatest</code>) are under <strong>Advanced ▸</strong>, closed until you open it; it stays as you leave it. It's checked as you type, and a mistake is shown where it is (<em>unknown field "revnue"; did you mean revenue?</em>).</li>
             <li><strong>Add</strong> puts it in your chart. Click its <strong>ƒ</strong> to change it.</li>
           </ol>
           <figure class="shot"><a href="assets/screens/formula.jpg"><img src="assets/screens/formula.jpg" alt="The formula editor: a name, the formula, and the model's measures, columns and functions to click" width="760" height="610" loading="lazy"></a><figcaption>A formula on the sample sales, checked as it's typed.</figcaption></figure>
