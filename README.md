@@ -629,13 +629,17 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   `if(amount * qty > 500, 'large', 'small')`, `concat(region, ' / ', category)`. Group by it,
   filter on it, or add it up (`sum(line_total)`). In YAML a dimension with `formula:` (its `type`
   is what it gives), or a query formula with `per_row: true`.
-- **On a chart's results** (`results.rs`): `running_sum(x)`, `moving_avg(x, rows)`, `previous(x)`,
-  `rank(x)`, `percent_of_total(x)`, mixed with the rest (`revenue - previous(revenue)`). The chart's
+- **On a chart's results** (`results.rs`): `running_sum(x)`, `running_avg(x)`, `moving_avg(x, rows)`,
+  `previous(x)`, `next(x)`, `difference(x)`, `percent_change(x)`, `rank(x)`, `percent_of_total(x)`
+  and, under Advanced, `dense_rank(x)`, mixed with the rest (`revenue / previous(revenue)`). The chart's
   query runs (or comes from the cache) without them; its result is copied to the organisation's
   ScramDB and they run there as window functions. Running, moving and previous go along the first
   date dimension (else the first), per value of the others; rank and % of total go across the
-  others, within each value of the first. They stay with their chart; charts sort by them, but
-  can't filter or rank (Top N) by them yet. They work on blends too.
+  others, within each value of the first. Under Advanced, say otherwise after the value:
+  `running_sum(revenue, along(sold_at), within(region))`, `rank(revenue, within())` (the whole
+  chart), `percent_of_total(revenue, within(region))`; the editor offers the chart's dimensions. They
+  stay with their chart; charts sort by them, filter on them (numbers: =, <, >, between, empty; on
+  the rows the chart shows) and, with one dimension, take their Top N. They work on blends too.
 
 - **Where:** a model's measure (`type: formula, formula: …`), a query's own `formulas:` list
   (`[{name, expr, label?, format?}]`, each a column too), or a **shared formula** that Org admins

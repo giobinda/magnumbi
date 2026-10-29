@@ -74,7 +74,27 @@ export const RESULT_FUNCTIONS: FormulaFunction[] = [
   { name: 'previous', template: 'previous(|)', help: 'the value on the row before, along the first date', group: 'Compared with other rows' },
   { name: 'rank', template: 'rank(|)', help: '1 for the largest, across the other dimensions', group: 'Compared with other rows' },
   { name: 'percent_of_total', template: 'percent_of_total(|)', help: 'the share of the total, across the other dimensions', group: 'Compared with other rows' },
+  { name: 'running_avg', template: 'running_avg(|)', help: 'the average so far, along the first date', group: 'Compared with other rows' },
+  { name: 'next', template: 'next(|)', help: 'the value on the row after, along the first date', group: 'Compared with other rows' },
+  { name: 'difference', template: 'difference(|)', help: 'the change from the row before, along the first date', group: 'Compared with other rows' },
+  { name: 'percent_change', template: 'percent_change(|)', help: 'the change from the row before, as a percentage', group: 'Compared with other rows' },
+  { name: 'dense_rank', template: 'dense_rank(|)', help: 'like rank, without gaps after ties (1, 1, 2)', group: 'Compared with other rows', advanced: true },
+  { name: 'along', template: ', along(|)', help: 'after the value: the dimension to go along, e.g. running_sum(revenue, along(sold_at))', group: 'Compared with other rows', advanced: true },
+  { name: 'within', template: ', within(|)', help: 'after the value: the dimensions to start again for, e.g. within(region); within() for the whole chart', group: 'Compared with other rows', advanced: true },
 ]
+
+/** Along or within each of the chart's dimensions (and the whole chart), to click after a
+ *  calculation's value: under Advanced. */
+export function windowChips(dims: { ref: string; label: string }[]): { label: string; insert: string }[] {
+  const chips = dims.flatMap(d => {
+    const field = d.ref.split(':')[0]
+    return [
+      { label: `along ${d.label}`, insert: `, along(${field})` },
+      { label: `within ${d.label}`, insert: `, within(${field})` },
+    ]
+  })
+  return dims.length ? [...chips, { label: 'within the whole chart', insert: ', within()' }] : []
+}
 
 const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Totals with a condition', 'Compared with other rows']
 
@@ -94,8 +114,8 @@ export function quickCalcs(m: Measure, others: Omit<Measure, 'format'>[], taken:
   // the menu, the label's ending, the name's ending (as code would call it), the formula, its format
   const calcs: [string, string, string, string, Formula['format']][] = [
     ['Share of total', 'share of total', 'share of total', `percent_of_total(${x})`, 'percent'],
-    ['Change from previous', 'change', 'change', `${x} - previous(${x})`, amount],
-    ['% change from previous', '% change', 'pct change', `(${x} - previous(${x})) / previous(${x})`, 'percent'],
+    ['Change from previous', 'change', 'change', `difference(${x})`, amount],
+    ['% change from previous', '% change', 'pct change', `percent_change(${x})`, 'percent'],
     ['Running total', 'running total', 'running total', `running_sum(${x})`, amount],
     ['Average of last 3', 'average of last 3', 'avg last 3', `moving_avg(${x}, 3)`, amount],
     ['Rank', 'rank', 'rank', `rank(${x})`, 'number'],

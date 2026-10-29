@@ -344,8 +344,8 @@ mod tests {
         let calcs = |x: &str, n: &str| {
             vec![
                 json!({"name": format!("{n}_share"), "expr": format!("percent_of_total({x})"), "format": "percent"}),
-                json!({"name": format!("{n}_change"), "expr": format!("{x} - previous({x})")}),
-                json!({"name": format!("{n}_pct"), "expr": format!("({x} - previous({x})) / previous({x})"), "format": "percent"}),
+                json!({"name": format!("{n}_change"), "expr": format!("difference({x})")}),
+                json!({"name": format!("{n}_pct"), "expr": format!("percent_change({x})"), "format": "percent"}),
                 json!({"name": format!("{n}_running"), "expr": format!("running_sum({x})")}),
                 json!({"name": format!("{n}_avg3"), "expr": format!("moving_avg({x}, 3)")}),
                 json!({"name": format!("{n}_rank"), "expr": format!("rank({x})")}),
@@ -548,6 +548,91 @@ mod tests {
         .await;
         assert!(close(num(&by_if[0][0]), num(&by_filter[0][0])), "{by_if:?} {by_filter:?}");
         assert!(close(num(&by_if[0][1]), num(&by_filter[0][1])), "previous: {by_if:?} {by_filter:?}");
+        clean_up(&state, &org).await;
+    }
+
+    /// More calculations on results, filtered on and ranked by, on ScramDB.
+    #[tokio::test]
+    async fn more_calculations_on_results_filtered_and_ranked() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()));
+        let run = |q: serde_json::Value| {
+            let (app, org) = (&app, &org);
+            async move {
+                let (s, body, _) = send(app, c, org, "POST", "/api/query", Some(q), None).await;
+                assert_eq!(s, StatusCode::OK, "{body}");
+                body
+            }
+        };
+        let calcs = json!([{"name": "after", "expr": "next(revenue)"}, {"name": "change", "expr": "difference(revenue)"},
+            {"name": "pct", "expr": "percent_change(revenue)"}, {"name": "avg_so_far", "expr": "running_avg(revenue)"},
+            {"name": "place", "expr": "dense_rank(revenue)"}]);
+        let body = run(json!({"model": "sales", "dimensions": ["sold_at:month"], "sort": ["sold_at:month"],
+            "measures": ["revenue", "after", "change", "pct", "avg_so_far", "place"], "formulas": calcs}))
+        .await;
+        assert_eq!(body["columns"][3]["format"], json!("number"));
+        assert_eq!(body["columns"][4]["format"], json!("percent"));
+        let rows = body["rows"].as_array().unwrap();
+        let x: Vec<f64> = rows.iter().map(|r| num(&r[1]).unwrap()).collect();
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+        let mut distinct = x.clone();
+        distinct.sort_by(|a, b| b.total_cmp(a));
+        distinct.dedup();
+        for (i, r) in rows.iter().enumerate() {
+            match x.get(i + 1) {
+                Some(&n) => assert!(close(num(&r[2]).unwrap(), n), "next, row {i}: {r}"),
+                None => assert!(r[2].is_null(), "nothing after the last: {r}"),
+            }
+            if i == 0 {
+                assert!(r[3].is_null() && r[4].is_null(), "{r}");
+            } else {
+                assert!(close(num(&r[3]).unwrap(), x[i] - x[i - 1]), "difference, row {i}: {r}");
+                assert!(close(num(&r[4]).unwrap(), (x[i] - x[i - 1]) / x[i - 1]), "% change, row {i}: {r}");
+            }
+            assert!(close(num(&r[5]).unwrap(), x[..=i].iter().sum::<f64>() / (i + 1) as f64), "running avg: {r}");
+            let place = 1 + distinct.iter().position(|&d| d == x[i]).unwrap();
+            assert_eq!(num(&r[6]).unwrap() as usize, place, "dense rank, row {i}: {r}");
+        }
+        // filtered on a calculation: the months above the average share
+        let share = json!([{"name": "share", "expr": "percent_of_total(revenue)"}]);
+        let all = run(
+            json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue", "share"], "formulas": share}),
+        )
+        .await;
+        let all = all["rows"].as_array().unwrap().clone();
+        let cut = 1.0 / all.len() as f64;
+        let above = run(
+            json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue", "share"], "formulas": share,
+            "filters": [{"field": "share", "op": "gt", "values": [cut]}]}),
+        )
+        .await;
+        let want: Vec<&serde_json::Value> = all.iter().filter(|r| num(&r[2]).unwrap() > cut).map(|r| &r[0]).collect();
+        let got: Vec<&serde_json::Value> = above["rows"].as_array().unwrap().iter().map(|r| &r[0]).collect();
+        assert!(!want.is_empty() && want.len() < all.len(), "{all:?}");
+        assert_eq!(got, want);
+        // top 1 by a calculation: the region with the largest share
+        let top = run(json!({"model": "sales", "dimensions": ["region"], "measures": ["share"], "formulas": share,
+            "top": {"dimension": "region", "n": 1, "by": "share"}}))
+        .await;
+        let best = all.iter().max_by(|a, b| num(&a[2]).unwrap().total_cmp(&num(&b[2]).unwrap())).unwrap();
+        assert_eq!(top["rows"].as_array().unwrap().iter().map(|r| &r[0]).collect::<Vec<_>>(), [&best[0]]);
+        // along and within what they're told: ranked across the whole chart, shares within each region
+        let told = json!([{"name": "overall", "expr": "rank(revenue, within())"},
+            {"name": "of_region", "expr": "percent_of_total(revenue, within(region))"}]);
+        let body = run(json!({"model": "sales", "dimensions": ["region", "sold_at:quarter"],
+            "measures": ["revenue", "overall", "of_region"], "formulas": told}))
+        .await;
+        let rows = body["rows"].as_array().unwrap();
+        let x: Vec<f64> = rows.iter().map(|r| num(&r[2]).unwrap()).collect();
+        for (i, r) in rows.iter().enumerate() {
+            let place = 1 + x.iter().filter(|&&y| y > x[i]).count();
+            assert_eq!(num(&r[3]).unwrap() as usize, place, "rank over the whole chart, row {i}: {r}");
+        }
+        for region in ["EMEA", "APAC", "AMER"] {
+            let total: f64 = rows.iter().filter(|r| r[0] == json!(region)).map(|r| num(&r[4]).unwrap()).sum();
+            assert!(close(total, 1.0), "{region}'s shares add up to {total}");
+        }
         clean_up(&state, &org).await;
     }
 

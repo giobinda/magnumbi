@@ -506,7 +506,9 @@ fn row_field(
 /// What's wrong with a calculation on a chart's results, and where (None: nothing). It may use
 /// the model's measures and aggregations of its columns (which the chart then shows, or not).
 pub fn result_formula_error(model: &Model, expr: &str) -> Option<formula::FormulaError> {
-    let window = formula::Window { along: "\"along\"".into(), across: vec![] };
+    // any of the model's dimensions may be the chart's, for along(…) and within(…)
+    let dims = model.dimensions.iter().map(|d| (d.name.clone(), "\"x\"".to_string())).collect();
+    let window = formula::Window { along: "\"along\"".into(), across: vec![], dims };
     formula::compile_on_results(expr, &window, &mut |name| {
         let base = name.strip_suffix("__previous").or_else(|| name.strip_suffix("__change")).unwrap_or(name);
         if model.measure(base).is_some() {

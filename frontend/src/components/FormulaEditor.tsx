@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
+import { OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults, windowChips } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -13,6 +13,8 @@ type Props = {
   startPerRow?: boolean
   /** in a chart: calculations on its results are possible too */
   inChart?: boolean
+  /** the chart's dimensions, for along(…) and within(…) */
+  dimensions?: { ref: string; label: string }[]
   /** names already used by the model's fields and the query's formulas */
   taken: string[]
   /** Org admins may share it with everyone, as one of the model's measures */
@@ -31,7 +33,7 @@ const numberColumns = (m: ModelInfo) => m.dimensions.filter(d => d.type === 'num
 const aggOf = (d: ModelInfo['dimensions'][number]) => d.aggregation ?? (d.type === 'number' ? 'sum' : 'count_distinct')
 
 /** Write a calculation from the model's measures and columns: click to insert, checked as you type. */
-export default function FormulaEditor({ model, initial, others = [], startPerRow, inChart, taken, canShare, shared, onSave, onCancel }: Props) {
+export default function FormulaEditor({ model, initial, others = [], startPerRow, inChart, dimensions = [], taken, canShare, shared, onSave, onCancel }: Props) {
   const [perRow, setPerRow] = useState(initial ? Boolean(initial.per_row) : Boolean(startPerRow))
   // the others as text: a new array on each render isn't a change
   const othersJson = JSON.stringify(others)
@@ -158,6 +160,12 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
             {OPERATORS.map(o => <button key={o} className="chip fn mono" onClick={() => insert(/\w/.test(o) ? ` ${o} ` : o)}>{o}</button>)}
             {perRow && <button className="chip fn mono" title="Text, in single quotes" onClick={() => insert("'|'")}>'text'</button>}
           </div>
+          {advanced && inChart && !perRow && windowChips(dimensions).length > 0 && <>
+            <div className="field-group">Along or within</div>
+            <div className="row wrap">
+              {windowChips(dimensions).map(c => <button key={c.label} className="chip fn" title={c.insert.slice(2)} onClick={() => insert(c.insert)}>{c.label}</button>)}
+            </div>
+          </>}
           <button type="button" className="link advanced-toggle" aria-expanded={advanced} onClick={toggleAdvanced}>
             {advanced ? 'Fewer functions ▴' : 'Advanced ▸'}
           </button>

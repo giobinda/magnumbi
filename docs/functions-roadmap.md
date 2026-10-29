@@ -105,14 +105,18 @@ Not yet:
   DuckDB, refused elsewhere), or ScramDB growing one.
 - `share_of(revenue, cond)`: `sum_if(amount, cond) / revenue` says it already.
 
-## Step 5: Results formulas grow
+## Step 5: Results formulas grow — done
 
-- Filter and Top N on a results formula (a second pass on ScramDB, after the window functions).
-- Easy: `next`, `difference(x)`, `percent_change(x)`, `running_avg`, `dense_rank`.
-- Advanced: say along what and within what, instead of the first date / the others:
-  `running_sum(revenue, along: month, within: region)`, `moving_avg(x, 7, along: day)`,
-  `first(x)`, `last(x)`, `ntile(x, 4)`, `rank(x, within: category)`.
-  In the editor, Advanced shows these as two pickers (*along*, *within*), not syntax to learn.
+- Filter on a results formula (numbers: =, ≠, <, ≤, >, ≥, between, empty), on the rows the chart
+  shows, after the window functions run; Top N by one, for charts with one dimension (with more, a
+  calculation differs from row to row within a value: refused, with why).
+- Easy: `next`, `difference(x)`, `percent_change(x)`, `running_avg`. Advanced: `dense_rank`.
+  The quick calculations write `difference(revenue)` and `percent_change(revenue)`.
+- Advanced: along and within, written as two small functions after the value (no new syntax:
+  `a:b` is a field's grain already): `running_sum(revenue, along(sold_at), within(region))`,
+  `rank(revenue, within())` for the whole chart, `percent_of_total(revenue, within(region))`. The
+  editor's Advanced offers the chart's dimensions as chips.
+- Not done: `first`, `last`, `ntile` (no one has asked; easy to add on the same pattern).
 
 ## Step 6: Formulas on blends (the goal)
 
