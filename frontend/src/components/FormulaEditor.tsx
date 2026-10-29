@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { FUNCTIONS, OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
+import { OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -145,7 +145,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
               ))}
             </div>
           </>}
-          {functionGroups([...(perRow ? ROW_FUNCTIONS : FUNCTIONS), ...(inChart && !perRow ? RESULT_FUNCTIONS : [])], advanced).map(g => (
+          {functionGroups([...(perRow ? ROW_FUNCTIONS : TOTAL_FUNCTIONS), ...(inChart && !perRow ? RESULT_FUNCTIONS : [])], advanced).map(g => (
             <Fragment key={g.group}>
               <div className="field-group">{g.group}</div>
               <div className="row wrap">

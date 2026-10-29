@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -106,8 +106,10 @@ describe('formulas', () => {
     const all = functionGroups(ROW_FUNCTIONS, true).flatMap(g => g.functions.map(f => f.name))
     expect(all).toContain('coalesce')
     expect(all.length).toBe(ROW_FUNCTIONS.length)
-    // on totals: no text functions
-    expect(functionGroups(FUNCTIONS, true).map(g => g.group)).toEqual(['Numbers', 'Logic'])
+    // on totals: no text functions, but totals with a condition (not per row)
+    expect(functionGroups(TOTAL_FUNCTIONS, false).map(g => g.group)).toEqual(['Numbers', 'Logic', 'Totals with a condition'])
+    expect(functionGroups(TOTAL_FUNCTIONS, false).at(-1)!.functions.map(f => f.name)).toEqual(['sum_if', 'count_if', 'avg_if'])
+    expect(ROW_FUNCTIONS.map(f => f.name)).not.toContain('sum_if')
   })
 
   it('offers quick calculations on the chart\'s measures, not on calculations on results', () => {

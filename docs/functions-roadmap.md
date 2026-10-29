@@ -88,11 +88,22 @@ exponential time on some patterns, held back only by the statement timeout. To d
 pattern language of our own (parsed like formulas, so only safe constructs reach the engine), or
 patterns only on engines with linear-time matching (DuckDB and BigQuery use RE2).
 
-## Step 4: Smarter totals
+## Step 4: Smarter totals — done (but medians)
 
 Easy: `sum_if(amount, region = 'EMEA')`, `count_if(returned)`, `avg_if`.
-Advanced: `median(x)`, `percentile(x, 0.9)` (exact where the engine has it, else refused rather
-than approximated silently), `share_of(revenue, region = 'EMEA')`.
+
+How: formula.rs works out each row's value (`CASE WHEN region = 'EMEA' THEN amount END`, the row's
+columns as per row) and the compiler aggregates it as it does a measure's, so a period comparison
+(and everything else a measure gets) applies the same. Tested: SQL per period in
+`compiler::tests`, and the same answers as filtering, both periods, on ScramDB
+(`api::formulas::totals_with_a_condition`).
+
+Not yet:
+- **`median(x)`, `percentile(x, 0.9)`**: ScramDB 1.0 has no exact percentile (no `PERCENTILE_CONT`,
+  `MEDIAN`, `QUANTILE_CONT`), and the compiler can't tell ScramDB from PostgreSQL (one dialect).
+  BigQuery only estimates them. Needs a ScramDB dialect of its own (then: exact on PostgreSQL and
+  DuckDB, refused elsewhere), or ScramDB growing one.
+- `share_of(revenue, cond)`: `sum_if(amount, cond) / revenue` says it already.
 
 ## Step 5: Results formulas grow
 

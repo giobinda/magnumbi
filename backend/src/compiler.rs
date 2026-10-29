@@ -367,32 +367,51 @@ fn formula_sql(
         return Err(formula::FormulaError { at: 0, message: format!("{} uses itself", m.name) });
     }
     using.push(m.name.clone());
-    let sql = formula::compile(m.formula.as_deref().unwrap_or_default(), dl, &mut |name| {
-        let field = match model.measure(name) {
-            Some(x) => Cow::Borrowed(x),
-            None => match adhoc_measure(dl, name, model) {
-                Ok(Some(x)) => Cow::Owned(x),
-                Ok(None) if model.dimension(name).is_some() => {
-                    return Err(format!(
-                        "{name} is a dimension; use an aggregation of it, such as count_distinct({name})"
-                    ));
-                }
-                Ok(None) => {
-                    let close = formula::closest(name, model.measures.iter().map(|x| x.name.as_str()));
-                    return Err(format!(
-                        "unknown field {name:?}{}",
-                        close.map_or(String::new(), |c| format!("; did you mean {c}?"))
-                    ));
-                }
-                Err(e) => return Err(e.0),
-            },
+    // sum_if and the like: each row's value aggregated as a measure's is, the period included
+    let aggregate = &mut |agg: formula::Aggregate, each: &str| {
+        let arg = match scope {
+            None => format!("({each})"),
+            Some(c) => format!("CASE WHEN {c} THEN ({each}) END"),
         };
-        let sql = match field.kind.as_str() {
-            "formula" => formula_expr(dl, model, &field, scope, using),
-            _ => measure_expr(dl, model, &field, scope),
-        };
-        sql.map(|s| (format!("({s})"), formula::Type::Number)).map_err(|e| e.0)
-    })?;
+        Ok::<_, String>(match agg {
+            formula::Aggregate::Sum => format!("SUM({arg})"),
+            formula::Aggregate::Avg => format!("AVG({arg})"),
+            formula::Aggregate::Count => format!("COUNT({arg})"),
+        })
+    };
+    let row = &mut |name: &str| row_field(dl, model, name, &mut vec![]);
+    let sql = formula::compile_totals(
+        m.formula.as_deref().unwrap_or_default(),
+        dl,
+        &mut |name| {
+            let field = match model.measure(name) {
+                Some(x) => Cow::Borrowed(x),
+                None => match adhoc_measure(dl, name, model) {
+                    Ok(Some(x)) => Cow::Owned(x),
+                    Ok(None) if model.dimension(name).is_some() => {
+                        return Err(format!(
+                            "{name} is a dimension; use an aggregation of it, such as count_distinct({name})"
+                        ));
+                    }
+                    Ok(None) => {
+                        let close = formula::closest(name, model.measures.iter().map(|x| x.name.as_str()));
+                        return Err(format!(
+                            "unknown field {name:?}{}",
+                            close.map_or(String::new(), |c| format!("; did you mean {c}?"))
+                        ));
+                    }
+                    Err(e) => return Err(e.0),
+                },
+            };
+            let sql = match field.kind.as_str() {
+                "formula" => formula_expr(dl, model, &field, scope, using),
+                _ => measure_expr(dl, model, &field, scope),
+            };
+            sql.map(|s| (format!("({s})"), formula::Type::Number)).map_err(|e| e.0)
+        },
+        row,
+        aggregate,
+    )?;
     using.pop();
     match sql {
         (sql, formula::Type::Number) => Ok(sql),
@@ -443,7 +462,20 @@ fn row_formula_sql(
         return Err(formula::FormulaError { at: 0, message: format!("{} uses itself", d.name) });
     }
     using.push(d.name.clone());
-    let out = formula::compile(d.formula.as_deref().unwrap_or_default(), dl, &mut |name| {
+    let out =
+        formula::compile(d.formula.as_deref().unwrap_or_default(), dl, &mut |name| row_field(dl, model, name, using))?;
+    using.pop();
+    Ok(out)
+}
+
+/// A column of each row, as a per-row formula (and sum_if and the like) sees it: its SQL and type.
+fn row_field(
+    dl: Dialect,
+    model: &Model,
+    name: &str,
+    using: &mut Vec<String>,
+) -> Result<(String, formula::Type), String> {
+    {
         let Some(field) = model.dimension(name).filter(|x| !x.hidden) else {
             if model.measure(name).is_some() || name.contains('(') {
                 return Err(format!(
@@ -468,9 +500,7 @@ fn row_formula_sql(
             _ => formula::Type::DateTime,
         };
         Ok((col_expr(dl, field), t))
-    })?;
-    using.pop();
-    Ok(out)
+    }
 }
 
 /// What's wrong with a calculation on a chart's results, and where (None: nothing). It may use
@@ -1528,6 +1558,40 @@ measures:
         .unwrap();
         assert!(c.sql.contains("SUM(CASE WHEN") && c.sql.contains("COUNT(CASE WHEN"), "{}", c.sql);
         assert!(c.sql.contains("AS \"per_sale__previous\"") && c.sql.contains("AS \"per_sale__change\""), "{}", c.sql);
+    }
+
+    #[test]
+    fn totals_with_a_condition_take_the_period_as_measures_do() {
+        let c = compile(json!({"model": "sales", "measures": ["emea"],
+            "period": {"field": "sold_at", "current": {"last_n_days": 7}, "compare": "previous_period"},
+            "formulas": [{"name": "emea", "expr": "sum_if(amount, region = 'EMEA')"}]}))
+        .unwrap();
+        // the period around the condition, as around any measure's value
+        let inner = "THEN (CASE WHEN (\"region\" = 'EMEA') THEN \"amount\" END) END)";
+        for (column, from) in [("AS \"emea\"", "2026-10-09"), ("AS \"emea__previous\"", "2026-10-02")] {
+            let line = c.sql.lines().find(|l| l.contains(column)).unwrap_or_else(|| panic!("{column}: {}", c.sql));
+            assert!(line.starts_with("  SUM(CASE WHEN (\"sold_at\" >= CAST('") && line.contains(from), "{line}");
+            assert!(line.contains(inner), "{line}");
+        }
+        // without a period: the condition alone
+        let c = compile(json!({"model": "sales", "measures": ["n"],
+            "formulas": [{"name": "n", "expr": "count_if(qty > 1) / transactions"}]}))
+        .unwrap();
+        assert!(c.sql.contains("COUNT((CASE WHEN (\"qty\" > 1) THEN 1 END))"), "{}", c.sql);
+    }
+
+    #[test]
+    fn totals_with_a_condition_use_the_rows_columns() {
+        let f = |expr: &str| {
+            compile(json!({"model": "sales", "measures": ["x"], "formulas": [{"name": "x", "expr": expr},
+                {"name": "big", "expr": "amount > 100", "per_row": true}]}))
+            .map(|c| c.sql)
+        };
+        // the chart's per-row fields too
+        let sql = f("sum_if(amount, big)").unwrap_or_else(|e| panic!("{e:?}"));
+        assert!(sql.contains("CASE WHEN ((\"amount\" > 100)) THEN"), "{sql}");
+        let e = f("sum_if(revenue, region = 'EMEA')").unwrap_err().0;
+        assert!(e.contains("one row at a time"), "{e}");
     }
 
     #[test]

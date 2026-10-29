@@ -19,6 +19,14 @@ export const FUNCTIONS: FormulaFunction[] = [
   { name: 'case', template: "case(|, '', '', 'other')", help: 'one answer per value, then one for the rest: case(region, \'EMEA\', \'Europe\', \'Other\')', group: 'Logic', advanced: true },
 ]
 
+/** A formula on totals may also add up the rows that meet a condition. */
+export const TOTAL_FUNCTIONS: FormulaFunction[] = [
+  ...FUNCTIONS,
+  { name: 'sum_if', template: "sum_if(|, region = '')", help: "the total of a column over the rows that meet a condition: sum_if(amount, region = 'EMEA')", group: 'Totals with a condition' },
+  { name: 'count_if', template: "count_if(| = '')", help: "how many rows meet a condition: count_if(region = 'EMEA')", group: 'Totals with a condition' },
+  { name: 'avg_if', template: "avg_if(|, region = '')", help: "the average of a column over the rows that meet a condition", group: 'Totals with a condition' },
+]
+
 /** A per-row formula may also work on text. */
 export const ROW_FUNCTIONS: FormulaFunction[] = [
   ...FUNCTIONS,
@@ -68,7 +76,7 @@ export const RESULT_FUNCTIONS: FormulaFunction[] = [
   { name: 'percent_of_total', template: 'percent_of_total(|)', help: 'the share of the total, across the other dimensions', group: 'Compared with other rows' },
 ]
 
-const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Compared with other rows']
+const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Totals with a condition', 'Compared with other rows']
 
 /** The functions by group, in the editor's order; the advanced ones only when Advanced is open. */
 export function functionGroups(fns: FormulaFunction[], advanced: boolean): { group: string; functions: FormulaFunction[] }[] {
