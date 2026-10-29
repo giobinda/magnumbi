@@ -401,19 +401,6 @@ pub fn references(expr: &str) -> Result<Vec<String>, FormulaError> {
     Ok(out)
 }
 
-/// The functions a formula calls.
-pub fn calls(expr: &str) -> Result<Vec<String>, FormulaError> {
-    let mut out = vec![];
-    walk(&parse(expr)?, &mut |n| {
-        if let Node::Call { name, .. } = n
-            && !out.contains(name)
-        {
-            out.push(name.clone());
-        }
-    });
-    Ok(out)
-}
-
 /// Whether a formula calculates on a chart's results (running_sum, rank...).
 pub fn is_on_results(expr: &str) -> Result<bool, FormulaError> {
     let mut found = false;
@@ -428,28 +415,68 @@ pub fn is_on_results(expr: &str) -> Result<bool, FormulaError> {
 /// The formula written again, with each field's name changed by `name` (a blend's `model.field` to
 /// the model's own `field`): fully bracketed, so it means the same.
 pub fn rename(expr: &str, name: impl Fn(&str) -> String) -> Result<String, FormulaError> {
-    fn write(n: &Node, name: &dyn Fn(&str) -> String) -> String {
-        match n {
-            Node::Number(x) => x.clone(),
-            Node::Text(t) => format!("'{}'", t.replace('\'', "''")),
-            Node::Bool(b) => b.to_string(),
-            Node::Null => "null".into(),
-            // an aggregation of a column: sum(amount)
-            Node::Field { name: f, .. } => match f.split_once('(') {
-                Some((agg, column)) => format!("{agg}({})", name(column.trim_end_matches(')'))),
-                None => name(f),
-            },
-            Node::Neg(x) => format!("(-{})", write(x, name)),
-            Node::Not(x) => format!("(not {})", write(x, name)),
-            Node::Binary { op, left, right } => {
-                format!("({} {} {})", write(left, name), op.to_lowercase(), write(right, name))
-            }
-            Node::Call { name: f, args, .. } => {
-                format!("{f}({})", args.iter().map(|a| write(a, name)).collect::<Vec<_>>().join(", "))
-            }
+    Ok(write(&parse(expr)?, &name, &mut |_, _| None))
+}
+
+/// A function adding up rows in a formula on totals (OVER_ROWS), written back: its value and
+/// condition, if it has them.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RowsCall {
+    pub name: String,
+    pub value: Option<String>,
+    pub condition: Option<String>,
+}
+
+/// The functions adding up rows in a formula on totals, in the order `replace_over_rows` meets them.
+pub fn over_rows_calls(expr: &str) -> Result<Vec<RowsCall>, FormulaError> {
+    let mut out = vec![];
+    write(&parse(expr)?, &|n| n.to_string(), &mut |f, args| {
+        if !OVER_ROWS.contains(&f) {
+            return None;
         }
+        let arg = |i: usize| args.get(i).map(|a| write(a, &|n| n.to_string(), &mut |_, _| None));
+        let (value, condition) = match f {
+            "count_if" => (None, arg(0)),
+            "stddev" | "variance" => (arg(0), None),
+            _ => (arg(0), arg(1)),
+        };
+        out.push(RowsCall { name: f.to_string(), value, condition });
+        Some(String::new())
+    });
+    Ok(out)
+}
+
+/// The formula written back with its functions adding up rows replaced, in order, by `fields`.
+pub fn replace_over_rows(expr: &str, fields: &[String]) -> Result<String, FormulaError> {
+    let mut next = fields.iter();
+    Ok(write(&parse(expr)?, &|n| n.to_string(), &mut |f, _| {
+        OVER_ROWS.contains(&f).then(|| next.next().cloned().unwrap_or_default())
+    }))
+}
+
+/// A formula written back, fully bracketed (so it means the same): fields renamed by `name`, and
+/// a call written as `call` says (None: as it is).
+fn write(n: &Node, name: &dyn Fn(&str) -> String, call: &mut dyn FnMut(&str, &[Node]) -> Option<String>) -> String {
+    match n {
+        Node::Number(x) => x.clone(),
+        Node::Text(t) => format!("'{}'", t.replace('\'', "''")),
+        Node::Bool(b) => b.to_string(),
+        Node::Null => "null".into(),
+        // an aggregation of a column: sum(amount)
+        Node::Field { name: f, .. } => match f.split_once('(') {
+            Some((agg, column)) => format!("{agg}({})", name(column.trim_end_matches(')'))),
+            None => name(f),
+        },
+        Node::Neg(x) => format!("(-{})", write(x, name, call)),
+        Node::Not(x) => format!("(not {})", write(x, name, call)),
+        Node::Binary { op, left, right } => {
+            format!("({} {} {})", write(left, name, call), op.to_lowercase(), write(right, name, call))
+        }
+        Node::Call { name: f, args, .. } => match call(f, args) {
+            Some(written) => written,
+            None => format!("{f}({})", args.iter().map(|a| write(a, name, call)).collect::<Vec<_>>().join(", ")),
+        },
     }
-    Ok(write(&parse(expr)?, &name))
 }
 
 fn walk(n: &Node, visit: &mut impl FnMut(&Node)) {

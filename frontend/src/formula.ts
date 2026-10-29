@@ -122,11 +122,14 @@ export function windowChips(dims: { ref: string; label: string }[]): { label: st
   return dims.length ? [...chips, { label: 'within the whole chart', insert: ', within()' }] : []
 }
 
-/** The functions the editor offers: per row or on totals, on a chart's results in a chart, and
- *  on a blend no totals with a condition (its models' rows are added up before the join). */
+/** Adding up rows that can't be added up again after a blend's join. */
+const NOT_ON_BLENDS = ['count_distinct_if', 'stddev', 'variance']
+
+/** The functions the editor offers: per row or on totals, on a chart's results in a chart, and on
+ *  a blend only the totals that add up again after the join (its models' rows are added up first). */
 export function editorFunctions({ perRow, inChart, blend }: { perRow: boolean; inChart: boolean; blend: boolean }): FormulaFunction[] {
   if (perRow) return ROW_FUNCTIONS
-  const totals = blend ? FUNCTIONS : TOTAL_FUNCTIONS
+  const totals = blend ? TOTAL_FUNCTIONS.filter(f => !NOT_ON_BLENDS.includes(f.name)) : TOTAL_FUNCTIONS
   return inChart ? [...totals, ...RESULT_FUNCTIONS] : totals
 }
 

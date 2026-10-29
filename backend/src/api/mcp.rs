@@ -88,7 +88,7 @@ percent_of_total(x), and formulas using those (they may use one another): along 
 dimension (else the first dimension), for each value of the others; or told, after the value: along(dimension), \
 within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N. \
 On a blend, fields are model.field: formulas on totals use its measures (taxi.trips / weather.hours), fields of each row \
-one model's fields (taxi.fare > 20); no sum_if on blends",
+one model's fields (taxi.fare > 20); sum(taxi.fare), sum_if/avg_if/count_if/min_if/max_if too (not count_distinct, stddev, variance)",
             "items": {"type": "object", "properties": {"name": {"type": "string"}, "expr": {"type": "string"},
                 "label": {"type": "string"}, "format": {"type": "string", "enum": ["number", "currency", "percent"]},
                 "per_row": {"type": "boolean"}},

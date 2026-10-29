@@ -387,6 +387,13 @@ async fn formulas_on_a_blend_are_restricted_too() {
             json!({"model": "sales", "dimensions": ["region"], "measures": ["per"],
                 "formulas": [{"name": "per", "expr": "revenue / transactions"}]}),
         ),
+        // an aggregation of a column, and a total with a condition, each through its model
+        (
+            json!({"model": blend, "dimensions": ["sales.region"], "measures": ["sum(sales.amount)", "big"],
+                "formulas": [{"name": "big", "expr": format!("sum_if(sales.amount, sales.amount > 100) / {mine}.n")}]}),
+            json!({"model": "sales", "dimensions": ["region"], "measures": ["sum(amount)", "big"],
+                "formulas": [{"name": "big", "expr": "sum_if(amount, amount > 100) / transactions"}]}),
+        ),
         // on one of them alone
         (
             json!({"model": blend, "measures": ["half"], "formulas": [{"name": "half", "expr": "sales.revenue / 2"}]}),

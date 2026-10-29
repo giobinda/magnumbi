@@ -14,6 +14,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **More on blends**: aggregations of a model's column (`sum(taxi.fare)`), totals with a condition
+  (`sum_if`, `avg_if`, `count_if`, `min_if`, `max_if`), each added up on its model's engine and
+  again after the join; shared formulas on a blend. The attack suite covers them.
+
 - **Round 2 of functions**: `format_date(d, 'Mon YYYY')` (one pattern for every engine),
   `fiscal_year` and `fiscal_quarter`; on results `first`, `last`, `ntile`; calculations on results
   may use one another (`rank(so_far)`), run in layers; quick calculations on them too.

@@ -89,7 +89,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
     ...others.filter(f => !f.per_row).map(f => ({ name: f.name, label: f.label, formula: f.expr })),
   ].filter(m => m.name !== initial?.name)
   const columns = model.dimensions.filter(d => d.name !== initial?.name)
-  // a blend's fields are its models' (model.field): no aggregations of their columns here
+  // a blend's fields are its models' (model.field): sum(taxi.fare) adds up on taxi's engine
   const blend = Boolean(model.blend)
 
   return (
@@ -142,13 +142,13 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
                   onClick={() => insert(m.name)}>{m.formula ? 'ƒ ' : ''}{m.label ?? m.name}</button>
               ))}
             </div>
-            {!blend && <div className="field-group">Columns</div>}
-            {!blend && <div className="row wrap">
+            <div className="field-group">Columns</div>
+            <div className="row wrap">
               {numberColumns(model).map(d => (
                 <button key={d.name} className="chip dimension" title={`${aggOf(d)}(${d.name}): ${AGG_LABELS[aggOf(d)]}; sum, avg, min, max, count and count_distinct work too`}
                   onClick={() => insert(`${aggOf(d)}(${d.name})`)}>Σ {d.label ?? d.name}</button>
               ))}
-            </div>}
+            </div>
           </>}
           {functionGroups(editorFunctions({ perRow, inChart: Boolean(inChart), blend }), advanced).map(g => (
             <Fragment key={g.group}>
@@ -174,7 +174,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
           </button>
         </div>
 
-        {canShare && !blend && !shared && !onResults && (
+        {canShare && !shared && !onResults && (
           <label className="check"><input type="checkbox" checked={share} onChange={e => setShare(e.target.checked)} />
             Share with everyone in the organisation, as one of this model's {perRow ? 'fields' : 'measures'}</label>
         )}

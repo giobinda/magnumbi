@@ -363,6 +363,12 @@ async fn project_for(state: &AppState, scope: &Scope, mut project: Arc<ProjectSt
         Ok(_) => {}
         Err(e) => tracing::warn!(org, "organisation's blends unavailable: {e:#}"),
     }
+    // the shared formulas on blends, the organisation's own blends in
+    match state.org_formulas(&org).await {
+        Ok(f) if !f.is_empty() => project = Arc::new(project.with_blend_formulas(&f)),
+        Ok(_) => {}
+        Err(e) => tracing::warn!(org, "organisation's formulas unavailable: {e:#}"),
+    }
     match state.org_themes(&org).await {
         Ok(t) if !t.themes.is_empty() || t.default_light.is_some() || t.default_dark.is_some() => {
             project = Arc::new(project.with_org_themes(&t))
