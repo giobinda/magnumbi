@@ -14,6 +14,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Formulas on blends**: on totals across the blend's models (`taxi.trips / weather.hours`), after
+  the join; fields of each row on one model's fields, computed on that model's engine before it
+  aggregates; checked as they're typed. The attack suite covers them.
+
 - **More calculations on results**: `running_avg`, `next`, `difference`, `percent_change`, and
   `dense_rank` under Advanced; the quick calculations use the shorter forms.
 - **Filter on, and take the Top N of, calculations on results** (Top N: charts with one

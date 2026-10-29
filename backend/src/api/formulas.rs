@@ -85,8 +85,10 @@ pub struct Check {
 pub async fn check(Auth(caller): Auth, Body(c): Body<Check>) -> ApiResult<Json<Value>> {
     caller.require("explore")?;
     let mut model = super::model_of(&caller, &c.model)?.clone();
-    if caller.project.blends.contains_key(&c.model) {
-        return Ok(Json(json!({"ok": false, "error": "formulas aren't available on blends yet", "at": 0})));
+    if let Some(b) = caller.project.blends.get(&c.model)
+        && (c.per_row || !crate::formula::is_on_results(&c.expr).unwrap_or(false))
+    {
+        return Ok(Json(check_on_blend(&caller, b, &c)));
     }
     if c.formulas.len() > crate::schema::MAX_FORMULAS {
         return Err(ApiError::bad_request("too many formulas"));
@@ -134,6 +136,68 @@ pub async fn check(Auth(caller): Auth, Body(c): Body<Check>) -> ApiResult<Json<V
         None => json!({"ok": true}),
         Some(e) => json!({"ok": false, "error": e.message, "at": e.at}),
     }))
+}
+
+/// A formula on a blend, checked as a query on the blend would use it (blend.rs): planned, every
+/// model's part and the join compiled, nothing run. Fine (and, per row, what it gives), or why not.
+fn check_on_blend(caller: &crate::auth::Caller, b: &crate::blend::Blend, c: &Check) -> Value {
+    use crate::compiler::{Dialect, compile_query, compile_query_up_to, expand};
+    const NAME: &str = "formula__";
+    let mut formulas: Vec<Formula> =
+        c.formulas.iter().filter(|o| !crate::formula::is_on_results(&o.expr).unwrap_or(true)).cloned().collect();
+    formulas.push(Formula {
+        name: NAME.into(),
+        label: None,
+        expr: c.expr.clone(),
+        format: None,
+        description: None,
+        per_row: c.per_row,
+    });
+    let place = if c.per_row { "dimensions" } else { "measures" };
+    let q: crate::schema::Query =
+        match serde_json::from_value(json!({"model": c.model, place: [NAME], "formulas": formulas})) {
+            Ok(q) => q,
+            Err(e) => return json!({"ok": false, "error": e.to_string(), "at": 0}),
+        };
+    let now = chrono::Utc::now();
+    let models = &caller.project.models;
+    let checked = (|| -> Result<Option<String>, crate::compiler::QueryError> {
+        let compiled = match crate::blend::plan(b, models, &q, now)? {
+            crate::blend::Plan::Single { model, query } => {
+                let (m, q) = expand(&models[&model], &query, Dialect::Postgres)?;
+                compile_query(&m, &q, Dialect::Postgres, now, &[])?
+            }
+            crate::blend::Plan::Joined(j) => {
+                for side in &j.sides {
+                    compile_query_up_to(
+                        &side.source,
+                        &side.query,
+                        Dialect::Postgres,
+                        now,
+                        &[],
+                        crate::blend::MAX_SOURCE_ROWS,
+                    )?;
+                }
+                let tables: Vec<String> = (0..j.sides.len()).map(|i| format!("t{i}")).collect();
+                compile_query(&j.joined_model(&tables), &j.query, Dialect::Postgres, now, &[])?
+            }
+        };
+        let field = |c: &crate::compiler::Column| c.name == NAME || c.name.ends_with(&format!(".{NAME}"));
+        Ok(compiled.columns.iter().find(|c| field(c)).map(|c| c.kind_type.clone()))
+    })();
+    match checked {
+        Ok(t) if c.per_row => json!({"ok": true, "type": t}),
+        Ok(_) => json!({"ok": true}),
+        Err(e) => {
+            // "formula__: what's wrong (at character 4)": the message, and where
+            let message = e.0.strip_prefix(&format!("{NAME}: ")).unwrap_or(&e.0);
+            let (message, at) = match message.rsplit_once(" (at character ") {
+                Some((m, n)) => (m, n.trim_end_matches(')').parse::<usize>().map_or(0, |n| n.saturating_sub(1))),
+                None => (message, 0),
+            };
+            json!({"ok": false, "error": message, "at": at})
+        }
+    }
 }
 
 #[cfg(test)]

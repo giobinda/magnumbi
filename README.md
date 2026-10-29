@@ -673,7 +673,14 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   dates of the same kind; they aren't numbers (`sold_at + 1` says to use `date_add`). The same
   answers on every engine, tested on each.
 - **No SQL:** formulas are parsed (`backend/src/formula.rs`) and only model fields, numbers and
-  those functions reach the database, written per engine. Not available on blends yet.
+  those functions reach the database, written per engine.
+- **On blends** (fields written `model.field`): a formula on totals uses the blend's measures
+  (`taxi.trips / weather.rainy_hours`): each is fetched from its model, aggregated on its own
+  engine as always, and the formula runs after the join, on ScramDB. A field of each row uses one
+  model's fields (`taxi.fare > 20`) and is computed in that model's own query, on its engine,
+  before it aggregates. Calculations on results work as on a model (`along(taxi.pickup_at)`).
+  Not on blends: `sum_if` and the like (after the join the rows are totals already) and sharing a
+  formula (it's saved on a model).
 
 ### Chart types
 

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, windowChips, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, editorFunctions, windowChips, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -177,5 +177,18 @@ describe('formulas', () => {
       { label: 'within the whole chart', insert: ', within()' },
     ])
     expect(windowChips([])).toEqual([])
+  })
+
+  it('offers the functions that work where the formula is', () => {
+    const names = (...a: Parameters<typeof editorFunctions>) => editorFunctions(...a).map(f => f.name)
+    expect(names({ perRow: false, inChart: true, blend: false })).toContain('sum_if')
+    expect(names({ perRow: false, inChart: true, blend: false })).toContain('running_sum')
+    expect(names({ perRow: false, inChart: false, blend: false })).not.toContain('running_sum')
+    expect(names({ perRow: true, inChart: true, blend: false })).toContain('weekday')
+    expect(names({ perRow: true, inChart: true, blend: false })).not.toContain('running_sum')
+    // on a blend, totals are added up per model before the join: no sum_if after it
+    expect(names({ perRow: false, inChart: true, blend: true })).not.toContain('sum_if')
+    expect(names({ perRow: false, inChart: true, blend: true })).toContain('running_sum')
+    expect(names({ perRow: true, inChart: true, blend: true })).toContain('contains')
   })
 })

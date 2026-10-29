@@ -396,6 +396,81 @@ mod tests {
         assert_eq!(one["columns"][1]["name"], json!("sales.revenue"));
         assert_eq!(column(&one, 1), column(&direct, 1));
 
+        // formulas: on totals across both models, after the join; of each row, on their model
+        let (s, f) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales_targets",
+            "dimensions": ["sales.region"], "measures": ["sales.revenue", "of_target"], "sort": ["sales.region"],
+            "formulas": [{"name": "of_target", "expr": "sales.revenue / targets.target", "format": "percent"}]})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{f}");
+        let names: Vec<&str> = f["columns"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert_eq!(names, ["sales.region", "sales.revenue", "of_target"], "the target only feeds the formula");
+        for (a, b) in column(&f, 2).iter().zip(column(&direct, 1)) {
+            assert!((a.as_f64().unwrap() - b.as_f64().unwrap() / 1000.0).abs() < 1e-6, "{a} vs {b} / 1000");
+        }
+        let big = json!([{"name": "big", "expr": "sales.amount > 100", "per_row": true}]);
+        let (s, by_big) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales_targets",
+            "dimensions": ["big"], "measures": ["sales.revenue", "targets.target"], "formulas": big})),
+        )
+        .await;
+        // targets are per region, so not by a field of each sale: the same check as for any field
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{by_big}");
+        let (s, by_big) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales_targets",
+            "dimensions": ["sales.region", "big"], "measures": ["sales.revenue"], "formulas": big,
+            "filters": [{"field": "big", "op": "equals", "values": [true]}]})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{by_big}");
+        let (_, raw) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales", "dimensions": ["region"],
+            "measures": ["revenue"], "filters": [{"field": "amount", "op": "gt", "values": [100]}]})),
+        )
+        .await;
+        let total = |b: &Value, i: usize| column(b, i).iter().map(|v| v.as_f64().unwrap()).sum::<f64>();
+        assert!((total(&by_big, 2) - total(&raw, 1)).abs() < 0.01, "{by_big} vs {raw}");
+
+        // the editor checks them as they're typed, as a query on the blend would
+        let check = |expr: &str, per_row: bool| json!({"model": "sales_targets", "expr": expr, "per_row": per_row});
+        for (expr, per_row, want) in [
+            ("sales.revenue / targets.target", false, json!({"ok": true})),
+            ("sales.amount > 100", true, json!({"ok": true, "type": "boolean"})),
+            ("concat(sales.region, '-', sales.store)", true, json!({"ok": true, "type": "string"})),
+        ] {
+            let (s, b) = call(&app, &cookie, "POST", "/api/formulas/check", Some(check(expr, per_row))).await;
+            assert_eq!((s, &b), (StatusCode::OK, &want), "{expr}");
+        }
+        for (expr, per_row, why) in [
+            ("sales.revenue / targets.nope", false, "nope"),
+            ("sum_if(sales.amount, sales.amount > 1)", false, "sum_if"),
+            ("sales.revenue + 'x'", false, "number"),
+            ("concat(sales.region, targets.region)", true, "one model's fields"),
+        ] {
+            let (s, b) = call(&app, &cookie, "POST", "/api/formulas/check", Some(check(expr, per_row))).await;
+            assert_eq!(s, StatusCode::OK, "{b}");
+            assert_eq!(b["ok"], json!(false), "{expr}: {b}");
+            let error = b["error"].as_str().unwrap();
+            assert!(error.contains(why) && !error.contains("formula__"), "{expr}: {b}");
+        }
+
         // targets are per region: by store they'd be counted once per store
         let (s, body) = call(
             &app,
