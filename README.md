@@ -637,7 +637,9 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   is what it gives), or a query formula with `per_row: true`.
 - **On a chart's results** (`results.rs`): `running_sum(x)`, `running_avg(x)`, `moving_avg(x, rows)`,
   `previous(x)`, `next(x)`, `difference(x)`, `percent_change(x)`, `first(x)`, `last(x)`, `rank(x)`,
-  `percent_of_total(x)` and, under Advanced, `dense_rank(x)` and `ntile(x, 4)`. They may use one
+  `percent_of_total(x)`, `total(x)` (the total next to each row: `total(revenue, within(region))`
+  for each region's, `within()` for the whole chart's, by default the one `percent_of_total`
+  divides by) and, under Advanced, `dense_rank(x)` and `ntile(x, 4)`. They may use one
   another (`so_far = running_sum(revenue)`, then `rank(so_far)` or `revenue / so_far`): they run in
   layers, each after those it uses. Mixed with the rest (`revenue / previous(revenue)`). The chart's
   query runs (or comes from the cache) without them; its result is copied to the organisation's

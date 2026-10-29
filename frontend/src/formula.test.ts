@@ -69,12 +69,12 @@ describe('formulas', () => {
 
   it('knows calculations on results', () => {
     expect(RESULT_FUNCTIONS.map(f => f.name)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
-      'running_avg', 'next', 'difference', 'percent_change', 'dense_rank', 'first', 'last', 'ntile', 'along', 'within'])
+      'running_avg', 'next', 'difference', 'percent_change', 'dense_rank', 'total', 'first', 'last', 'ntile', 'along', 'within'])
     expect(usesResults('difference(revenue) / 2')).toBe(true)
     // the easy ones for everyone; dense ranks and saying along or within what, under Advanced
     const compared = (advanced: boolean) => functionGroups(RESULT_FUNCTIONS, advanced)[0].functions.map(f => f.name)
     expect(compared(false)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
-      'running_avg', 'next', 'difference', 'percent_change', 'first', 'last'])
+      'running_avg', 'next', 'difference', 'percent_change', 'total', 'first', 'last'])
     expect(compared(true)).toContain('ntile')
     expect(compared(true)).toContain('dense_rank')
     expect(compared(true)).toContain('along')

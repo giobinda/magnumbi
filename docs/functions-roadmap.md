@@ -156,7 +156,11 @@ patterns (`matches`, `extract`: regex safety). Everything else, round by round:
    results that use one another.
 3. **Blends** (done; not `count_distinct_if`, `stddev`, `variance`: they don't add up again after the join): `sum_if` and the like, aggregations of a model's columns (`sum(taxi.fare)`), shared
    formulas on a blend.
-4. **Totals at a fixed level** ("revenue per region, whatever the chart shows"): design first.
+4. **Totals at a fixed level** (done as the user chose, option 1): `total(x, within(region))` on
+   the chart's results, the level one of the chart's dimensions (or `within()`: the whole chart).
+   A level outside the chart (`fixed(revenue, region)` on a chart by store's city…) is left until
+   someone needs it: a subquery joined back per engine, and the questions that come with it
+   (which filters apply; summed or averaged when the chart is coarser).
 
 ## Later, to decide
 

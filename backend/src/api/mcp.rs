@@ -84,7 +84,7 @@ today(), days_between(from, to), date_trunc(d, 'month'), date_add(d, 30, 'day'),
 group by it, filter on it, or sum(it). \
 Calculations on the results (computed after the query, on its rows): running_sum(x), running_avg(x), moving_avg(x, n), \
 previous(x), next(x), difference(x), percent_change(x), first(x), last(x), rank(x), dense_rank(x), ntile(x, n), \
-percent_of_total(x), and formulas using those (they may use one another): along the first date \
+percent_of_total(x), total(x) (the total next to each row; total(x, within(region)): each region's), and formulas using those (they may use one another): along the first date \
 dimension (else the first dimension), for each value of the others; or told, after the value: along(dimension), \
 within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N. \
 On a blend, fields are model.field: formulas on totals use its measures (taxi.trips / weather.hours), fields of each row \
