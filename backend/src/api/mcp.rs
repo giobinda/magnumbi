@@ -81,7 +81,9 @@ group by it, filter on it, or sum(it). \
 Calculations on the results (computed after the query, on its rows): running_sum(x), running_avg(x), moving_avg(x, n), \
 previous(x), next(x), difference(x), percent_change(x), rank(x), dense_rank(x), percent_of_total(x): along the first date \
 dimension (else the first dimension), for each value of the others; or told, after the value: along(dimension), \
-within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N",
+within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N. \
+On a blend, fields are model.field: formulas on totals use its measures (taxi.trips / weather.hours), fields of each row \
+one model's fields (taxi.fare > 20); no sum_if on blends",
             "items": {"type": "object", "properties": {"name": {"type": "string"}, "expr": {"type": "string"},
                 "label": {"type": "string"}, "format": {"type": "string", "enum": ["number", "currency", "percent"]},
                 "per_row": {"type": "boolean"}},

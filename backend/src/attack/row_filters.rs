@@ -350,6 +350,61 @@ async fn a_lookup_on_the_restricted_table_is_restricted_too() {
 }
 
 #[tokio::test]
+async fn formulas_on_a_blend_are_restricted_too() {
+    let Some(w) = World::new().await else { return };
+    let (b, owner) = people(&w);
+    // B's blend: the restricted sales, joined to B's own model of the same table
+    let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+    let (mine, blend) = (format!("mine_{suffix}"), format!("both_{suffix}"));
+    let model = json!({"name": mine, "connection": "warehouse", "table": "sample_sales",
+        "dimensions": [{"name": "region"}, {"name": "amount", "type": "number"}], "measures": [{"name": "n", "type": "count"}]});
+    let saved = w.send(&b, "PUT", &format!("/api/org-models/{mine}"), Some(model)).await;
+    let joined = json!({"name": blend, "base": "sales", "joins": [{"model": mine, "on": ["region = region"]}]});
+    let made = w.send(&b, "PUT", &format!("/api/blends/{blend}"), Some(joined)).await;
+    let mut leaks = vec![];
+    if !saved.status.is_success() || !made.status.is_success() {
+        leaks.push(format!("nothing was tested: {} / {}", saved.json(), made.json()));
+    }
+    let cases = [
+        // of each row, on the base, pushed down to its query
+        (
+            json!({"model": blend, "dimensions": ["big"], "measures": ["sales.revenue"],
+                "formulas": [{"name": "big", "expr": "sales.amount > 100", "per_row": true}]}),
+            json!({"model": "sales", "dimensions": ["big"], "measures": ["revenue"],
+                "formulas": [{"name": "big", "expr": "amount > 100", "per_row": true}]}),
+        ),
+        // of each row, on B's own model
+        (
+            json!({"model": blend, "dimensions": [format!("{mine}.region"), "small"], "measures": [format!("{mine}.n")],
+                "formulas": [{"name": "small", "expr": format!("{mine}.amount < 20"), "per_row": true}]}),
+            json!({"model": "sales", "dimensions": ["region", "small"], "measures": ["transactions"],
+                "formulas": [{"name": "small", "expr": "amount < 20", "per_row": true}]}),
+        ),
+        // on totals, across both, after the join
+        (
+            json!({"model": blend, "dimensions": ["sales.region"], "measures": ["per"],
+                "formulas": [{"name": "per", "expr": format!("sales.revenue / {mine}.n")}]}),
+            json!({"model": "sales", "dimensions": ["region"], "measures": ["per"],
+                "formulas": [{"name": "per", "expr": "revenue / transactions"}]}),
+        ),
+        // on one of them alone
+        (
+            json!({"model": blend, "measures": ["half"], "formulas": [{"name": "half", "expr": "sales.revenue / 2"}]}),
+            json!({"model": "sales", "measures": ["half"], "formulas": [{"name": "half", "expr": "revenue / 2"}]}),
+        ),
+    ];
+    for (q, oracle) in cases {
+        let got = w.send(&b, "POST", "/api/query", Some(q.clone())).await.json();
+        let mut oracle = oracle;
+        oracle["filters"] = json!([]);
+        let expected = w.send(&owner, "POST", "/api/query", Some(restricted(&oracle))).await.json();
+        leaks.extend(differs(&format!("{q}"), &got, &expected));
+    }
+    assert!(leaks.is_empty(), "a formula on a blend escaped the restriction:\n{}", leaks.join("\n"));
+    w.clean_up().await;
+}
+
+#[tokio::test]
 async fn the_platforms_models_made_in_the_app_are_restricted_too() {
     let Some(w) = World::new().await else { return };
     let (b, owner) = people(&w);

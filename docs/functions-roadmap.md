@@ -118,20 +118,29 @@ Not yet:
   editor's Advanced offers the chart's dimensions as chips.
 - Not done: `first`, `last`, `ntile` (no one has asked; easy to add on the same pattern).
 
-## Step 6: Formulas on blends (the goal)
+## Step 6: Formulas on blends (the goal) — done
 
 Blends aggregate per engine, then join on ScramDB. Each kind of formula goes where that design
 puts it:
 
-1. **Per row, on one side**: pushed down into that side's own query, on its own engine, before it
-   aggregates (`amount * qty` on the warehouse side). Same functions as on a model.
-2. **On totals, across sides**: run on ScramDB on the joined, aggregated result:
-   `revenue / rainy_days`, `sum_if` on a side's measure, ratios between engines.
-3. **Window functions, with every Advanced option**, on the blend's result: the results functions
-   already run there; this adds *along* / *within* over any of the blend's dimensions, filtering
-   and Top N on them, and saving them as a blend's own shared formulas.
+1. **Per row, on one side**: renamed to that model's own names (`formula::rename`) and added to
+   that model as a field, so its query computes it on its own engine before it aggregates. A
+   field mixing two models is refused.
+2. **On totals, across sides**: the measures it uses are fetched from their models (shown or
+   not), and it runs on ScramDB over the join as a measure of the joined model. When one model
+   is enough, the query goes to it directly, the formula with that model's own names.
+3. **Window functions** on the blend's result, with along / within over any of its dimensions
+   (`along(taxi.pickup_at)`), filters and Top N: they ran on blends already; names with a dot
+   (`model.field`) make the options work there too.
 
-Never: copying raw rows across engines to make a formula work (the blends rule).
+The editor checks them by planning a query with the formula (`api::formulas::check_on_blend`),
+and the attack suite has a case: a blend of the restricted model and an org's own model, every
+kind of formula, against the restricted answer (`attack::row_filters`).
+
+Never: copying raw rows across engines to make a formula work (the blends rule). Not on blends:
+`sum_if` and the like (after the join the rows are totals: refused, not wrong), aggregations of a
+model's columns (`sum(taxi.fare)`), sharing a formula on a blend (shared formulas belong to a
+model).
 
 ## Later, to decide
 

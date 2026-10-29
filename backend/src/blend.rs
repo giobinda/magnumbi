@@ -35,7 +35,7 @@ use serde_json::json;
 
 use crate::compiler::{QueryError, humanize, ident, split_grain};
 use crate::period::resolve_period;
-use crate::schema::{Dimension, Filter, Measure, Model, NAME_RE, Query, TIME_GRAINS, is_temporal};
+use crate::schema::{Dimension, Filter, Formula, Measure, Model, NAME_RE, Query, TIME_GRAINS, is_temporal};
 
 /// Rows a model's part of a blend may return (aggregated to the join keys).
 pub const MAX_SOURCE_ROWS: i64 = 1_000_000;
@@ -352,7 +352,7 @@ pub fn plan(
     now: DateTime<Utc>,
 ) -> Result<Plan, QueryError> {
     if !q.formulas.is_empty() {
-        return Err(QueryError("formulas aren't available on blends yet: use them on a model".into()));
+        return with_formulas(blend, models, q, now);
     }
     blend.validate(models).map_err(QueryError)?;
     let ms = blend.models(models);
@@ -403,6 +403,145 @@ pub fn plan(
     }
     sides.sort_unstable();
     joined(&cx, &sides, q, now).map(Plan::Joined)
+}
+
+/// A blend query's formulas. A field of each row uses one model's fields: it becomes a field of
+/// that model, computed in that model's own query on its engine before it aggregates. A formula on
+/// totals uses the blend's measures (`model.measure`): they're fetched from their models as any
+/// other, and it runs after the join, on ScramDB (or on the one model, when only one is needed).
+fn with_formulas(
+    blend: &Blend,
+    models: &BTreeMap<String, Model>,
+    q: &Query,
+    now: DateTime<Utc>,
+) -> Result<Plan, QueryError> {
+    let in_blend: Vec<&str> =
+        std::iter::once(blend.base.as_str()).chain(blend.joins.iter().map(|j| j.model.as_str())).collect();
+    let mut models = models.clone();
+    let mut rows: Vec<(String, Formula)> = vec![]; // (model, the field with its own names)
+    let mut totals: Vec<Formula> = vec![];
+    for f in &q.formulas {
+        let what = |e: crate::formula::FormulaError| QueryError(format!("{}: {e}", f.name));
+        let refs = crate::formula::references(&f.expr).map_err(what)?;
+        if !f.per_row {
+            if let Some(c) = crate::formula::calls(&f.expr)
+                .map_err(what)?
+                .into_iter()
+                .find(|c| matches!(c.as_str(), "sum_if" | "avg_if" | "count_if"))
+            {
+                return err(format!(
+                    "{}: {c}(…) adds up a model's rows, and after the join they're totals already: \
+                     use it on the model itself",
+                    f.name
+                ));
+            }
+            totals.push(f.clone());
+            continue;
+        }
+        let mut owners: Vec<&str> = vec![];
+        for r in &refs {
+            let owner = match r.split_once('.') {
+                Some((m, _)) => m,
+                // another field of each row
+                None => match rows.iter().find(|(_, x)| x.name == *r) {
+                    Some((m, _)) => m.as_str(),
+                    None => return err(format!("{}: {r:?}: blend fields are written model.field", f.name)),
+                },
+            };
+            if !owners.contains(&owner) {
+                owners.push(owner);
+            }
+        }
+        let model = match owners.as_slice() {
+            [m] if in_blend.contains(m) => m.to_string(),
+            [m] => return err(format!("{}: unknown model {m:?} in blend {:?}", f.name, blend.name)),
+            [] => return err(format!("{}: a field of each row uses a model's fields, written model.field", f.name)),
+            _ => {
+                return err(format!(
+                    "{}: a field of each row uses one model's fields; {} are different models",
+                    f.name,
+                    owners.join(" and ")
+                ));
+            }
+        };
+        let prefix = format!("{model}.");
+        let expr =
+            crate::formula::rename(&f.expr, |n| n.strip_prefix(&prefix).unwrap_or(n).to_string()).map_err(what)?;
+        let own = Formula { expr, ..f.clone() };
+        let m = models.get_mut(&model).expect("a model of the blend");
+        if m.dimension(&f.name).is_some() || m.measure(&f.name).is_some() {
+            return err(format!("formula {:?}: {model} already has a field with this name", f.name));
+        }
+        m.dimensions.push(own.as_dimension());
+        // what it gives, as for the model's own fields of each row
+        let kind = crate::compiler::with_row_formulas(m, crate::compiler::Dialect::Postgres)?
+            .dimension(&f.name)
+            .map(|d| d.kind.clone())
+            .unwrap_or_default();
+        m.dimensions.last_mut().expect("just added").kind = kind;
+        rows.push((model, own));
+    }
+    let is_total = |r: &str| totals.iter().any(|f| f.name == r);
+    // a field of each row is its model's
+    let field = |r: &str| {
+        let (name, grain) = split_grain(r);
+        match rows.iter().find(|(_, f)| f.name == name) {
+            Some((m, _)) => with_grain(&format!("{m}.{name}"), grain),
+            None => r.to_string(),
+        }
+    };
+    // the query without the formulas: the measures they use instead
+    let mut inner = q.clone();
+    inner.formulas = vec![];
+    inner.measures = q.measures.iter().filter(|m| !is_total(m)).cloned().collect();
+    for f in &totals {
+        for r in crate::formula::references(&f.expr).map_err(|e| QueryError(format!("{}: {e}", f.name)))? {
+            if is_total(&r) || inner.measures.contains(&r) {
+                continue;
+            }
+            if !r.contains('.') {
+                return err(format!("{}: {r:?}: blend fields are written model.field", f.name));
+            }
+            inner.measures.push(r);
+        }
+    }
+    inner.dimensions = q.dimensions.iter().map(|d| field(d)).collect();
+    inner.filters = q
+        .filters
+        .iter()
+        .filter(|f| !is_total(&f.field))
+        .map(|f| Filter { field: field(&f.field), ..f.clone() })
+        .collect();
+    inner.sort =
+        q.sort.iter().filter(|s| !is_total(s.trim_start_matches(['-', '+']))).map(|s| rename_sort(s, field)).collect();
+    if let Some(t) = &mut inner.top {
+        t.dimension = field(&t.dimension);
+    }
+    let sort: Vec<String> = q.sort.iter().map(|s| rename_sort(s, field)).collect();
+    let on_totals: Vec<Filter> = q.filters.iter().filter(|f| is_total(&f.field)).cloned().collect();
+    Ok(match plan(blend, &models, &inner, now)? {
+        Plan::Single { model, mut query } => {
+            // the model's own query: its names without the model's
+            let prefix = format!("{model}.");
+            let own = |n: &str| n.strip_prefix(&prefix).unwrap_or(n).to_string();
+            query.measures = q.measures.iter().map(|m| own(m)).collect();
+            query.sort = sort.iter().map(|s| rename_sort(s, own)).collect();
+            query.filters.extend(on_totals);
+            query.formulas = rows.iter().filter(|(m, _)| *m == model).map(|(_, f)| f.clone()).collect();
+            for f in &totals {
+                let expr = crate::formula::rename(&f.expr, own).map_err(|e| QueryError(format!("{}: {e}", f.name)))?;
+                query.formulas.push(Formula { expr, ..f.clone() });
+            }
+            Plan::Single { model, query }
+        }
+        Plan::Joined(mut j) => {
+            j.measures.extend(totals.iter().map(Formula::as_measure));
+            j.query.measures = q.measures.clone();
+            j.query.sort = sort;
+            j.query.filters.extend(on_totals);
+            Plan::Joined(j)
+        }
+    })
 }
 
 /// The query on one model: fields renamed to that model's (key fields of joined models to the
@@ -1080,8 +1219,6 @@ joins:
                 .contains("can't be combined")
         );
         assert!(e(json!({"model": "trips_weather", "dimensions": ["nope.x"]})).contains("nope"));
-        let f = json!([{"name": "x", "expr": "1"}]);
-        assert!(e(json!({"model": "trips_weather", "measures": ["trips.trips"], "formulas": f})).contains("blends"));
         assert!(e(json!({"model": "trips_weather", "dimensions": ["trips.nope"]})).contains("nope"));
         assert!(e(json!({"model": "trips_weather", "dimensions": ["condition"]})).contains("model.field"));
         assert!(
@@ -1104,5 +1241,105 @@ joins:
         assert!(!nests(Some("week"), Some("month")));
         assert!(nests(Some("month"), Some("year")));
         assert!(nests(None, Some("day")));
+    }
+
+    #[test]
+    fn formulas_on_totals_run_after_the_join() {
+        let j = joined(json!({"model": "trips_weather", "dimensions": ["weather.condition"], "measures": ["per_hour"],
+            "formulas": [{"name": "per_hour", "label": "Trips per hour", "expr": "trips.trips / weather.hours"}],
+            "filters": [{"field": "per_hour", "op": "gt", "values": [1]}], "sort": ["-per_hour"]}));
+        // each model brings what the formula uses, aggregated on its own engine as always
+        assert_eq!(j.sides[0].query.measures, ["trips"]);
+        assert_eq!(j.sides[1].query.measures, ["hours"]);
+        assert_eq!(j.query.measures, ["per_hour"]);
+        let c = compile_query(&j.joined_model(&tables(2)), &j.query, Dialect::Postgres, now(), &[]).unwrap();
+        // only the formula is shown; it's filtered on and sorted by after the join
+        assert_eq!(c.columns.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["weather.condition", "per_hour"]);
+        assert_eq!(c.columns[1].label, "Trips per hour");
+        assert!(
+            c.sql.contains(
+                "(CAST((SUM((\"trips.trips\"))) AS DOUBLE PRECISION) / NULLIF((SUM((\"weather.hours\"))), 0))"
+            ),
+            "{}",
+            c.sql
+        );
+        assert!(c.sql.contains("HAVING") && c.sql.contains("ORDER BY"), "{}", c.sql);
+    }
+
+    #[test]
+    fn formulas_on_one_model_run_on_it() {
+        let p = plan(
+            &blend(),
+            &models(),
+            &q(json!({"model": "trips_weather", "dimensions": ["trips.pickup_borough"],
+            "measures": ["trips.trips", "per_trip"], "sort": ["-per_trip"],
+            "formulas": [{"name": "per_trip", "expr": "trips.revenue / trips.trips"}]})),
+            now(),
+        )
+        .unwrap();
+        let Plan::Single { model, query } = p else { panic!("one model: no join") };
+        assert_eq!(model, "trips");
+        assert_eq!(query.measures, ["trips", "per_trip"]);
+        assert_eq!(query.sort, ["-per_trip"]);
+        assert_eq!(query.formulas[0].expr, "(revenue / trips)");
+    }
+
+    #[test]
+    fn fields_of_each_row_go_to_their_model() {
+        let j = joined(
+            json!({"model": "trips_weather", "dimensions": ["long"], "measures": ["trips.trips", "weather.hours"],
+            "filters": [{"field": "long", "op": "equals", "values": [true]}],
+            "formulas": [{"name": "long", "label": "Long trip", "expr": "trips.fare > 20", "per_row": true}]}),
+        );
+        let t = &j.sides[0];
+        let d = t.source.dimension("long").expect("on the trips side");
+        assert_eq!((d.formula.as_deref(), d.kind.as_str()), (Some("(fare > 20)"), "boolean"));
+        assert!(t.query.dimensions.contains(&"long".to_string()), "{:?}", t.query.dimensions);
+        assert_eq!(t.query.filters[0].field, "long");
+        // computed on that model's engine, before it aggregates
+        let sql = compile_query_up_to(&t.source, &t.query, Dialect::DuckDb, now(), &[], MAX_SOURCE_ROWS).unwrap().sql;
+        assert!(sql.contains("(\"fare\" > 20)"), "{sql}");
+        let c = compile_query(&j.joined_model(&tables(2)), &j.query, Dialect::Postgres, now(), &[]).unwrap();
+        assert_eq!((c.columns[0].name.as_str(), c.columns[0].label.as_str()), ("trips.long", "Taxi · Long trip"));
+        // and on one model alone, the query's own field
+        let p = plan(
+            &blend(),
+            &models(),
+            &q(json!({"model": "trips_weather", "dimensions": ["long"], "measures": ["trips.trips"],
+            "formulas": [{"name": "long", "expr": "trips.fare > 20", "per_row": true}]})),
+            now(),
+        )
+        .unwrap();
+        let Plan::Single { query, .. } = p else { panic!("one model") };
+        assert_eq!((query.dimensions[0].as_str(), query.formulas[0].expr.as_str()), ("long", "(fare > 20)"));
+    }
+
+    #[test]
+    fn formulas_that_cant_be_blended() {
+        let e = |f: Value, measures: Value| {
+            plan(
+                &blend(),
+                &models(),
+                &q(json!({"model": "trips_weather", "dimensions": ["weather.condition"],
+                "measures": measures, "formulas": f})),
+                now(),
+            )
+            .unwrap_err()
+            .0
+        };
+        let mixed = json!([{"name": "x", "expr": "concat(trips.pickup_borough, weather.condition)", "per_row": true}]);
+        assert!(
+            e(mixed, json!(["trips.trips"])).contains("one model's fields"),
+            "{}",
+            e(
+                json!([{"name": "x", "expr": "concat(trips.pickup_borough, weather.condition)", "per_row": true}]),
+                json!(["trips.trips"])
+            )
+        );
+        // after the join the rows are totals already: adding up rows there would be wrong
+        let rows = json!([{"name": "x", "expr": "sum_if(trips.fare, trips.fare > 1)"}]);
+        assert!(e(rows, json!(["x"])).contains("sum_if"));
+        assert!(e(json!([{"name": "x", "expr": "trips.nope / 2"}]), json!(["x"])).contains("nope"));
+        assert!(e(json!([{"name": "x", "expr": "trips.zones / 2"}]), json!(["x"])).contains("can't be combined"));
     }
 }

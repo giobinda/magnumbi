@@ -111,8 +111,19 @@ fn tokens(expr: &str) -> Result<Vec<(usize, Token)>, FormulaError> {
             continue;
         }
         if c.is_ascii_alphabetic() || c == b'_' {
-            while i < b.len() && (b[i].is_ascii_alphanumeric() || b[i] == b'_') {
+            let word = |i: &mut usize| {
+                while *i < b.len() && (b[*i].is_ascii_alphanumeric() || b[*i] == b'_') {
+                    *i += 1;
+                }
+            };
+            word(&mut i);
+            // a blend's field: model.field (one dot, between two names)
+            if b.get(i) == Some(&b'.') && b.get(i + 1).is_some_and(|c| c.is_ascii_alphabetic() || *c == b'_') {
                 i += 1;
+                word(&mut i);
+                if b.get(i) == Some(&b'.') {
+                    return fail(i, "a field is a name, or model.field: one dot");
+                }
             }
             out.push((start, Token::Name(expr[start..i].to_string())));
             continue;
@@ -385,6 +396,19 @@ pub fn references(expr: &str) -> Result<Vec<String>, FormulaError> {
     Ok(out)
 }
 
+/// The functions a formula calls.
+pub fn calls(expr: &str) -> Result<Vec<String>, FormulaError> {
+    let mut out = vec![];
+    walk(&parse(expr)?, &mut |n| {
+        if let Node::Call { name, .. } = n
+            && !out.contains(name)
+        {
+            out.push(name.clone());
+        }
+    });
+    Ok(out)
+}
+
 /// Whether a formula calculates on a chart's results (running_sum, rank...).
 pub fn is_on_results(expr: &str) -> Result<bool, FormulaError> {
     let mut found = false;
@@ -394,6 +418,33 @@ pub fn is_on_results(expr: &str) -> Result<bool, FormulaError> {
         }
     });
     Ok(found)
+}
+
+/// The formula written again, with each field's name changed by `name` (a blend's `model.field` to
+/// the model's own `field`): fully bracketed, so it means the same.
+pub fn rename(expr: &str, name: impl Fn(&str) -> String) -> Result<String, FormulaError> {
+    fn write(n: &Node, name: &dyn Fn(&str) -> String) -> String {
+        match n {
+            Node::Number(x) => x.clone(),
+            Node::Text(t) => format!("'{}'", t.replace('\'', "''")),
+            Node::Bool(b) => b.to_string(),
+            Node::Null => "null".into(),
+            // an aggregation of a column: sum(amount)
+            Node::Field { name: f, .. } => match f.split_once('(') {
+                Some((agg, column)) => format!("{agg}({})", name(column.trim_end_matches(')'))),
+                None => name(f),
+            },
+            Node::Neg(x) => format!("(-{})", write(x, name)),
+            Node::Not(x) => format!("(not {})", write(x, name)),
+            Node::Binary { op, left, right } => {
+                format!("({} {} {})", write(left, name), op.to_lowercase(), write(right, name))
+            }
+            Node::Call { name: f, args, .. } => {
+                format!("{f}({})", args.iter().map(|a| write(a, name)).collect::<Vec<_>>().join(", "))
+            }
+        }
+    }
+    Ok(write(&parse(expr)?, &name))
 }
 
 fn walk(n: &Node, visit: &mut impl FnMut(&Node)) {
@@ -1702,5 +1753,47 @@ pub(crate) mod tests {
         let row = per_row("sum_if(amount, returned)", Dialect::Postgres).unwrap_err().message;
         assert!(row.contains("on totals"), "{row}");
         assert!(on_results("running_sum(count_if(returned))").unwrap_err().message.contains("on totals"));
+    }
+
+    #[test]
+    fn blend_fields_are_names_with_a_dot() {
+        assert_eq!(references("taxi.trips / weather.hours").unwrap(), ["taxi.trips", "weather.hours"]);
+        assert_eq!(references("running_sum(taxi.trips, along(taxi.pickup_at))").unwrap(), ["taxi.trips"]);
+        // a number's dot is still a number's
+        assert_eq!(sql("revenue * .5").unwrap(), "(SUM(amount) * .5)");
+        // one dot, between two names
+        assert!(references("taxi.").is_err());
+        assert!(references("a.b.c").is_err());
+    }
+
+    #[test]
+    fn formulas_are_written_back_with_names_changed() {
+        let strip = |n: &str| n.strip_prefix("t.").unwrap_or(n).to_string();
+        assert_eq!(rename("t.revenue / t.units", strip).unwrap(), "(revenue / units)");
+        assert_eq!(
+            rename("if(t.units > 0 and not t.x, 'it''s', null)", strip).unwrap(),
+            "if(((units > 0) and (not x)), 'it''s', null)"
+        );
+        assert_eq!(rename("sum(t.amount) + -t.cost", strip).unwrap(), "(sum(amount) + (-cost))");
+        assert_eq!(
+            rename("running_sum(t.revenue, along(t.sold_at), within())", strip).unwrap(),
+            "running_sum(revenue, along(sold_at), within())"
+        );
+        // written back, a formula means the same
+        for e in [
+            "revenue / units - cost * 2",
+            "if(units >= 1 or revenue = 0, 1.5, null)",
+            "-(revenue - cost) / 3",
+            "if(coalesce(revenue, 0) <> 0, 1, 0)",
+            "round(revenue / units, 2)",
+        ] {
+            let again = rename(e, |n| n.to_string()).unwrap();
+            assert_eq!(sql(&again).unwrap(), sql(e).unwrap(), "{e} -> {again}");
+        }
+        let row = rename("concat(region, ' / ', lower(store))", |n| n.to_string()).unwrap();
+        assert_eq!(
+            per_row(&row, Dialect::Postgres).unwrap(),
+            per_row("concat(region, ' / ', lower(store))", Dialect::Postgres).unwrap()
+        );
     }
 }

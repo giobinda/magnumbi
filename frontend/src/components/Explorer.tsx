@@ -223,7 +223,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         {model?.description && <p className="muted small">{model.description}</p>}
         <input placeholder="Search fields…" value={search} onChange={e => setSearch(e.target.value)} />
         <div className="field-group row">Dimensions
-          {model && !model.blend && <button className="link new-formula" title="A field of each row, from its columns"
+          {model && <button className="link new-formula" title="A field of each row, from its columns"
             onClick={() => setEditing('new-row')}>ƒ New field</button>}
         </div>
         {fieldGroups(model?.dimensions.filter(d => fieldMatches(d, search)) ?? [], Boolean(model?.blend)).map(g => (
@@ -253,7 +253,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
           </Fragment>
         ))}
         <div className="field-group row">Measures
-          {model && !model.blend && <button className="link new-formula" title="A calculation on the measures and columns"
+          {model && <button className="link new-formula" title="A calculation on the measures and columns"
             onClick={() => setEditing('new')}>ƒ New formula</button>}
         </div>
         {fieldGroups(model?.measures.filter(m => fieldMatches(m, search)) ?? [], Boolean(model?.blend)).map(g => (

@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults, windowChips } from '../formula'
+import { OPERATORS, advancedOpen, editorFunctions, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults, windowChips } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -88,6 +88,8 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
     ...others.filter(f => !f.per_row).map(f => ({ name: f.name, label: f.label, formula: f.expr })),
   ].filter(m => m.name !== initial?.name)
   const columns = model.dimensions.filter(d => d.name !== initial?.name)
+  // a blend's fields are its models' (model.field): no aggregations of their columns here
+  const blend = Boolean(model.blend)
 
   return (
     <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) onCancel() }}>
@@ -139,15 +141,15 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
                   onClick={() => insert(m.name)}>{m.formula ? 'ƒ ' : ''}{m.label ?? m.name}</button>
               ))}
             </div>
-            <div className="field-group">Columns</div>
-            <div className="row wrap">
+            {!blend && <div className="field-group">Columns</div>}
+            {!blend && <div className="row wrap">
               {numberColumns(model).map(d => (
                 <button key={d.name} className="chip dimension" title={`${aggOf(d)}(${d.name}): ${AGG_LABELS[aggOf(d)]}; sum, avg, min, max, count and count_distinct work too`}
                   onClick={() => insert(`${aggOf(d)}(${d.name})`)}>Σ {d.label ?? d.name}</button>
               ))}
-            </div>
+            </div>}
           </>}
-          {functionGroups([...(perRow ? ROW_FUNCTIONS : TOTAL_FUNCTIONS), ...(inChart && !perRow ? RESULT_FUNCTIONS : [])], advanced).map(g => (
+          {functionGroups(editorFunctions({ perRow, inChart: Boolean(inChart), blend }), advanced).map(g => (
             <Fragment key={g.group}>
               <div className="field-group">{g.group}</div>
               <div className="row wrap">
@@ -171,7 +173,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
           </button>
         </div>
 
-        {canShare && !shared && !onResults && (
+        {canShare && !blend && !shared && !onResults && (
           <label className="check"><input type="checkbox" checked={share} onChange={e => setShare(e.target.checked)} />
             Share with everyone in the organisation, as one of this model's {perRow ? 'fields' : 'measures'}</label>
         )}

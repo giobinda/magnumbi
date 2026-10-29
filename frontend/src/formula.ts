@@ -96,6 +96,14 @@ export function windowChips(dims: { ref: string; label: string }[]): { label: st
   return dims.length ? [...chips, { label: 'within the whole chart', insert: ', within()' }] : []
 }
 
+/** The functions the editor offers: per row or on totals, on a chart's results in a chart, and
+ *  on a blend no totals with a condition (its models' rows are added up before the join). */
+export function editorFunctions({ perRow, inChart, blend }: { perRow: boolean; inChart: boolean; blend: boolean }): FormulaFunction[] {
+  if (perRow) return ROW_FUNCTIONS
+  const totals = blend ? FUNCTIONS : TOTAL_FUNCTIONS
+  return inChart ? [...totals, ...RESULT_FUNCTIONS] : totals
+}
+
 const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Totals with a condition', 'Compared with other rows']
 
 /** The functions by group, in the editor's order; the advanced ones only when Advanced is open. */
