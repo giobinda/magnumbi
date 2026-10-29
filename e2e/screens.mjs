@@ -159,7 +159,8 @@ await shot('explore-row', null, {
     await page.click('.formula-editor button.primary')
     await page.waitForSelector('.chip.dimension:has-text("Order size")')
     await page.dblclick('.field-item:has(.flabel:text-is("Revenue"))')
-    await page.click('.chart-types button:has-text("Donut")')
+    await page.click('.chart-picker-btn')
+    await page.click('.chart-card:has(b:text-is("Donut"))')
   },
 })
 await shot('formula-results', '/explore', {
@@ -177,7 +178,8 @@ await shot('explore-results', null, {
   before: async () => {
     await page.click('.formula-editor button.primary')
     await page.waitForSelector('.chip.formula')
-    await page.click('.chart-types button:has-text("Line")')
+    await page.click('.chart-picker-btn')
+    await page.click('.chart-card:has(b:text-is("Line"))')
   },
 })
 await shot('models', '/models', {
@@ -255,5 +257,8 @@ await shot('code', '/code', {
     await page.waitForSelector('.code-changes li')
   },
 })
-await shot('security', '/', { el: '.security-card', before: async () => page.click('button:has-text("Security")') })
+await shot('security', '/', { el: '.security-card', before: async () => {
+  await page.click('[data-tour=nav-settings] > button')
+  await page.click('[data-tour=nav-settings] .nav-menu-button:has-text("Security")')
+} })
 await browser.close()
