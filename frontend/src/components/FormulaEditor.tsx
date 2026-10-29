@@ -1,7 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { OPERATORS, advancedOpen, editorFunctions, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults, windowChips } from '../formula'
+import { OPERATORS, advancedOpen, editorFunctions, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults, windowChips, calculationNames } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -72,7 +72,8 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
   }
 
   const check = expr.trim() ? checked : null
-  const onResults = !perRow && usesResults(expr)
+  // on results: calling a function on them, or using one of the chart's calculations on them
+  const onResults = !perRow && usesResults(expr, calculationNames(others))
   const name = initial?.name ?? nameFor(label, taken)
   const save = async () => {
     setSaving(true); setError(null)

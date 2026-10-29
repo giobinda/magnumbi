@@ -119,10 +119,12 @@ pub async fn check(Auth(caller): Auth, Body(c): Body<Check>) -> ApiResult<Json<V
     } else {
         model.measures.push(f.as_measure());
     }
-    // a calculation on the chart's results
-    if !f.per_row && crate::formula::is_on_results(&f.expr).unwrap_or(false) {
+    // a calculation on the chart's results, or one using the chart's others (`revenue / so_far`)
+    let calcs = crate::results::calculations(&c.formulas).unwrap_or_default();
+    let uses_calcs = crate::formula::references(&f.expr).is_ok_and(|r| r.iter().any(|r| calcs.contains(r)));
+    if !f.per_row && (uses_calcs || crate::formula::is_on_results(&f.expr).unwrap_or(false)) {
         let model = crate::compiler::with_row_formulas(&model, crate::compiler::Dialect::Postgres)?;
-        return Ok(Json(match crate::compiler::result_formula_error(&model, &f.expr) {
+        return Ok(Json(match crate::compiler::result_formula_error(&model, &f.expr, &calcs) {
             None => json!({"ok": true}),
             Some(e) => json!({"ok": false, "error": e.message, "at": e.at}),
         }));
@@ -717,6 +719,63 @@ mod tests {
             let total: f64 = rows.iter().filter(|r| r[0] == json!(region)).map(|r| num(&r[4]).unwrap()).sum();
             assert!(close(total, 1.0), "{region}'s shares add up to {total}");
         }
+        clean_up(&state, &org).await;
+    }
+
+    /// Round 2 on ScramDB: first, last, ntile; calculations using one another; dates as text,
+    /// fiscal years.
+    #[tokio::test]
+    async fn calculations_using_one_another_and_dates_as_text() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap();
+        let run = |q: serde_json::Value| {
+            let (app, org) = (&app, &org);
+            async move {
+                let (s, body, _) = send(app, c, org, "POST", "/api/query", Some(q), None).await;
+                assert_eq!(s, StatusCode::OK, "{body}");
+                body["rows"].as_array().unwrap().clone()
+            }
+        };
+        let rows = run(json!({"model": "sales", "dimensions": ["sold_at:month"], "sort": ["sold_at:month"],
+            "measures": ["revenue", "opening", "closing", "half", "place", "of_so_far"],
+            "formulas": [{"name": "opening", "expr": "first(revenue)"}, {"name": "closing", "expr": "last(revenue)"},
+                {"name": "half", "expr": "ntile(revenue, 2)"}, {"name": "so_far", "expr": "running_sum(revenue)"},
+                {"name": "place", "expr": "rank(so_far)"}, {"name": "of_so_far", "expr": "revenue / so_far"}]}))
+        .await;
+        let x: Vec<f64> = rows.iter().map(|r| num(&r[1])).collect();
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+        let n = x.len();
+        assert!(n > 3, "{rows:?}");
+        let mut sorted = x.clone();
+        sorted.sort_by(|a, b| b.total_cmp(a));
+        for (i, r) in rows.iter().enumerate() {
+            assert!(close(num(&r[2]), x[0]) && close(num(&r[3]), x[n - 1]), "first and last, row {i}: {r}");
+            let rank = 1 + sorted.iter().position(|&y| y == x[i]).unwrap();
+            assert_eq!(num(&r[4]) as usize, if rank <= n.div_ceil(2) { 1 } else { 2 }, "ntile, row {i}: {r}");
+            // so_far (a column too, as every formula), then its rank (the latest month first: it
+            // only grows) and the month's share of it
+            let so_far: f64 = x[..=i].iter().sum();
+            assert!(close(num(&r[5]), so_far), "running total, row {i}: {r}");
+            assert_eq!(num(&r[6]) as usize, n - i, "rank of the running total, row {i}: {r}");
+            assert!(close(num(&r[7]), x[i] / so_far), "share of the running total, row {i}: {r}");
+        }
+        // dates as text and fiscal years, as fields of each row
+        let fy = run(json!({"model": "sales", "dimensions": ["label", "fy"], "measures": ["transactions"],
+            "sort": ["label"], "formulas": [
+                {"name": "label", "expr": "format_date(sold_at, 'YYYY-MM')", "per_row": true},
+                {"name": "fy", "expr": "fiscal_year(sold_at, 4)", "per_row": true}]}))
+        .await;
+        for r in &fy {
+            let label = r[0].as_str().unwrap();
+            let (year, month): (i64, i64) = (label[..4].parse().unwrap(), label[5..7].parse().unwrap());
+            assert_eq!(num(&r[1]) as i64, if month >= 4 { year + 1 } else { year }, "{r}");
+        }
+        // the editor: a formula using another calculation is one too
+        let others = json!([{"name": "so_far", "expr": "running_sum(revenue)"}]);
+        let check = json!({"model": "sales", "expr": "revenue / so_far", "formulas": others});
+        let (s, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(check), None).await;
+        assert_eq!((s, &b), (StatusCode::OK, &json!({"ok": true})));
         clean_up(&state, &org).await;
     }
 

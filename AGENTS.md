@@ -146,6 +146,8 @@ frontend runs `npx tsc -b`, `npx vitest run`, `npx oxlint src` and `npm run buil
   `NUMERIC(38, 10)`.
 - `GROUP BY` and `DISTINCT` on a bare `NUMERIC` column return made-up values after the first run:
   number dimensions are grouped by `(x + 0)` (`compiler::group_key`).
+- `SELECT *` from one `WITH` part into the next loses track of the columns ("ambiguous", "does
+  not exist"): name them, in nested subqueries (results.rs layers its calculations so).
 - No exact percentiles: no `PERCENTILE_CONT`, `MEDIAN` or `QUANTILE_CONT` (so no `median()` in
   formulas yet; PostgreSQL and DuckDB have them, under the same dialect as ScramDB for the first).
 - `CREATE DATABASE` doesn't isolate reliably; `COPY TO STDOUT` ignores CSV options; no

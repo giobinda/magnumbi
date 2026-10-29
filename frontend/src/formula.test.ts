@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, editorFunctions, windowChips, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, calculationNames, editorFunctions, windowChips, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -29,7 +29,7 @@ describe('formulas', () => {
       'lower', 'upper', 'concat', 'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace',
       'substring', 'position', 'split_part', 'to_number', 'to_text',
       'year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'date_trunc', 'date_add', 'date_diff',
-      'hours_between', 'minutes_between'])
+      'hours_between', 'minutes_between', 'format_date', 'fiscal_year', 'fiscal_quarter'])
     expect(TOTAL_FUNCTIONS.map(f => f.name).slice(numbers.length))
       .toEqual(['sum_if', 'count_if', 'avg_if', 'min_if', 'max_if', 'count_distinct_if', 'stddev', 'variance'])
   })
@@ -69,12 +69,13 @@ describe('formulas', () => {
 
   it('knows calculations on results', () => {
     expect(RESULT_FUNCTIONS.map(f => f.name)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
-      'running_avg', 'next', 'difference', 'percent_change', 'dense_rank', 'along', 'within'])
+      'running_avg', 'next', 'difference', 'percent_change', 'dense_rank', 'first', 'last', 'ntile', 'along', 'within'])
     expect(usesResults('difference(revenue) / 2')).toBe(true)
     // the easy ones for everyone; dense ranks and saying along or within what, under Advanced
     const compared = (advanced: boolean) => functionGroups(RESULT_FUNCTIONS, advanced)[0].functions.map(f => f.name)
     expect(compared(false)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
-      'running_avg', 'next', 'difference', 'percent_change'])
+      'running_avg', 'next', 'difference', 'percent_change', 'first', 'last'])
+    expect(compared(true)).toContain('ntile')
     expect(compared(true)).toContain('dense_rank')
     expect(compared(true)).toContain('along')
     expect(usesResults('revenue / Running_Sum (revenue)')).toBe(true)
@@ -108,7 +109,7 @@ describe('formulas', () => {
     expect(groups.map(g => g.group)).toEqual(['Numbers', 'Logic', 'Text', 'Dates'])
     // the easy dates first; truncating, moving and counting in units under Advanced
     expect(groups.find(g => g.group === 'Dates')!.functions.map(f => f.name))
-      .toEqual(['year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'hours_between', 'minutes_between'])
+      .toEqual(['year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'hours_between', 'minutes_between', 'format_date'])
     expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Dates')!.functions.map(f => f.name))
       .toContain('date_add')
     expect(groups.flatMap(g => g.functions.map(f => f.name))).not.toContain('coalesce')
@@ -136,12 +137,12 @@ describe('formulas', () => {
       { name: 'per_trip', label: 'Per trip', expr: 'revenue / trips', format: 'currency' as const }]
     const chart = { model, measures: ['revenue', 'trips', 'share', 'per_trip'], formulas, dimensions: 1, label: (r: string) => r }
     const menus = (ref: string) => calcsInChart(ref, chart).map(c => c.menu)
-    // another measure to divide by, but never a calculation on results
+    // another measure to divide by, a calculation on results too (calculated before)
     expect(menus('revenue')).toContain('Divided by trips')
     expect(menus('revenue')).toContain('Divided by per_trip')
-    expect(menus('revenue')).not.toContain('Divided by share')
-    // nothing on a calculation on results
-    expect(menus('share')).toEqual([])
+    expect(menus('revenue')).toContain('Divided by share')
+    // calculations on a calculation: the rank of a share
+    expect(calcsInChart('share', chart).find(c => c.menu === 'Rank')!.formula.expr).toBe('rank(share)')
     // the measure's format carries over; a chart formula's too
     expect(calcsInChart('revenue', chart).find(c => c.menu === 'Running total')!.formula.format).toBe('currency')
     expect(calcsInChart('per_trip', chart).find(c => c.menu === 'Running total')!.formula.format).toBe('currency')
@@ -199,5 +200,14 @@ describe('formulas', () => {
     expect(names({ perRow: false, inChart: true, blend: true })).not.toContain('sum_if')
     expect(names({ perRow: false, inChart: true, blend: true })).toContain('running_sum')
     expect(names({ perRow: true, inChart: true, blend: true })).toContain('contains')
+  })
+
+  it('knows which formulas calculate on results, those using one included', () => {
+    const fs = [{ name: 'so_far', expr: 'running_sum(revenue)' }, { name: 'share', expr: 'revenue / so_far' },
+      { name: 'half', expr: 'share / 2' }, { name: 'plain', expr: 'revenue / units' }, { name: 'r', expr: 'so_far * 2', per_row: true }]
+    expect(calculationNames(fs)).toEqual(['so_far', 'share', 'half'])
+    expect(usesResults('revenue / so_far', ['so_far'])).toBe(true)
+    expect(usesResults('revenue / so_far_ish', ['so_far'])).toBe(false)
+    expect(usesResults('revenue / units', ['so_far'])).toBe(false)
   })
 })

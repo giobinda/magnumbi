@@ -43,18 +43,13 @@ const NUMBER_OPS: [(&str, usize); 9] = [
 
 /// The query's calculations on results apart from the rest (None: it has none).
 pub fn split(q: &Query) -> Result<Option<Split>, String> {
-    let mut calcs = vec![];
-    let mut others = vec![];
-    for f in &q.formulas {
-        if !f.per_row && formula::is_on_results(&f.expr).map_err(|e| format!("{}: {e}", f.name))? {
-            calcs.push(f.clone());
-        } else {
-            others.push(f.clone());
-        }
-    }
+    let names = calculations(&q.formulas)?;
+    let (calcs, others): (Vec<Formula>, Vec<Formula>) =
+        q.formulas.iter().cloned().partition(|f| names.contains(&f.name));
     if calcs.is_empty() {
         return Ok(None);
     }
+    layers_of(&calcs)?;
     let is_calc = |name: &str| calcs.iter().any(|c: &Formula| c.name == name);
     let (filters, kept): (Vec<Filter>, Vec<Filter>) = q.filters.iter().cloned().partition(|f| is_calc(&f.field));
     for f in &filters {
@@ -90,7 +85,7 @@ pub fn split(q: &Query) -> Result<Option<Split>, String> {
     for c in &calcs {
         for r in formula::references(&c.expr).map_err(|e| format!("{}: {e}", c.name))? {
             if is_calc(&r) {
-                return Err(format!("{}: uses {r}, another calculation on results; use the measure itself", c.name));
+                continue; // calculated before it (sql: in layers)
             }
             // a comparison column comes with its measure
             let measure = r.strip_suffix("__previous").or_else(|| r.strip_suffix("__change")).unwrap_or(&r).to_string();
@@ -102,6 +97,56 @@ pub fn split(q: &Query) -> Result<Option<Split>, String> {
         }
     }
     Ok(Some(Split { inner, calcs, hidden, filters, top }))
+}
+
+/// The formulas that calculate on a chart's results: those calling a function on results, and
+/// those using one of them (`revenue / so_far`), which can only run after it.
+pub fn calculations(formulas: &[Formula]) -> Result<Vec<String>, String> {
+    let mut names = vec![];
+    for f in formulas.iter().filter(|f| !f.per_row) {
+        if formula::is_on_results(&f.expr).map_err(|e| format!("{}: {e}", f.name))? {
+            names.push(f.name.clone());
+        }
+    }
+    loop {
+        let before = names.len();
+        for f in formulas.iter().filter(|f| !f.per_row) {
+            if names.contains(&f.name) {
+                continue;
+            }
+            if formula::references(&f.expr).map_err(|e| format!("{}: {e}", f.name))?.iter().any(|r| names.contains(r)) {
+                names.push(f.name.clone());
+            }
+        }
+        if names.len() == before {
+            return Ok(names);
+        }
+    }
+}
+
+/// The calculations in the order they can run: each layer uses only those in the layers before.
+fn layers_of(calcs: &[Formula]) -> Result<Vec<Vec<usize>>, String> {
+    let refs: Vec<Vec<String>> = calcs
+        .iter()
+        .map(|c| formula::references(&c.expr).map_err(|e| format!("{}: {e}", c.name)))
+        .collect::<Result<_, _>>()?;
+    let index = |name: &str| calcs.iter().position(|c| c.name == name);
+    let mut done = vec![false; calcs.len()];
+    let mut layers = vec![];
+    while done.iter().any(|d| !d) {
+        let ready: Vec<usize> = (0..calcs.len())
+            .filter(|&i| !done[i] && refs[i].iter().filter_map(|r| index(r)).all(|j| done[j]))
+            .collect();
+        if ready.is_empty() {
+            let stuck = (0..calcs.len()).find(|&i| !done[i]).expect("one left");
+            return Err(format!("{}: uses itself, through the calculations it uses", calcs[stuck].name));
+        }
+        for &i in &ready {
+            done[i] = true;
+        }
+        layers.push(ready);
+    }
+    Ok(layers)
 }
 
 /// The result's column a formula's field is: "sum(qty)" is the column `sum__qty`.
@@ -143,20 +188,45 @@ pub fn sql(table: &str, columns: &[Column], calcs: &[Formula]) -> Result<String,
             .map(|&i| (columns[i].field.split(':').next().unwrap_or_default().to_string(), col(i)))
             .collect(),
     };
-    let mut selects = vec!["\"_row\"".to_string()];
-    for c in calcs {
-        let (expr, _) = formula::compile_on_results(&c.expr, &window, &mut |name| {
-            let wanted = column_name(name);
-            match columns.iter().position(|x| x.name == wanted) {
-                Some(i) if columns[i].kind == "measure" => Ok((col(i), Type::Number)),
-                Some(_) => Err(format!("{name} is a dimension; calculations on results use measures")),
-                None => Err(format!("unknown field {name:?}")),
-            }
-        })
-        .map_err(|e| format!("{}: {e}", c.name))?;
-        selects.push(expr);
+    // in layers: a calculation runs once those it uses have (each one's value: column k<i>)
+    let index = |name: &str| calcs.iter().position(|c| c.name == name);
+    let mut layers: Vec<Vec<(usize, String)>> = vec![];
+    for ready in layers_of(calcs)? {
+        let mut layer = vec![];
+        for i in ready {
+            let c = &calcs[i];
+            let (expr, _) = formula::compile_on_results(&c.expr, &window, &mut |name| {
+                if let Some(j) = index(name) {
+                    return Ok((format!("\"k{j}\""), Type::Number));
+                }
+                let wanted = column_name(name);
+                match columns.iter().position(|x| x.name == wanted) {
+                    Some(i) if columns[i].kind == "measure" => Ok((col(i), Type::Number)),
+                    Some(_) => Err(format!("{name} is a dimension; calculations on results use measures")),
+                    None => Err(format!("unknown field {name:?}")),
+                }
+            })
+            .map_err(|e| format!("{}: {e}", c.name))?;
+            layer.push((i, expr));
+        }
+        layers.push(layer);
     }
-    Ok(format!("SELECT {} FROM {table} ORDER BY \"_row\"", selects.join(", ")))
+    if let [layer] = layers.as_slice() {
+        let selects: Vec<String> = layer.iter().map(|(_, e)| e.clone()).collect();
+        return Ok(format!("SELECT \"_row\", {} FROM {table} ORDER BY \"_row\"", selects.join(", ")));
+    }
+    // each layer a subquery of the one before, its columns named (ScramDB loses track of them
+    // through SELECT * from one WITH part into the next)
+    let mut known: Vec<String> = std::iter::once("\"_row\"".to_string()).chain((0..columns.len()).map(col)).collect();
+    let mut from = table.to_string();
+    for (n, layer) in layers.iter().enumerate() {
+        let selects: Vec<String> =
+            known.iter().cloned().chain(layer.iter().map(|(i, e)| format!("{e} AS \"k{i}\""))).collect();
+        from = format!("(SELECT {} FROM {from}) AS l{}", selects.join(", "), n + 1);
+        known.extend(layer.iter().map(|(i, _)| format!("\"k{i}\"")));
+    }
+    let values: Vec<String> = (0..calcs.len()).map(|i| format!("\"k{i}\"")).collect();
+    Ok(format!("SELECT \"_row\", {} FROM {from} ORDER BY \"_row\"", values.join(", ")))
 }
 
 /// The result with the calculations' values (`values`: one row per result row, in order) as new
@@ -355,8 +425,9 @@ mod tests {
             "top": {"dimension": "region", "n": 2, "by": "running"}}))
             .contains("one dimension")
         );
-        let chained = json!([{"name": "a", "expr": "running_sum(revenue)"}, {"name": "b", "expr": "rank(a)"}]);
-        assert!(e(json!({"model": "sales", "measures": ["revenue"], "formulas": chained})).contains("another"));
+        // calculations may use one another; one using itself can't be
+        let circle = json!([{"name": "a", "expr": "running_sum(b)"}, {"name": "b", "expr": "rank(a)"}]);
+        assert!(e(json!({"model": "sales", "measures": ["revenue"], "formulas": circle})).contains("itself"));
     }
 
     #[test]
@@ -438,5 +509,38 @@ mod tests {
         assert_eq!(regions(&top(2, true), &[]), ["C", "A"]);
         // the query's own sort still orders the rows kept
         assert_eq!(regions(&top(3, false), &["region".into()]), ["A", "B", "D"]);
+    }
+
+    #[test]
+    fn calculations_may_use_one_another() {
+        // b ranks a; c divides by a without a function of its own: still on results
+        let query = q(json!({"model": "sales", "dimensions": ["sold_at:month"], "measures": ["revenue", "b", "c"],
+            "formulas": [{"name": "a", "expr": "running_sum(revenue)"}, {"name": "b", "expr": "rank(a)"},
+                         {"name": "c", "expr": "revenue / a"}]}));
+        let s = split(&query).unwrap().unwrap();
+        assert_eq!(s.calcs.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(), ["a", "b", "c"]);
+        assert_eq!(s.inner.measures, ["revenue"], "a, b and c run after the query");
+        // every one a column, as a query's formulas are
+        let rows = vec![vec![json!("2026-01-01"), json!(5)], vec![json!("2026-02-01"), json!(7)]];
+        let values = vec![vec![json!(5), json!(2), json!(1)], vec![json!(12), json!(1), json!(0.58)]];
+        let cols = vec![column("sold_at__month", "dimension", "date"), column("revenue", "measure", "number")];
+        let (out_cols, out) = finish(cols, rows, values, &s, &["-a".into()]);
+        assert_eq!(
+            out_cols.iter().map(|c| c.name.as_str()).collect::<Vec<_>>(),
+            ["sold_at__month", "revenue", "a", "b", "c"]
+        );
+        assert_eq!(out[0], [json!("2026-02-01"), json!(7), json!(12), json!(1), json!(0.58)]);
+        let columns = vec![
+            Column { grain: Some("month".into()), ..column("sold_at__month", "dimension", "date") },
+            column("revenue", "measure", "number"),
+        ];
+        // in layers: each sees the ones before it
+        assert_eq!(
+            sql("t", &columns, &s.calcs).unwrap(),
+            "SELECT \"_row\", \"k0\", \"k1\", \"k2\" FROM (SELECT \"_row\", \"c0\", \"c1\", \"k0\", \
+             RANK() OVER (ORDER BY \"k0\" DESC) AS \"k1\", (CAST(\"c1\" AS DOUBLE PRECISION) / NULLIF(\"k0\", 0)) AS \"k2\" \
+             FROM (SELECT \"_row\", \"c0\", \"c1\", SUM(\"c1\") OVER (ORDER BY \"c0\" ROWS BETWEEN UNBOUNDED PRECEDING \
+             AND CURRENT ROW) AS \"k0\" FROM t) AS l1) AS l2 ORDER BY \"_row\""
+        );
     }
 }

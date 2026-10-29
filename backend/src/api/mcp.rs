@@ -78,11 +78,13 @@ over the rows meeting it (e.g. \"sum_if(amount, region = 'EMEA') / revenue\"). \
 per_row: true makes a field of each row from the model's columns (e.g. \"amount * qty\", \"if(region = 'EMEA', 'home', 'away')\", \
 with 'text', lower, upper, concat, contains / starts_with / ends_with (capitals aside), length, trim, left(t, n), right(t, n), \
 replace(t, from, to), substring(t, start, n), position(t, part), split_part(t, sep, n), to_number(t), to_text(x); \
-dates written as '2026-01-31' or '2026-01-31 14:30' (UTC), hours_between, minutes_between; dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
+dates written as '2026-01-31' or '2026-01-31 14:30' (UTC), hours_between, minutes_between, format_date(d, 'YYYY-MM') \
+(YYYY MM DD HH MI Mon Dy), fiscal_year(d, start_month), fiscal_quarter(d, start_month); dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
 today(), days_between(from, to), date_trunc(d, 'month'), date_add(d, 30, 'day'), date_diff(from, to, 'month')): \
 group by it, filter on it, or sum(it). \
 Calculations on the results (computed after the query, on its rows): running_sum(x), running_avg(x), moving_avg(x, n), \
-previous(x), next(x), difference(x), percent_change(x), rank(x), dense_rank(x), percent_of_total(x): along the first date \
+previous(x), next(x), difference(x), percent_change(x), first(x), last(x), rank(x), dense_rank(x), ntile(x, n), \
+percent_of_total(x), and formulas using those (they may use one another): along the first date \
 dimension (else the first dimension), for each value of the others; or told, after the value: along(dimension), \
 within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N. \
 On a blend, fields are model.field: formulas on totals use its measures (taxi.trips / weather.hours), fields of each row \

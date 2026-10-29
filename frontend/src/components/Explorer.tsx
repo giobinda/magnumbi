@@ -5,7 +5,7 @@ import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
 import { dashboardInputs, ignoredOf, withIgnored } from '../tileScope'
-import { calcsInChart, type quickCalcs, usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
+import { calcsInChart, calculationNames, type quickCalcs, withFormula, withRowFields, withoutFormula } from '../formula'
 import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, Dashboard, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
@@ -359,7 +359,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
               </select>
             </label>
             <TopControl top={top} dims={dims} label={label}
-              measures={measures.filter(m => !formulas.some(f => f.name === m && usesResults(f.expr)))}
+              measures={dims.length === 1 ? measures : measures.filter(m => !calculationNames(formulas).includes(m))}
               onChange={t => { setTop(t); if (t) setSort([]) }} />
             {!validTop && <label>Limit <input type="number" min={1} max={50000} value={limit} onChange={e => setLimit(Math.max(1, Number(e.target.value) || 1))} /></label>}
             {model && Object.keys(model.hierarchies).length > 0 && (
