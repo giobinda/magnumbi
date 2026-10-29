@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import type { FieldDocs, Governance, GlossaryTerm, Lineage, ModelDocs, ModelGovernance, ModelInfo, ModelStatus, SearchResult, Term } from '../api'
 import { useCan } from '../auth'
@@ -14,12 +14,31 @@ export default function CatalogPage() {
   const [editing, setEditing] = useState<string | null>(null)
   const [documenting, setDocumenting] = useState<string | null>(null)
   const [tracing, setTracing] = useState<string | null>(null)
+  // whose fields are listed; and what a link (the top bar's search) points at, picked out
+  const [fieldsOf, setFieldsOf] = useState<string | null>(null)
+  const [search] = useSearchParams()
+  const [picked, setPicked] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { models } = useModels()
   const can = useCan()
   const load = () => api.governance().then(r => setList(r.models), e => setError((e as Error).message))
   useEffect(() => { load() }, [])
   const label = (name: string) => models.find(m => m.name === name)?.label ?? name
+
+  // ?model=, ?field= (with its model) or ?term=: there, picked out, once the page has it
+  const wanted = search.get('term') ? `term-${search.get('term')}`
+    : search.get('field') ? `field-${search.get('model')}-${search.get('field')}`
+    : search.get('model') ? `model-${search.get('model')}` : null
+  useEffect(() => {
+    if (!wanted) return
+    const t = setTimeout(() => {
+      // a field: its model's list open first (this runs again once it's there)
+      if (search.get('field') && fieldsOf !== search.get('model')) { setFieldsOf(search.get('model')); return }
+      const el = document.getElementById(wanted)
+      if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); setPicked(wanted) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [wanted, list.length, models.length, fieldsOf, search])
 
   return (
     <div className="page narrow catalog">
@@ -30,13 +49,14 @@ export default function CatalogPage() {
       {error && <div className="error">{error}</div>}
       <Search onModel={name => { setTracing(name); document.getElementById(`model-${name}`)?.scrollIntoView({ behavior: 'smooth' }) }} />
       {list.map(g => (
-        <div key={g.model} id={`model-${g.model}`} className="card governance">
+        <div key={g.model} id={`model-${g.model}`} className={`card governance${picked === `model-${g.model}` ? ' picked' : ''}`}>
           <div className="row wrap">
             <b>{label(g.model!)}</b>
             {g.status && <span className={`status ${g.status}`}>{g.status}</span>}
             <span className="muted small mono">{g.model}</span>
             <span className="grow" />
             {can('explore') && <Link className="btn" to={`/explore?model=${encodeURIComponent(g.model!)}`}>Explore</Link>}
+            <button onClick={() => setFieldsOf(fieldsOf === g.model ? null : g.model!)}>{fieldsOf === g.model ? 'Hide fields' : 'Fields'}</button>
             <button onClick={() => setTracing(tracing === g.model ? null : g.model!)}>{tracing === g.model ? 'Hide lineage' : 'Lineage & usage'}</button>
             {g.standing !== 'reader' && documenting !== g.model && <button onClick={() => setDocumenting(g.model!)}>Documentation</button>}
             {mayDecide(g.standing) && editing !== g.model && <button onClick={() => setEditing(g.model!)}>Edit</button>}
@@ -55,6 +75,9 @@ export default function CatalogPage() {
             {g.updated_by && <> · changed by {g.updated_by}, {new Date(g.updated_at!).toLocaleDateString()}</>}
             {g.standing !== 'reader' && <> · you: {g.standing === 'admin' ? 'Org admin' : g.standing}</>}
           </p>
+          {fieldsOf === g.model && models.some(m => m.name === g.model) && (
+            <FieldsList model={models.find(m => m.name === g.model)!} picked={picked} />
+          )}
           {tracing === g.model && <LineagePanel model={g.model!} info={models.find(m => m.name === g.model)} />}
           {documenting === g.model && models.some(m => m.name === g.model) && (
             <DocsForm model={models.find(m => m.name === g.model)!} initial={g.docs ?? {}} onCancel={() => setDocumenting(null)}
@@ -66,7 +89,7 @@ export default function CatalogPage() {
           )}
         </div>
       ))}
-      <Glossary />
+      <Glossary picked={picked} />
     </div>
   )
 }
@@ -107,6 +130,30 @@ function Search({ onModel }: { onModel: (name: string) => void }) {
           ))}
         </ul>
       )}
+    </div>
+  )
+}
+
+/** A model's fields, as the catalog describes them: what each means, other names, examples, tags. */
+function FieldsList({ model, picked }: { model: ModelInfo; picked: string | null }) {
+  const fields = [
+    ...model.dimensions.map(d => ({ ...d, kind: 'Dimension' })),
+    ...model.measures.map(m => ({ ...m, kind: 'Measure' })),
+  ]
+  return (
+    <div className="catalog-fields">
+      {fields.map(f => {
+        const id = `field-${model.name}-${f.name}`
+        return (
+          <div key={f.name} id={id} className={`catalog-field${picked === id ? ' picked' : ''}`}>
+            <div><b>{f.label ?? f.name}</b> <span className="muted small">{f.kind} · <span className="mono">{f.name}</span></span>
+              {(f.tags ?? []).map(t => <span key={t} className="tp-badge">{t}</span>)}</div>
+            {f.description ? <div className="small">{f.description}</div> : <div className="muted small">No description yet.</div>}
+            {!!f.synonyms?.length && <div className="muted small">Also called: {f.synonyms.join(', ')}</div>}
+            {!!f.examples?.length && <div className="muted small">For example: {f.examples.join('; ')}</div>}
+          </div>
+        )
+      })}
     </div>
   )
 }
@@ -210,7 +257,7 @@ function DocsForm({ model, initial, onSave, onCancel }: {
 }
 
 /** The organisation's business terms; a term belongs to whoever added it. */
-function Glossary() {
+function Glossary({ picked }: { picked: string | null }) {
   const [terms, setTerms] = useState<GlossaryTerm[]>([])
   const [mayAdd, setMayAdd] = useState(false)
   const [editing, setEditing] = useState<GlossaryTerm | 'new' | null>(null)
@@ -230,7 +277,7 @@ function Glossary() {
     {editing === 'new' && <TermForm onCancel={() => setEditing(null)} onSave={async t => { await api.saveTerm(t); setEditing(null); load() }} />}
     {terms.length === 0 && <p className="muted small">No terms yet.</p>}
     {terms.map(t => (
-      <div key={t.name} className="card governance">
+      <div key={t.name} id={`term-${t.name}`} className={`card governance${picked === `term-${t.name}` ? ' picked' : ''}`}>
         <div className="row wrap">
           <b>{t.name}</b>
           {!!t.synonyms?.length && <span className="muted small">also: {t.synonyms.join(', ')}</span>}

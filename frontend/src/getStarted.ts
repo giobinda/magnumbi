@@ -11,7 +11,7 @@ export function shownSteps(steps: SetupStep[], skipped: string[]): SetupStep[] {
 
 /** Whether "Get started" is shown: until what's needed is done (or it's hidden). The sample data,
  *  while open, keeps it: setting it up does every needed step, and its ticks and "Open" stay in view.
- *  `always`: asked for (Get started in the top bar), whatever is done. */
+ *  `always`: asked for (Get started, in the menu under your name), whatever is done. */
 export function cardShown(steps: SetupStep[], hidden: boolean, demoOpen: boolean, always = false): boolean {
   if (always) return true
   if (hidden) return false

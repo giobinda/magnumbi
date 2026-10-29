@@ -30,13 +30,17 @@ export function welcomeTour(perms: Permission[], chat: boolean): TourStep[] {
       : 'Every dashboard you can open, and the Catalog, which says what each number means.',
   })
   if (chat) steps.push({ target: 'nav-chat', title: 'Chat', text: 'Ask a question in plain words. The answer comes with the chart it’s based on.' })
+  steps.push({ target: 'search', title: 'Search', text: 'What a number or a word means, from any page: type here, or press / (Ctrl+K anywhere).' })
   if (can('manage_members')) {
-    steps.push(
-      { target: 'nav-data', title: 'Data', text: 'Where your data comes from (Connections), what it means (Models), and data joined across sources (Blends).' },
-      { target: 'nav-settings', title: 'Settings', text: 'Members, your colours, email and webhooks, usage, and your setup as code.' },
-    )
+    steps.push({ target: 'nav-data', title: 'Data', text: 'Where your data comes from (Connections), what it means (Models), and data joined across sources (Blends).' })
   }
-  steps.push({ target: 'tour-again', title: 'That’s it', text: 'Take this tour again any time from here.' })
+  steps.push({
+    target: 'nav-settings', title: 'Settings',
+    text: can('manage_members')
+      ? 'Your theme and API tokens; for the organisation, members, colours, email and webhooks, usage, and your setup as code.'
+      : 'Your theme, and API tokens for tools and AI agents.',
+  })
+  steps.push({ target: 'tour-again', title: 'That’s it', text: 'Get started, this tour and the documentation are in the menu under your name.' })
   return steps
 }
 

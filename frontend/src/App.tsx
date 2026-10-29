@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthGate, useAuth, useCan } from './auth'
 import { SecurityCard } from './components/Security'
-import GetStarted from './components/GetStarted'
+import CatalogSearch from './components/CatalogSearch'
+import GetStarted, { SITE } from './components/GetStarted'
 import { TourProvider, WelcomeOffer, useWelcomeTour } from './components/Tour'
 import { api, getOrg, getViewAs, setOrg, setViewAs } from './api'
 import type { Role } from './api'
@@ -58,9 +59,10 @@ function SignedIn() {
                   <Guarded perm="explore"><NavLink to="/explore">Explore</NavLink></Guarded>
                   <NavLink to="/catalog">Catalog</NavLink>
                 </NavMenu>
+                <CatalogSearch />
                 <DataMenu />
                 <SettingsMenu />
-                <div className="nav-right"><OrgSwitcher /><ThemePicker /><UserMenu /></div>
+                <div className="nav-right"><OrgSwitcher /><UserMenu /></div>
               </nav>
               <Routes>
                 <Route path="/" element={<Start />} />
@@ -98,7 +100,9 @@ function Credit() {
 
 /** A group of the top bar's links: a button that opens them (closes on a pick, a click elsewhere
  *  or Escape). Hidden when the role can see none of them. */
-function NavMenu({ label, paths, tour, children }: { label: string; paths: string[]; tour?: string; children: React.ReactNode }) {
+function NavMenu({ label, paths, tour, className, children }: {
+  label: React.ReactNode; paths: string[]; tour?: string; className?: string; children: React.ReactNode
+}) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
   const { pathname } = useLocation()
@@ -111,7 +115,7 @@ function NavMenu({ label, paths, tour, children }: { label: string; paths: strin
   }, [open])
   const active = paths.some(p => pathname === p || pathname.startsWith(p + '/'))
   return (
-    <div className="nav-menu" ref={ref} data-tour={tour}>
+    <div className={`nav-menu${className ? ` ${className}` : ''}`} ref={ref} data-tour={tour}>
       <button type="button" className={active ? 'active' : ''} aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
         {label} <span aria-hidden>▾</span>
       </button>
@@ -133,22 +137,36 @@ function DataMenu() {
   )
 }
 
-/** Settings: people, look, delivery, usage, code and (system owners) organisations. */
+/** Settings: everyone's own (the theme, security and API tokens), then, for Org admins, the
+ *  organisation's: people, look, delivery, usage, code and (system owners) organisations. */
 function SettingsMenu() {
   const can = useCan()
-  const { auth } = useAuth()
-  if (!can('manage_members')) return null
-  return (
+  const { auth, refresh } = useAuth()
+  const [security, setSecurity] = useState(false)
+  if (!auth?.role) return null
+  return <>
     <NavMenu label="Settings" tour="nav-settings" paths={['/members', '/themes', '/delivery', '/usage', '/code', '/organisations', '/chat-settings']}>
-      {auth?.org && <NavLink to="/members">Members</NavLink>}
-      {!auth?.lite && <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>}
-      <NavLink to="/themes">Themes</NavLink>
-      <NavLink to="/delivery">Email &amp; webhooks</NavLink>
-      <NavLink to="/chat-settings">Chat settings</NavLink>
-      <NavLink to="/usage">Usage</NavLink>
-      <NavLink to="/code">Code</NavLink>
+      {/* a choice made in the menu keeps it open */}
+      <div className="nav-menu-item" onClick={e => e.stopPropagation()}><span className="nav-menu-label">Theme</span><ThemePicker /></div>
+      {/* lite: nobody signs in; its API tokens (for local agents) are still here */}
+      <button type="button" className="nav-menu-button" onClick={() => setSecurity(true)}>{auth.lite ? 'API tokens' : 'Security & API tokens'}</button>
+      {can('manage_members') && <>
+        <div className="nav-menu-head">{auth.lite ? 'Workspace' : auth.org ? auth.org.name : 'Platform'}</div>
+        {auth.org && <NavLink to="/members">Members</NavLink>}
+        {!auth.lite && <Guarded perm="manage_orgs"><NavLink to="/organisations">Organisations</NavLink></Guarded>}
+        <NavLink to="/themes">Themes</NavLink>
+        <NavLink to="/delivery">Email &amp; webhooks</NavLink>
+        <NavLink to="/chat-settings">Chat settings</NavLink>
+        <NavLink to="/usage">Usage</NavLink>
+        <NavLink to="/code">Code</NavLink>
+      </>}
     </NavMenu>
-  )
+    {security && (
+      <div className="modal-bg login-overlay">
+        <SecurityCard onClose={() => { setSecurity(false); refresh() }} />
+      </div>
+    )}
+  </>
 }
 
 /** System owners: work in the platform workspace (templates, every model) or inside an organisation. */
@@ -188,9 +206,10 @@ function Guarded({ perm, page, children }: { perm: Parameters<ReturnType<typeof 
   return page ? <div className="page"><div className="warn">Your role can't open this page.</div></div> : null
 }
 
+/** The menu under your name: who you are (and, admins, a lower role to preview), Get started,
+ *  the tour, the documentation, and signing out. A restriction on your data shows beside it. */
 function UserMenu() {
   const { auth, signOut, refresh } = useAuth()
-  const [changing, setChanging] = useState(false)
   if (!auth?.role) return null
   const options = auth.view_as ?? []
   // a preview of a lower role ("view as"); the server never lets it go up
@@ -210,23 +229,21 @@ function UserMenu() {
   )
   const name = auth.user?.name || auth.user?.email || 'Signed in'
   return (
-    <div className="user-menu" title={`Signed in as ${auth.user?.email} (${auth.role_label})`}>
+    <div className="user-menu">
       {lock}
-      {roleBadge}
-      <span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span>
-      <span className="user-name" title={auth.user?.email ?? undefined}>{name}</span>
-      {/* the checklist, back anytime (once left, hidden or done) */}
-      {(auth.lite || auth.permissions?.includes('manage_members')) && <NavLink className="link" to="/get-started">Get started</NavLink>}
-      <TourButton />
-      {/* lite: nobody signs in; its API tokens (for local agents) are still here */}
-      <button className="link" onClick={() => setChanging(true)}>{auth.lite ? 'API tokens' : 'Security'}</button>
-      {!auth.lite && <button className="link" onClick={signOut}>Sign out</button>}
-      {auth.lite && auth.method === 'pin' && <button className="link" onClick={signOut}>Lock</button>}
-      {changing && (
-        <div className="modal-bg login-overlay">
-          <SecurityCard onClose={() => { setChanging(false); refresh() }} />
+      <NavMenu className="name-menu" tour="tour-again" paths={['/get-started']}
+        label={<><span className="avatar" aria-hidden>{name.trim().charAt(0).toUpperCase()}</span><span className="user-name">{name}</span></>}>
+        {/* who's signed in, and (admins) a lower role to preview: a choice keeps the menu open */}
+        <div className="nav-menu-item" onClick={e => e.stopPropagation()}>
+          <span className="nav-menu-label">{auth.lite ? 'You, on this computer' : auth.user?.email}</span>{roleBadge}
         </div>
-      )}
+        {/* the checklist, back anytime (once left, hidden or done) */}
+        {(auth.lite || auth.permissions?.includes('manage_members')) && <NavLink to="/get-started">Get started</NavLink>}
+        <TourButton />
+        <a href={`${SITE}docs.html`} target="_blank" rel="noreferrer">Documentation ↗</a>
+        {!auth.lite && <button type="button" className="nav-menu-button" onClick={signOut}>Sign out</button>}
+        {auth.lite && auth.method === 'pin' && <button type="button" className="nav-menu-button" onClick={signOut}>Lock</button>}
+      </NavMenu>
     </div>
   )
 }
@@ -235,8 +252,8 @@ function UserMenu() {
 function TourButton() {
   const welcome = useWelcomeTour()
   const [none, setNone] = useState(false)
-  return <button className="link" data-tour="tour-again" title={none ? 'There is no dashboard to show you around yet' : 'A short tour of a dashboard'}
-    onClick={async () => setNone(!(await welcome()))}>Tour</button>
+  return <button type="button" className="nav-menu-button" title={none ? 'There is no dashboard to show you around yet' : 'A short tour of a dashboard'}
+    onClick={async () => setNone(!(await welcome()))}>Take the tour</button>
 }
 
 /** Where people start: the chat or the dashboards (their choice, or their organisation's). */
