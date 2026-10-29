@@ -73,8 +73,11 @@ test:               ## backend unit tests + frontend typecheck and tests
 # lock timeouts (CI's runners have 4)
 TEST_THREADS ?= 8
 
-test-db: seed        ## also the tests that need ScramDB, DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
-	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url) MAGNUM_TEST_DUCKDB_EXTENSIONS=$(CURDIR)/data/duckdb/_extensions RUST_TEST_THREADS=$(TEST_THREADS) cargo test
+test-db:             ## also the tests that need ScramDB (a fresh one in memory: devtools/scramdb.sh up test), DuckDB extensions (and Postgres, with MAGNUM_TEST_POSTGRES_URL)
+	devtools/scramdb.sh reset test >/dev/null && devtools/scramdb.sh up test
+	$(LOCAL_ENV) && MAGNUM_DATABASE_URL=$$(devtools/scramdb.sh url test) cargo run -q -- seed-sample
+	MAGNUM_TEST_DATABASE_URL=$$(devtools/scramdb.sh url test) MAGNUM_TEST_DUCKDB_EXTENSIONS=$(CURDIR)/data/duckdb/_extensions RUST_TEST_THREADS=$(TEST_THREADS) cargo test; \
+	  status=$$?; devtools/scramdb.sh reset test >/dev/null; exit $$status
 
 e2e-attack:         ## try script injection in a real browser (local only: Podman/Docker, Node, Chromium)
 	cd frontend && npm run build

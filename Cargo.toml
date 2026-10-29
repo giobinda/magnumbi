@@ -8,6 +8,13 @@ edition = "2024"
 rust-version = "1.94"
 license = "AGPL-3.0-only"
 
+# Debug builds keep line numbers only (panics and backtraces still say where): full debug info
+# made target/ hundreds of GB and every build a lot of disk writes
+[profile.dev]
+debug = "line-tables-only"
+
 # DuckDB's C++ is unusably slow unoptimised: optimise it even in development builds (built once)
 [profile.dev.package.libduckdb-sys]
 opt-level = 3
+# and without debug info: its C++ with it took more memory than a build can spare
+debug = false

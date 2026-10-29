@@ -15,28 +15,12 @@ const MAX_LENGTH: usize = 1000;
 /// How deep brackets, functions and signs may nest (the parser recurses on them).
 const MAX_DEPTH: usize = 32;
 /// The functions a formula may call, besides aggregations.
-pub const FUNCTIONS: [&str; 21] = [
-    "if",
-    "coalesce",
-    "round",
-    "abs",
-    "least",
-    "greatest",
-    "lower",
-    "upper",
-    "concat", // numbers, logic, text
-    "year",
-    "quarter",
-    "month",
-    "week",
-    "day",
-    "weekday",
-    "hour",
-    "today",
-    "days_between", // dates
-    "date_trunc",
-    "date_add",
-    "date_diff",
+#[rustfmt::skip]
+pub const FUNCTIONS: [&str; 31] = [
+    "if", "coalesce", "round", "abs", "least", "greatest", "in", "case", // numbers, logic
+    "lower", "upper", "concat", "contains", "starts_with", "ends_with", "length", "trim", "left", "right", "replace",
+    "year", "quarter", "month", "week", "day", "weekday", "hour", "today", "days_between", // dates
+    "date_trunc", "date_add", "date_diff",
 ];
 /// The parts of a date the functions of that name give, as numbers.
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
@@ -730,6 +714,59 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 }
                 Ok((format!("CONCAT({})", parts.join(", ")), Kind::Text))
             }
+            "contains" | "starts_with" | "ends_with" => {
+                count(args.len() == 2, &format!("a text and the text to look for: {name}(store, 'milano')"))?;
+                let (t, x) = (self.text(&args[0], at)?, self.text(&args[1], at)?);
+                // capitals aside, as the contains filter; no wildcards (% is a percent sign)
+                let (lt, lx) = (format!("LOWER({t})"), format!("LOWER({x})"));
+                let sql = match name {
+                    "contains" => format!("(STRPOS({lt}, {lx}) > 0)"),
+                    "starts_with" => format!("(SUBSTR({lt}, 1, LENGTH({x})) = {lx})"),
+                    _ => format!("(RIGHT({lt}, LENGTH({x})) = {lx})"),
+                };
+                Ok((sql, Kind::Condition))
+            }
+            "length" => {
+                count(args.len() == 1, "one text")?;
+                Ok((format!("LENGTH({})", self.text(&args[0], at)?), Kind::Number))
+            }
+            "trim" => {
+                count(args.len() == 1, "one text")?;
+                Ok((format!("TRIM({})", self.text(&args[0], at)?), Kind::Text))
+            }
+            "left" | "right" => {
+                count(args.len() == 2, &format!("a text and how many characters: {name}(store, 3)"))?;
+                let t = self.text(&args[0], at)?;
+                let Some(n) = whole(&args[1]).filter(|n| (0..=10_000).contains(n)) else {
+                    return fail(at, format!("{name}(…)'s how many is a whole number from 0 to 10000"));
+                };
+                Ok((format!("{}({t}, {n})", name.to_uppercase()), Kind::Text))
+            }
+            "replace" => {
+                count(args.len() == 3, "a text, what to replace and with what: replace(store, 'Centro', 'Nord')")?;
+                let parts = args.iter().map(|a| self.text(a, at)).collect::<Result<Vec<_>, _>>()?;
+                Ok((format!("REPLACE({})", parts.join(", ")), Kind::Text))
+            }
+            "in" => {
+                count(args.len() >= 2, "a value and one or more to look for: in(region, 'EMEA', 'APAC')")?;
+                let (v, _) = self.alike(args, at, "in(…)")?;
+                Ok((format!("({} IN ({}))", v[0], v[1..].join(", ")), Kind::Condition))
+            }
+            "case" => {
+                count(
+                    args.len() >= 4 && args.len().is_multiple_of(2),
+                    "a value, pairs of what it may be and what to give, then what to give else: \
+                     case(region, 'EMEA', 'Europe', 'APAC', 'Asia', 'Other')",
+                )?;
+                // case(value, when, then, when, then, …, else)
+                let (value, pairs, other) = (&args[0], &args[1..args.len() - 1], &args[args.len() - 1]);
+                let whens: Vec<Node> = std::iter::once(value).chain(pairs.iter().step_by(2)).cloned().collect();
+                let thens: Vec<Node> = pairs.iter().skip(1).step_by(2).chain([other]).cloned().collect();
+                let (w, _) = self.alike(&whens, at, "case(…)'s value and what it may be")?;
+                let (t, kind) = self.alike(&thens, at, "case(…)'s answers")?;
+                let branches: Vec<String> = w[1..].iter().zip(&t).map(|(w, t)| format!("WHEN {w} THEN {t}")).collect();
+                Ok((format!("CASE {} {} ELSE {} END", w[0], branches.join(" "), t[t.len() - 1]), kind))
+            }
             part if DATE_PARTS.contains(&part) => {
                 count(args.len() == 1, &format!("one date, such as {part}(sold_at)"))?;
                 let (x, k) = self.date(&args[0], at)?;
@@ -785,15 +822,7 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             "date_add" => {
                 count(args.len() == 3, "a date, how many and a unit: date_add(sold_on, 30, 'day')")?;
                 let (x, k) = self.date(&args[0], at)?;
-                let n = match &args[1] {
-                    Node::Number(n) => n.parse::<i64>().ok(),
-                    Node::Neg(inner) => match inner.as_ref() {
-                        Node::Number(n) => n.parse::<i64>().ok().map(|n| -n),
-                        _ => None,
-                    },
-                    _ => None,
-                };
-                let Some(n) = n.filter(|n| n.abs() <= 100_000) else {
+                let Some(n) = whole(&args[1]).filter(|n| n.abs() <= 100_000) else {
                     return fail(at, "date_add(…)'s how many is a whole number, such as 30 or -7");
                 };
                 let unit = self.unit(&args[2], at, name, &["hour", "day", "week", "month", "year"])?;
@@ -808,6 +837,15 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 Ok((format!("{}({})", name.to_uppercase(), parts.join(", ")), Kind::Number))
             }
         }
+    }
+}
+
+/// A whole number written in the formula (minus included), such as 30 or -7.
+fn whole(n: &Node) -> Option<i64> {
+    match n {
+        Node::Number(n) => n.parse().ok(),
+        Node::Neg(inner) => whole(inner).map(|n| -n),
+        _ => None,
     }
 }
 
@@ -1169,10 +1207,69 @@ pub(crate) mod tests {
 
     /// Each of [`DATES`] as a query giving its answer as text (a date as its day).
     pub(crate) fn date_queries(dl: Dialect) -> Vec<(String, &'static str, &'static str)> {
-        DATES
+        answer_queries(dl, &DATES, &mut date_columns(dl))
+    }
+
+    /// The text functions' answers, on a sale in 'EMEA' from the store 'Milano Centro'.
+    const TEXTS: [(&str, &str); 26] = [
+        ("if(contains(store, 'milano'), 'yes', 'no')", "yes"),
+        ("if(contains(store, 'MILANO'), 'yes', 'no')", "yes"),
+        ("if(contains(store, 'roma'), 'yes', 'no')", "no"),
+        // no wildcards: % is a percent sign
+        ("if(contains(store, '%'), 'yes', 'no')", "no"),
+        ("if(contains(store, lower(region)), 'yes', 'no')", "no"),
+        ("if(starts_with(region, 'em'), 'yes', 'no')", "yes"),
+        ("if(starts_with(region, 'EA'), 'yes', 'no')", "no"),
+        ("if(ends_with(region, 'ea'), 'yes', 'no')", "yes"),
+        ("if(ends_with(store, ''), 'yes', 'no')", "yes"),
+        ("length(store)", "13"),
+        ("length(cafe)", "4"),
+        ("trim(padded)", "a b"),
+        ("length(trim(padded))", "3"),
+        ("left(store, 6)", "Milano"),
+        ("right(store, 6)", "Centro"),
+        ("concat('[', left(store, 0), ']')", "[]"),
+        ("upper(left(cafe, 3))", "CAF"),
+        ("replace(store, 'Centro', 'Nord')", "Milano Nord"),
+        ("if(in(region, 'EMEA', 'APAC'), 'yes', 'no')", "yes"),
+        ("if(in(region, 'AMER'), 'yes', 'no')", "no"),
+        ("if(in(qty, 1, 2, 3), 'yes', 'no')", "yes"),
+        ("case(region, 'EMEA', 'Europe', 'APAC', 'Asia', 'Other')", "Europe"),
+        ("case(region, 'AMER', 'Americas', 'Other')", "Other"),
+        ("case(qty, 1, 'one', 3, 'three', 'many')", "three"),
+        ("case(region, 'AMER', 1, 0) + 1", "1"),
+        ("concat(left(region, 2), '-', qty)", "EM-3"),
+    ];
+
+    /// The columns of [`TEXTS`], as literals for each engine.
+    fn text_columns(dl: Dialect) -> impl FnMut(&str) -> Result<(String, Type), String> {
+        move |name| {
+            let text = |s: &str| Ok((dl.quote(s).unwrap(), Type::Text));
+            match name {
+                "region" => text("EMEA"),
+                "store" => text("Milano Centro"),
+                "padded" => text("  a b  "),
+                "cafe" => text("Café"),
+                "qty" => Ok(("3".into(), Type::Number)),
+                other => Err(format!("unknown column {other:?}")),
+            }
+        }
+    }
+
+    pub(crate) fn text_queries(dl: Dialect) -> Vec<(String, &'static str, &'static str)> {
+        answer_queries(dl, &TEXTS, &mut text_columns(dl))
+    }
+
+    /// Each formula as a query giving its answer as text (a date as its day).
+    fn answer_queries(
+        dl: Dialect,
+        cases: &[(&'static str, &'static str)],
+        columns: &mut impl FnMut(&str) -> Result<(String, Type), String>,
+    ) -> Vec<(String, &'static str, &'static str)> {
+        cases
             .iter()
             .map(|(expr, want)| {
-                let (sql, t) = compile(expr, dl, &mut date_columns(dl)).unwrap_or_else(|e| panic!("{expr}: {e}"));
+                let (sql, t) = compile(expr, dl, columns).unwrap_or_else(|e| panic!("{expr}: {e}"));
                 let sql = match t {
                     Type::Date | Type::Time | Type::DateTime => format!("CAST({sql} AS DATE)"),
                     _ => sql,
@@ -1185,12 +1282,13 @@ pub(crate) mod tests {
     /// On ScramDB (MAGNUM_TEST_DATABASE_URL) and a real PostgreSQL (MAGNUM_TEST_POSTGRES_URL);
     /// each skipped without its database.
     #[tokio::test]
-    async fn date_functions_give_the_same_answers_on_scramdb_and_postgresql() {
+    async fn date_and_text_functions_give_the_same_answers_on_scramdb_and_postgresql() {
         for var in ["MAGNUM_TEST_DATABASE_URL", "MAGNUM_TEST_POSTGRES_URL"] {
             let Ok(url) = std::env::var(var) else { continue };
             let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls).await.unwrap();
             tokio::spawn(conn);
-            for (sql, expr, want) in date_queries(Dialect::Postgres) {
+            for (sql, expr, want) in date_queries(Dialect::Postgres).into_iter().chain(text_queries(Dialect::Postgres))
+            {
                 let row = client.query_one(&sql, &[]).await.unwrap_or_else(|e| panic!("{var}: {expr}: {sql}: {e}"));
                 assert_eq!(row.get::<_, String>(0), want, "{var}: {expr}: {sql}");
             }
@@ -1260,5 +1358,40 @@ pub(crate) mod tests {
         there.sort_unstable();
         offered.sort_unstable();
         assert_eq!(offered, there);
+    }
+
+    #[test]
+    fn text_functions_on_bigquery() {
+        let bq = |e| per_row(e, Dialect::BigQuery).unwrap().0;
+        assert_eq!(bq("contains(store, 'x')"), "(STRPOS(LOWER(\"store\"), LOWER('x')) > 0)");
+        assert_eq!(bq("starts_with(region, 'em')"), "(SUBSTR(LOWER(\"region\"), 1, LENGTH('em')) = LOWER('em'))");
+        assert_eq!(bq("left(store, 2)"), "LEFT(\"store\", 2)");
+        assert_eq!(bq("in(region, 'a', 'b')"), "(\"region\" IN ('a', 'b'))");
+        assert_eq!(bq("case(region, 'a', 1, 0)"), "CASE \"region\" WHEN 'a' THEN 1 ELSE 0 END");
+        assert_eq!(text_queries(Dialect::BigQuery).len(), TEXTS.len());
+    }
+
+    #[test]
+    fn text_mistakes_are_explained() {
+        let pg = |e| per_row(e, Dialect::Postgres).unwrap_err().message;
+        assert!(pg("contains(qty, 'x')").contains("text is expected here"));
+        assert!(pg("contains(store)").contains("contains(…) takes"));
+        assert!(pg("left(store, -1)").contains("whole number from 0"), "{}", pg("left(store, -1)"));
+        assert!(pg("left(store, qty)").contains("whole number from 0"));
+        assert!(pg("in(region)").contains("one or more"));
+        assert!(pg("in(region, 1)").contains("same kind"));
+        assert!(pg("case(region, 'EMEA', 1)").contains("else"), "{}", pg("case(region, 'EMEA', 1)"));
+        assert!(pg("case(region, 1, 'x', 'y')").contains("same kind"));
+        assert!(pg("case(region, 'EMEA', 1, 'x')").contains("same kind"));
+        // what they give
+        assert_eq!(per_row("in(region, 'a')", Dialect::Postgres).unwrap().1, Type::Condition);
+        assert_eq!(per_row("length(store)", Dialect::Postgres).unwrap().1, Type::Number);
+        assert_eq!(per_row("case(qty, 1, sold_on, null)", Dialect::Postgres).unwrap().1, Type::Date);
+        // on totals: choices on measures
+        assert_eq!(
+            sql("case(units, 0, null, revenue / units)").unwrap(),
+            "CASE SUM(qty) WHEN 0 THEN NULL ELSE (CAST(SUM(amount) AS DOUBLE PRECISION) / NULLIF(SUM(qty), 0)) END"
+        );
+        assert!(compile("in(units, 1, 2)", Dialect::Postgres, &mut resolve).is_ok());
     }
 }

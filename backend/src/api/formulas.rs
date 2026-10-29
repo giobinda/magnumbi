@@ -470,6 +470,48 @@ mod tests {
         clean_up(&state, &org).await;
     }
 
+    /// Text and choices in fields of each row, on ScramDB: case groups, in and contains filter.
+    #[tokio::test]
+    async fn text_and_choices_in_fields_of_each_row() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap();
+        let run = |q: serde_json::Value| {
+            let (app, org) = (&app, &org);
+            async move {
+                let (s, body, _) = send(app, c, org, "POST", "/api/query", Some(q), None).await;
+                assert_eq!(s, StatusCode::OK, "{body}");
+                body["rows"].as_array().unwrap().clone()
+            }
+        };
+        let count = |rows: &[serde_json::Value], key: &str| {
+            rows.iter().filter(|r| r[0] == json!(key)).map(|r| num(&r[1])).sum::<f64>()
+        };
+        let regions = run(json!({"model": "sales", "dimensions": ["region"], "measures": ["transactions"]})).await;
+        let areas = run(json!({"model": "sales", "dimensions": ["area"], "measures": ["transactions"],
+            "formulas": [{"name": "area", "expr": "case(region, 'EMEA', 'Europe', 'APAC', 'Asia', 'Other')", "per_row": true}]}))
+        .await;
+        assert_eq!(count(&areas, "Europe"), count(&regions, "EMEA"));
+        assert_eq!(count(&areas, "Asia"), count(&regions, "APAC"));
+        assert_eq!(count(&areas, "Other"), count(&regions, "AMER"));
+        let two = run(json!({"model": "sales", "measures": ["transactions"],
+            "formulas": [{"name": "two", "expr": "in(region, 'EMEA', 'APAC')", "per_row": true}],
+            "filters": [{"field": "two", "op": "equals", "values": [true]}]}))
+        .await;
+        assert_eq!(num(&two[0][0]), count(&regions, "EMEA") + count(&regions, "APAC"));
+        // contains ignores capitals: the stores whose name has the first store's first letters
+        let stores = run(json!({"model": "sales", "dimensions": ["store"], "measures": ["transactions"]})).await;
+        let bit: String = stores[0][0].as_str().unwrap().chars().take(3).collect::<String>().to_uppercase();
+        let want: f64 =
+            stores.iter().filter(|r| r[0].as_str().unwrap().to_uppercase().contains(&bit)).map(|r| num(&r[1])).sum();
+        let found = run(json!({"model": "sales", "measures": ["transactions"],
+            "formulas": [{"name": "has", "expr": format!("contains(store, '{bit}')"), "per_row": true}],
+            "filters": [{"field": "has", "op": "equals", "values": [true]}]}))
+        .await;
+        assert_eq!(num(&found[0][0]), want, "{bit}");
+        clean_up(&state, &org).await;
+    }
+
     #[tokio::test]
     async fn the_editor_checks_formulas_as_they_are_typed() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };

@@ -22,8 +22,9 @@ describe('formulas', () => {
   })
 
   it('knows the functions the server allows', () => {
-    expect(FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest'])
-    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'lower', 'upper', 'concat',
+    expect(FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'in', 'case'])
+    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'in', 'case',
+      'lower', 'upper', 'concat', 'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace',
       'year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'date_trunc', 'date_add', 'date_diff'])
   })
 
@@ -96,6 +97,12 @@ describe('formulas', () => {
     expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Dates')!.functions.map(f => f.name))
       .toContain('date_add')
     expect(groups.flatMap(g => g.functions.map(f => f.name))).not.toContain('coalesce')
+    // choosing among values: in for everyone, case under Advanced
+    expect(groups.find(g => g.group === 'Logic')!.functions.map(f => f.name)).toEqual(['if', 'in'])
+    expect(groups.find(g => g.group === 'Text')!.functions.map(f => f.name)).toEqual(['lower', 'upper', 'concat',
+      'contains', 'starts_with', 'ends_with', 'length', 'trim', 'left', 'right', 'replace'])
+    expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Logic')!.functions.map(f => f.name))
+      .toEqual(['if', 'coalesce', 'in', 'case'])
     const all = functionGroups(ROW_FUNCTIONS, true).flatMap(g => g.functions.map(f => f.name))
     expect(all).toContain('coalesce')
     expect(all.length).toBe(ROW_FUNCTIONS.length)
