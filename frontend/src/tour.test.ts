@@ -15,6 +15,16 @@ describe('the welcome tour', () => {
     expect(t[t.length - 1]).toBe('tour-again')
   })
 
+  it('shows everyone the search and their settings (theme, API tokens)', () => {
+    const t = targets(['view'])
+    expect(t).toContain('search')
+    expect(t).toContain('nav-settings')
+    const settings = (perms: Permission[]) => welcomeTour(perms, false).find(s => s.target === 'nav-settings')!.text
+    expect(settings(['view'])).toMatch(/theme/i)
+    expect(settings(['view'])).not.toMatch(/members/i)
+    expect(settings(['view', 'manage_members'])).toMatch(/members/i)
+  })
+
   it('tells people who may drill to click, and others to hover', () => {
     const tiles = (perms: Permission[]) => welcomeTour(perms, false).find(s => s.target === 'tiles')!.text
     expect(tiles(['view', 'drill'])).toMatch(/drill/i)

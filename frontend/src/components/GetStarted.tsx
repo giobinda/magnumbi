@@ -54,7 +54,7 @@ export default function GetStarted({ always = false }: { always?: boolean }) {
         <span className="muted small">{done} of {required.length} done</span>
         <span className="grow" />
         <a className="small" href={SITE + guide} target="_blank" rel="noreferrer">The full guide ↗</a>
-        {!always && <button className="link small" title="It stays under Get started, in the top bar" onClick={hide}>Hide</button>}
+        {!always && <button className="link small" title="It stays under Get started, in the menu under your name" onClick={hide}>Hide</button>}
       </div>
       <div className="progress"><i style={{ width: `${(done / required.length) * 100}%` }} /></div>
       <ol className="steps-list">

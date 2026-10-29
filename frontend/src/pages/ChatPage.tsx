@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
-import { Link } from 'react-router-dom'
+import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import type { ChartTile, ChatMessage, ChatState, DashboardSummary, Proposal } from '../api'
 import { useCan } from '../auth'
@@ -42,14 +42,14 @@ export default function ChatPage() {
     try { await api.deleteConversation(id); if (id === conversation) fresh(); load() } catch (e) { setError((e as Error).message) }
   }
 
-  const ask = async (question: string) => {
+  const ask = async (question: string, conv: string | null = conversation) => {
     const q = question.trim()
     if (!q || busy) return
     setBusy(true); setError(null); setText('')
     setMessages(ms => [...ms, { role: 'user', text: q }])
     try {
-      const r = await api.ask(q, conversation)
-      if (!conversation) load()
+      const r = await api.ask(q, conv)
+      if (!conv) load()
       setConversation(r.conversation)
       setMessages(ms => [...ms, r.reply])
     } catch (e) {
@@ -57,6 +57,18 @@ export default function ChatPage() {
       setMessages(ms => ms.slice(0, -1)); setText(q)
     } finally { setBusy(false) }
   }
+
+  // ?ask=: a question from the search in the top bar, asked in a new conversation, once
+  const [search, setSearch] = useSearchParams()
+  const asked = useRef<string | null>(null)
+  useEffect(() => {
+    const q = search.get('ask')
+    if (!q || asked.current === q) return
+    asked.current = q
+    setSearch(s => { s.delete('ask'); return s }, { replace: true })
+    setConversation(null); setMessages([])
+    ask(q, null)
+  }, [search])  // eslint-disable-line react-hooks/exhaustive-deps
 
   const confirm = async (p: Proposal) => {
     if (!conversation) return

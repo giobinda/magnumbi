@@ -3,6 +3,27 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Changed
+
+- **A simpler top bar**: Chat, Discover, the catalog's search (as wide as it can be), Data,
+  Settings. Settings has everyone's theme and security and API tokens, then the organisation's
+  pages for Org admins; the menu under your name has Get started, the tour, the documentation and
+  signing out. The tour shows the search and the settings to everyone.
+
+### Added
+
+- **Search the catalog from the top bar**, on every page (`/` or Ctrl+K): models, fields,
+  glossary terms and dashboards, each with what the catalog says about it, right in the list;
+  picking one opens it (a dashboard; a field in its model's list in the Catalog, picked out; a
+  glossary term). Those who explore also get Explore ›. When the chat is switched on, the first
+  row is **Chat about “…”**: it opens the chat with the question already asked.
+- **A chart gallery** in Explore and the tile editor: one small button opens every chart type, each
+  drawn on made-up data with a line on what it's for.
+- **Each model in the Catalog lists its fields**, with what each means, other names, examples and
+  tags.
+
 ## 0.1.10 (2026-10-28)
 
 ### Added

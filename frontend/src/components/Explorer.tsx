@@ -8,31 +8,13 @@ import { usesResults, withFormula, withRowFields, withoutFormula } from '../form
 import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import ChartPicker from './ChartPicker'
 import FieldHelp from './FieldHelp'
 import FormulaEditor from './FormulaEditor'
 import { MultiSelect } from './FilterBar'
 import PeriodControl from './PeriodControl'
 import TileView from './TileView'
 
-const CHARTS: { type: ChartType; label: string; icon: string }[] = [
-  { type: 'table', label: 'Table', icon: '▦' },
-  { type: 'bar', label: 'Bar', icon: '▮' },
-  { type: 'hbar', label: 'Horizontal bar', icon: '▬' },
-  { type: 'line', label: 'Line', icon: '⟋' },
-  { type: 'area', label: 'Area', icon: '◭' },
-  { type: 'pie', label: 'Donut', icon: '◔' },
-  { type: 'scatter', label: 'Scatter', icon: '⁘' },
-  { type: 'kpi', label: 'KPI', icon: '#' },
-  { type: 'trend', label: 'KPI with trend', icon: '↗' },
-  { type: 'combo', label: 'Bar + line', icon: '⫼' },
-  { type: 'pivot', label: 'Pivot table', icon: '⊞' },
-  { type: 'heatmap', label: 'Heatmap', icon: '▩' },
-  { type: 'treemap', label: 'Treemap', icon: '◫' },
-  { type: 'funnel', label: 'Funnel', icon: '⏷' },
-  { type: 'waterfall', label: 'Waterfall', icon: '▟' },
-  { type: 'histogram', label: 'Histogram', icon: '▂▅' },
-  { type: 'gauge', label: 'Gauge', icon: '◠' },
-]
 const GRAINS = ['', 'hour', 'day', 'week', 'month', 'quarter', 'year']
 const OPS: { op: FilterOp; label: string; arity: 0 | 1 | 2 | 'n' }[] = [
   { op: 'equals', label: 'is', arity: 'n' }, { op: 'not_equals', label: 'is not', arity: 'n' },
@@ -343,17 +325,11 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         </div>
 
         <div className="viz-bar">
-          <div className="chart-types">
-            {CHARTS.map(c => (
-              <button key={c.type} className={type === c.type ? 'active' : ''} title={c.label} onClick={() => {
-                setType(c.type); setPicked(true)
-                // a histogram counts every value: the most rows a query may have
-                if (c.type === 'histogram' && limit === 1000) setLimit(50000)
-              }}>
-                <span>{c.icon}</span> {c.label}
-              </button>
-            ))}
-          </div>
+          <ChartPicker type={type} onPick={t => {
+            setType(t); setPicked(true)
+            // a histogram counts every value: the most rows a query may have
+            if (t === 'histogram' && limit === 1000) setLimit(50000)
+          }} />
           <div className="viz-opts">
             <label>Sort
               <select value={sort[0] ?? ''} onChange={e => setSort(e.target.value ? [e.target.value] : [])}>

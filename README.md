@@ -151,10 +151,11 @@ next to the control. Taking it, skipping it or "Don't ask again" stops the quest
 /api/tour`, kept in the organisation's database); "Not now" asks again at the next sign-in, and
 **Tour** next to your name runs it any time.
 
-**Finding your way.** The top bar groups the pages: **Chat**, **Discover** (dashboards, Explore,
-the catalog), **Data** (connections, models, blends) and **Settings** (members, organisations,
-themes, email and webhooks, chat settings, usage, code). Each person sees only what their role
-can use.
+**Finding your way.** The top bar: **Chat**, **Discover** (dashboards, Explore, the catalog), the
+catalog's search (as wide as the bar allows), **Data** (connections, models, blends) and **Settings**
+(everyone's theme, security and API tokens; for Org admins, members, organisations, themes, email
+and webhooks, chat settings, usage, code). The menu under your name has Get started, the tour, the
+documentation and signing out. Each person sees only what their role can use.
 
 **The NYC demo: taxi trips × weather.** One step sets up New York yellow taxi trips (NYC TLC
 open data, about 3.5 million trips a month) with the hourly weather in each borough (Open-Meteo,
@@ -436,7 +437,7 @@ ways that person's organisation allows.
   - the server: `magnum-bi user set-password you@example.com` (system owners, recovery);
   - an Org admin: **Settings › Members › One-time password…** creates a one-time password to hand over. The
     person must choose their own at the next sign-in;
-  - the person themselves: **Security** in the top bar.
+  - the person themselves: **Settings › Security & API tokens**.
 - **Authenticator codes** after the password (TOTP, RFC 6238: any authenticator app), set up
   under **Security** with a QR code, plus 10 one-time recovery codes. A code is good once; wrong
   codes count like wrong passwords. The secret is sealed with `MAGNUM_SECRET_KEY`.
@@ -652,7 +653,8 @@ Formulas are calculations written like a spreadsheet, of three kinds:
 
 ### Chart types
 
-A tile's `type`, and what it needs from its query:
+In the app, the chart button above a result opens a gallery of every type, each drawn on made-up
+data with a line on what it's for. A tile's `type`, and what it needs from its query:
 
 | type | shows | needs |
 |---|---|---|
@@ -736,6 +738,12 @@ member may own a model (ownership isn't a role). An organisation's own model bel
 The status shows in Explore's model picker, deprecated models warn on the dashboards that use
 them, and every model in `/api/models` (and MCP's `list_models`, `describe_model`) carries its
 `governance`.
+
+**Search the catalog, from the top bar** of every page (`/` or Ctrl+K): models, fields, glossary
+terms and dashboards by name, other names, tags and description, the description shown with each;
+picking one opens it (a field: its model's **Fields** in the Catalog, picked out). Explore ›, for
+those who explore. With the chat switched on, the first row is **Chat about “…”**: the chat opens
+with the question already asked.
 
 **Documentation** (stewards, the owner and Org admins; `PUT /api/governance/{model}/docs`): a
 description and tags for the model, and per field a description, synonyms, examples, tags and the
