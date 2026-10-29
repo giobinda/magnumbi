@@ -7,6 +7,16 @@ export interface DrillStep { from: string; to: string; filters: Filter[]; label:
 
 const FINER: Record<string, string> = { year: 'quarter', quarter: 'month', month: 'day', week: 'day' }
 
+/** Whether clicking the chart drills: a field shown has a level below it on the drill path, or
+ *  is a date at a grain with a finer one (not the field the period owns). */
+export function drillable(dims: string[], path: string[], periodField?: string): boolean {
+  return dims.some(d => {
+    const [name, grain] = d.split(':')
+    const i = path.indexOf(name)
+    return (i >= 0 && i + 1 < path.length) || (Boolean(grain && FINER[grain]) && name !== periodField)
+  })
+}
+
 export function applyDrill(q: Query, steps: DrillStep[]): Query {
   let dims = [...(q.dimensions ?? [])]
   let filters = [...(q.filters ?? [])]

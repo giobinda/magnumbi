@@ -726,6 +726,9 @@ pub struct Tile {
 pub struct DashboardFilter {
     pub model: String,
     pub field: String,
+    /// the same filter on other models: model -> its field (one value, wherever it reaches)
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, String>,
     #[serde(default)]
     pub label: Option<String>,
     #[serde(default = "default_op")]
@@ -740,6 +743,9 @@ pub struct DashboardFilter {
 pub struct DashboardPeriod {
     pub model: String,
     pub field: String,
+    /// the same period on other models: model -> its date
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub fields: BTreeMap<String, String>,
     pub current: PeriodRange,
     #[serde(default)]
     pub compare: Option<Compare>,
@@ -905,5 +911,18 @@ mod tests {
         let e = d("[sales.store]").unwrap_err();
         assert!(e.contains("sales.store") && e.contains("filters"), "{e}");
         assert!(d("sales.region").unwrap_err().contains("list"));
+    }
+
+    #[test]
+    fn a_dashboards_period_and_filters_name_their_field_on_other_models() {
+        let d: Dashboard = serde_yaml::from_str(
+            "title: t\nperiod: {model: sales, field: sold_at, fields: {stock: counted_at}, current: {last_n_days: 7}}\nfilters: [{model: sales, field: region, fields: {stock: region}}]\n",
+        )
+        .unwrap();
+        assert_eq!(d.period.as_ref().unwrap().fields["stock"], "counted_at");
+        assert_eq!(d.filters[0].fields["stock"], "region");
+        // written back only when there are some
+        let plain: Dashboard = serde_yaml::from_str("title: t\nfilters: [{model: sales, field: region}]\n").unwrap();
+        assert!(!serde_json::to_string(&plain).unwrap().contains("fields"));
     }
 }

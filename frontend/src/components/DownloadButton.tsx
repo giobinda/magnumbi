@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useState } from 'react'
 import { api } from '../api'
 import type { TileRequest } from '../api'
@@ -8,7 +9,7 @@ export default function DownloadButton({ dashboard, request }: { dashboard: stri
   const [busy, setBusy] = useState(false)
   const download = async () => {
     setBusy(true)
-    try { const { blob, name } = await api.download(dashboard, null, request); saveFile(blob, name) } catch (e) { alert(`Download failed: ${(e as Error).message}`) }
+    try { const { blob, name } = await api.download(dashboard, null, request); saveFile(blob, name) } catch (e) { void ask.alert(`Download failed: ${(e as Error).message}`) }
     setBusy(false)
   }
   return <button data-tour="download" title="Every chart's data as CSV files (a zip), with the filters and period on screen" disabled={busy} onClick={download}>{busy ? 'Preparing…' : 'Download'}</button>

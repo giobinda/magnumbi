@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { withTile } from '../tileEdit'
 import { useCallback, useEffect, useState } from 'react'
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
@@ -5,10 +6,10 @@ import GridLayout, { WidthProvider } from 'react-grid-layout'
 import type { Layout } from 'react-grid-layout'
 import CodeMirror from '@uiw/react-codemirror'
 import { yaml as yamlLang } from '@codemirror/lang-yaml'
-import { ApiError, api, isChart, isTemporal } from '../api'
+import { ApiError, api, isChart } from '../api'
 import type { ChartTile, Dashboard, DashboardPeriod, Tile } from '../api'
 import Explorer from '../components/Explorer'
-import FilterBar from '../components/FilterBar'
+import FilterBar, { filterKey } from '../components/FilterBar'
 import PeriodControl from '../components/PeriodControl'
 import ShareDialog from '../components/ShareDialog'
 import GuestDialog from '../components/GuestDialog'
@@ -20,7 +21,8 @@ import type { OrgRef } from '../api'
 import { periodFromUrl } from '../period'
 import { initialFilterValues, useDashboardInputs } from '../dashboardInputs'
 import TileView from '../components/TileView'
-import { followed, scopeNote } from '../tileScope'
+import { ignoredOf, scopeNote } from '../tileScope'
+import { filtersFor, linkChoices, periodChoices, periodFor, tileFilters, withLink } from '../dashboardFilters'
 import TextTile, { TextEditor } from '../components/TextTile'
 import Tabs, { MoveTab } from '../components/Tabs'
 import { onTab, pickTab } from '../tabs'
@@ -61,7 +63,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
   const [showShare, setShowShare] = useState(false)
   const [showGuests, setShowGuests] = useState(false)
   const [showSchedules, setShowSchedules] = useState(false)
-  const { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
+  const { filterValues, setFilterValues, filterOps, setFilterOps, period, setPeriod, tileRequest } = useDashboardInputs(dash)
   const [saving, setSaving] = useState(false)
   const can = useCan()
   const auth = useAuth().auth
@@ -98,12 +100,14 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     setPeriod(p)
     if (editing) update(d => ({ ...d, period: p }))
   }
+  // the period on a date, and on the matching date of the dashboard's other models (to change)
+  const linkedPeriod = (p: DashboardPeriod): DashboardPeriod => !dash ? p
+    : linkChoices(dash, models, p.model, p.field).reduce((acc, l) => (l.suggested ? withLink(acc, l.model, l.suggested) : acc), withLink(p, '', ''))
+  // on the first date of the dashboard's models; the period bar then says which, to change it
   const addPeriod = () => {
-    const modelName = dash?.tiles.find(isChart)?.query.model ?? models[0]?.name
-    const m = models.find(x => x.name === modelName)
-    const field = m?.dimensions.find(d => isTemporal(d.type))?.name
-    if (!m || !field) { alert('No date/time dimension available on this dashboard\'s model.'); return }
-    changePeriod({ model: m.name, field, current: { last_n_days: 30 }, compare: 'previous_period' })
+    const first = dash && periodChoices(dash, models)[0]
+    if (!first) { void ask.alert('None of this dashboard\'s models has a date or time to set a period on.'); return }
+    changePeriod(linkedPeriod({ model: first.model, field: first.field, current: { last_n_days: 30 }, compare: 'previous_period' }))
   }
 
   const save = async () => {
@@ -112,7 +116,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
     try {
       const r = await api.saveDashboard(id, dash, version)
       setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setDirty(false); setEditing(false); setVersion(r.version ?? null)
-    } catch (e) { alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
+    } catch (e) { void ask.alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
     setSaving(false)
   }
 
@@ -125,7 +129,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       const r = await api.saveDashboard(id, next, version)
       setDash(next); setYamlText(r.yaml ?? ''); setWarnings(r.warnings); setVersion(r.version ?? null)
       setEditTile(null); setQuick(false)
-    } catch (e) { alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
+    } catch (e) { void ask.alert(conflict(e) ?? `Save failed: ${(e as Error).message}`) }
     setSaving(false)
   }
 
@@ -137,7 +141,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
       setVersion(r.version ?? null)
       setFilterValues(initialFilterValues(r.dashboard))
       setPeriod(r.dashboard.period ?? null)
-    } catch (e) { alert(conflict(e) ?? `Invalid dashboard: ${(e as Error).message}`) }
+    } catch (e) { void ask.alert(conflict(e) ?? `Invalid dashboard: ${(e as Error).message}`) }
   }
 
   const onLayoutChange = (layout: Layout[]) => {
@@ -209,7 +213,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               </select>
               <button onClick={() => setEditTile('new')}>+ Add tile</button>
               <button onClick={() => setEditText('new')}>+ Add text</button>
-              <button onClick={() => { if (!dirty || confirm('Discard changes?')) { load(); setEditing(false) } }}>Cancel</button>
+              <button onClick={async () => { if (!dirty || await ask.confirm('Discard changes?', { danger: true, ok: 'Discard' })) { load(); setEditing(false) } }}>Cancel</button>
               <button className="primary" disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save'}</button>
             </> : <>
               {can('download') && <DownloadButton dashboard={id} request={tileRequest} />}
@@ -220,7 +224,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               {can('manage_members') && auth?.org && <button onClick={() => setShowShare(true)}>Share publicly</button>}
               {can('edit') && <button data-tour="edit" onClick={() => setEditing(true)}>Edit</button>}
               {can('edit') && <button className="danger" title="Delete dashboard" onClick={async () => {
-                if (confirm(`Delete dashboard "${dash.title}"? Its history is kept.`)) { await api.deleteDashboard(id); navigate('/') }
+                if (!(await ask.confirm(`Delete dashboard "${dash.title}"? Its history is kept.`, { danger: true, ok: 'Delete' }))) return
+                try { await api.deleteDashboard(id); navigate('/') } catch (e) { void ask.alert(`Delete failed: ${(e as Error).message}`) }
               }}>🗑</button>}
             </>)}
           </div>
@@ -247,14 +252,38 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
         <>
           {showFilters && period && (
             <div className="period-bar" data-tour="period">
+              {editing && periodChoices(dash, models).length > 1 && (
+                <label className="period-field">On
+                  <select value={`${period.model}.${period.field}`} onChange={e => {
+                    const c = periodChoices(dash, models).find(x => `${x.model}.${x.field}` === e.target.value)
+                    if (c) changePeriod(linkedPeriod({ ...period, model: c.model, field: c.field, fields: undefined }))
+                  }}>
+                    {periodChoices(dash, models).map(c => <option key={`${c.model}.${c.field}`} value={`${c.model}.${c.field}`}>{c.label}</option>)}
+                  </select>
+                </label>
+              )}
+              {editing && linkChoices(dash, models, period.model, period.field).map(l => (
+                <label key={l.model} className="period-field" title={`The period on ${l.label}'s tiles`}>{l.label}
+                  <select value={period.fields?.[l.model] ?? ''} onChange={e => changePeriod(withLink(period, l.model, e.target.value))}>
+                    <option value="">— not on it —</option>
+                    {l.options.map(o => <option key={o.field} value={o.field}>{o.label.split(' · ').pop()}</option>)}
+                  </select>
+                </label>
+              ))}
               <PeriodControl model={models.find(m => m.name === period.model)} period={period}
-                onChange={p => changePeriod(p ? { ...p, model: period.model } : null)} />
+                onChange={p => changePeriod(p ? { ...p, model: period.model, fields: period.fields } : null)} />
               {editing && <button className="link" onClick={() => changePeriod(null)}>Remove period</button>}
             </div>
           )}
           {editing && !period && <div className="period-bar"><button className="link" onClick={addPeriod}>+ Add a dashboard period (with comparison)</button></div>}
           {showFilters && <FilterBar filters={dash.filters} models={models} values={filterValues} dashboardId={editing ? undefined : id}
-            onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))} />}
+            onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))}
+            ops={filterOps} onOp={(k, op) => setFilterOps(s => ({ ...s, [k]: op }))}
+            editing={editing ? {
+              dashboard: dash,
+              onAdd: f => update(d => ({ ...d, filters: [...d.filters, f] })),
+              onRemove: key => update(d => ({ ...d, filters: d.filters.filter(x => filterKey(x) !== key) })),
+            } : undefined} />}
           <Tabs tabs={tabs} current={tab} onPick={setTab}
             onAdd={editing ? name => { update(d => ({ ...d, tabs: [...(d.tabs ?? []), name] })); setTab(name) } : undefined}
             onRemove={editing ? removeTab : undefined} />
@@ -268,9 +297,11 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               return (
                 <div key={t.id} data-tour={i === firstChart ? 'tiles' : undefined}>
                   {isChart(t)
-                    ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={followed(filtersByModel[t.query.model], t.query.model, t.options)}
+                    ? <TileView tile={t} model={models.find(m => m.name === t.query.model)}
+                        extraFilters={tileFilters(filtersFor({ ...dash, filters: dash.filters.filter(f => !ignoredOf(t.options).includes(filterKey(f))) },
+                          filterValues, filterOps), models.find(m => m.name === t.query.model))}
                         scope={scopeNote(dash, t, models.find(m => m.name === t.query.model))}
-                        period={period && period.model === t.query.model ? tilePeriod : null}
+                        period={periodFor(period, models.find(m => m.name === t.query.model))}
                         source={{ dashboard: id, request: tileRequest }}
                         editing={editing} onEdit={() => setEditTile(t)} onDelete={remove} actions={move}
                         onQuickEdit={!embed && !phone && can('edit') ? () => { setQuick(true); setEditTile(t) } : undefined} />

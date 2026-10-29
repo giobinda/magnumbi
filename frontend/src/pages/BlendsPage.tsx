@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { blendName, matchSentence, suggestKeys } from '../blendForm'
 import type { Key } from '../blendForm'
 import { useEffect, useState } from 'react'
@@ -37,7 +38,7 @@ export default function BlendsPage() {
   const models = all.filter(m => !m.blend)
 
   const remove = async (b: Blend) => {
-    if (!confirm(`Delete the blend "${b.label || b.name}"? Tiles that use it stop working.`)) return
+    if (!(await ask.confirm(`Delete the blend "${b.label || b.name}"? Tiles that use it stop working.`, { danger: true, ok: 'Delete' }))) return
     try { await api.deleteBlend(b.name); forgetModels(); load() } catch (e) { setError((e as Error).message) }
   }
 

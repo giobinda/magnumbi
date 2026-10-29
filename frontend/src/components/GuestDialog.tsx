@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { GuestLink, ModelInfo, Role } from '../api'
@@ -47,7 +48,7 @@ export default function GuestDialog({ id, models, myRole, me, isAdmin, onClose }
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   const revoke = async (l: GuestLink) => {
-    if (!confirm('Remove this guest link? It stops working at once, even for guests who already opened it.')) return
+    if (!(await ask.confirm('Remove this guest link? It stops working at once, even for guests who already opened it.', { danger: true, ok: 'Remove' }))) return
     try { await api.revokeGuestLink(l.id); if (made?.link.id === l.id) setMade(null); await load() } catch (e) { setError((e as Error).message) }
   }
 

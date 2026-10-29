@@ -1,3 +1,4 @@
+import Dialogs from './components/Dialogs'
 import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
 import { AuthGate, useAuth, useCan } from './auth'
@@ -39,6 +40,7 @@ export default function App() {
         <Route path="/unsubscribe" element={<UnsubscribePage />} />
         <Route path="*" element={<SignedIn />} />
       </Routes>
+      <Dialogs />
     </BrowserRouter>
   )
 }

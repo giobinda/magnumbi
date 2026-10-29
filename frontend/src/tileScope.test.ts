@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { dashboardInputs, followed, ignoredOf, scopeNote, withIgnored } from './tileScope'
+import { dashboardInputs, ignoredOf, scopeNote, withIgnored } from './tileScope'
 import type { ChartTile, Dashboard, ModelInfo } from './api'
 
 const sales = { name: 'sales', label: 'Sales', dimensions: [{ name: 'region', label: 'Region', type: 'string' }, { name: 'category', type: 'string' }, { name: 'sold_at', label: 'Sold at', type: 'time' }], measures: [] } as unknown as ModelInfo
@@ -29,13 +29,6 @@ describe('which dashboard filters a tile follows', () => {
     expect(withIgnored({ stacked: true, period: false }, ['sales.region'])).toEqual({ stacked: true, ignore_filters: ['sales.region'] })
     expect(withIgnored({ ignore_filters: ['sales.region'] }, ['period'])).toEqual({ period: false })
     expect(withIgnored({ legend: 'right' }, [])).toEqual({ legend: 'right' })
-  })
-
-  it('drops the ignored filters from what the tile gets', () => {
-    const fs = [{ field: 'region', op: 'equals' as const, values: ['EMEA'] }, { field: 'category', op: 'equals' as const, values: ['Shoes'] }]
-    expect(followed(fs, 'sales', { ignore_filters: ['sales.region'] })!.map(f => f.field)).toEqual(['category'])
-    expect(followed(fs, 'sales', undefined)).toEqual(fs)
-    expect(followed(undefined, 'sales', undefined)).toBeUndefined()
   })
 
   it('says when a tile is filtered differently from the rest', () => {

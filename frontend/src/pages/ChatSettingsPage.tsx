@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { ChatSettings } from '../api'
@@ -29,7 +30,7 @@ export default function ChatSettingsPage() {
     try { await api.saveChatSettings(s, key); setKey(''); setSaved('Saved.'); load() } catch (e) { setError((e as Error).message) }
   }
   const remove = async () => {
-    if (!confirm('Remove the chat\'s settings and its key? People\'s conversations stay.')) return
+    if (!(await ask.confirm('Remove the chat\'s settings and its key? People\'s conversations stay.', { danger: true, ok: 'Remove' }))) return
     try { await api.deleteChatSettings(); setKey(''); load() } catch (e) { setError((e as Error).message) }
   }
 

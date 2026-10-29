@@ -536,6 +536,7 @@ measures:
             <li><strong>Discover › Explore</strong> (Power users and up): pick a model, then double-click or drag dimensions and measures onto the shelves. Magnum BI suggests a chart; pick another from the list. <strong>Add to dashboard</strong> when it's right.</li>
             <li>One tile only: its <strong>✎</strong>, on the dashboard as it is (for those who may edit), opens the tile editor; <strong>Save</strong> saves the dashboard with it.</li>
             <li>On a dashboard, <strong>Edit</strong>: drag tiles by their title and resize them from the corner, add charts (<em>+ Add tile</em>), notes (<em>+ Add text</em>) and pages (<em>+ Tab</em>; ⇄ moves a tile to another tab), then <strong>Save</strong>. Every saved version is kept.</li>
+            <li>In <strong>Edit</strong>, <strong>+ Add a filter</strong> puts a filter at the top: a field of the dashboard's models, and how it filters (is, is not, contains, is empty, is not empty); its × removes it. Viewers can flip a filter from <em>is</em> to <em>is not</em>, to leave out what they pick. The period bar says which date the period is on (pickup or drop-off time…). When the dashboard mixes models, the period and each filter also name their field on the other models (suggested, to change or turn off), so every tile follows them.</li>
             <li>A tile can keep its own context: in its editor, untick a filter or the period under <strong>Follows the dashboard's</strong>, for a chart that should always show, say, every region or the whole year. On the dashboard, a tile that ignores some of them, or has filters of its own, carries a badge (<em>Ignores Region</em>, <em>Own filters</em>) that says how.</li>
             <li>Everyone uses the period and filters at the top, clicks a bar or a row to drill down, and downloads a tile's data or picture from its ⤓ menu, or the whole dashboard with <strong>Download</strong>.</li>
           </ol>
@@ -552,8 +553,10 @@ period:
   field: sold_at
   current: {last_n_days: 30}   <span class="c"># or {preset: month_to_date}, or {from: …, to: …}</span>
   compare: previous_period     <span class="c"># or previous_year, or {from: 2025-09-01}</span>
+  fields: {stock: counted_at}  <span class="c"># the same period on another model's tiles</span>
 filters:
   - {model: sales, field: category, label: Category}
+  - {model: sales, field: region, op: not_equals, fields: {stock: region}}  <span class="c"># is not; on stock too</span>
 tabs: [Overview, Detail]       <span class="c"># optional; a tile without tab: is on the first</span>
 tiles:
   - id: revenue

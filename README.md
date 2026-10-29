@@ -618,6 +618,16 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
 
+A dashboard's filters are added in its edit mode (*+ Add a filter*: a field of its models, and how
+it filters: is, is not, contains, empty or not), or in YAML (`filters: [{model, field, op?,
+label?, default?}]`). Viewers flip one that is *is* to *is not*, to leave out what they pick
+(`ops` in a tile request: is or is not only, on such a filter). The period names its date
+(pickup time or drop-off time…). On a dashboard mixing models, the period and each filter name
+their field on the others, suggested when added, so every tile follows them:
+`period: {model: taxi, field: pickup_at, fields: {weather: observed_at}, …}`,
+`filters: [{model: taxi, field: pickup_borough, fields: {weather: borough}}]`. Tiles on a blend
+of the model follow them through the blend's fields.
+
 A tile may keep its own context: `options: {ignore_filters: [sales.category], period: false}`
 (in its editor, *Follows the dashboard's*), for a chart that should always show every category or
 its own dates. Only the dashboard's filters can be ignored: data restrictions and a guest link's

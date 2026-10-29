@@ -81,7 +81,7 @@ function Unlock({ base, onUnlocked }: { base: string; onUnlocked: () => void }) 
 function GuestDashboardView({ data }: { data: GuestDashboard }) {
   const dash = data.dashboard
   const phone = usePhone()
-  const { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
+  const { filterValues, setFilterValues, filterOps, setFilterOps, period, setPeriod, filtersByModel, tilePeriod, tileRequest } = useDashboardInputs(dash)
   const [search, setSearch] = useSearchParams()
   useEffect(() => {
     setFilterValues(initialFilterValues(dash))
@@ -110,7 +110,8 @@ function GuestDashboardView({ data }: { data: GuestDashboard }) {
         </div>
       )}
       <FilterBar filters={dash.filters} models={data.models} values={filterValues} dashboardId={data.id}
-        onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))} />
+        onChange={(k, v) => setFilterValues(s => ({ ...s, [k]: v }))}
+        ops={filterOps} onOp={(k, op) => setFilterOps(s => ({ ...s, [k]: op }))} />
       <Tabs tabs={tabs} current={tab} onPick={t => setSearch(p => { p.set('tab', t); return p }, { replace: true })} />
       <Grid className="grid" layout={layout} cols={12} rowHeight={64} margin={[12, 12]} isDraggable={false} isResizable={false} compactType="vertical">
         {visible.map(t => (

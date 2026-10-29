@@ -160,8 +160,13 @@ export interface Tile {
 }
 export type ChartTile = Tile & { type: ChartType; query: Query }
 export const isChart = (t: Tile): t is ChartTile => t.type !== 'text' && t.query !== undefined
-export interface DashboardFilter { model: string; field: string; label?: string | null; op?: FilterOp; default?: Value[] }
-export interface DashboardPeriod extends Period { model: string }
+export interface DashboardFilter {
+  model: string; field: string; label?: string | null; op?: FilterOp; default?: Value[]
+  /** the same filter on other models: model -> its field */
+  fields?: Record<string, string>
+}
+/** `fields`: the same period on other models, model -> its date */
+export interface DashboardPeriod extends Period { model: string; fields?: Record<string, string> }
 export interface Dashboard { title: string; description?: string | null; theme?: string | null; period?: DashboardPeriod | null; filters: DashboardFilter[]; tabs?: string[]; tiles: Tile[] }
 export interface DashboardResponse {
   id: string; dashboard: Dashboard; yaml: string | null; warnings: string[]
@@ -255,6 +260,8 @@ export interface Restriction {
 }
 export interface TileRequest {
   filters?: Record<string, Value[]>; period?: { current: PeriodRange; compare?: Compare } | null
+  /** the viewer's is / is not, on filters that are one of those */
+  ops?: Record<string, FilterOp>
   drill?: { field: string; value: Value }[]
 }
 

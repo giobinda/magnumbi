@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react'
-import type { Dashboard, DashboardPeriod, Filter, Value } from './api'
+import type { Dashboard, DashboardPeriod, FilterOp, Value } from './api'
 import { filterKey } from './components/FilterBar'
+import { filtersFor } from './dashboardFilters'
 
 /** A dashboard's filter values as it opens: URL params (?status=Complete,Shipped) override the
  *  defaults. */
@@ -19,17 +20,10 @@ export function initialFilterValues(d: Dashboard): Record<string, Value[]> {
 export function useDashboardInputs(dash: Dashboard | null) {
   const [filterValues, setFilterValues] = useState<Record<string, Value[]>>({})
   const [period, setPeriod] = useState<DashboardPeriod | null>(null)  // the viewer's current choice
+  // the viewer's is / is not, per filter
+  const [filterOps, setFilterOps] = useState<Record<string, FilterOp>>({})
 
-  const filtersByModel = useMemo(() => {
-    const out: Record<string, Filter[]> = {}
-    for (const f of dash?.filters ?? []) {
-      const values = filterValues[filterKey(f)] ?? []
-      const op = f.op ?? 'equals'
-      if (!values.length && op !== 'is_null' && op !== 'not_null') continue
-      ;(out[f.model] ??= []).push({ field: f.field, op, values })
-    }
-    return out
-  }, [dash, filterValues])
+  const filtersByModel = useMemo(() => (dash ? filtersFor(dash, filterValues, filterOps) : {}), [dash, filterValues, filterOps])
 
   // the query-level period has no `model`; it only applies to tiles on that model
   const tilePeriod = useMemo(() => {
@@ -41,8 +35,9 @@ export function useDashboardInputs(dash: Dashboard | null) {
   // what a saved tile may be asked for: filter values and the period window (drill is per tile)
   const tileRequest = useMemo(() => ({
     filters: filterValues,
+    ops: filterOps,
     period: period ? { current: period.current, compare: period.compare ?? null } : null,
-  }), [filterValues, period])
+  }), [filterValues, filterOps, period])
 
-  return { filterValues, setFilterValues, period, setPeriod, filtersByModel, tilePeriod, tileRequest }
+  return { filterValues, setFilterValues, filterOps, setFilterOps, period, setPeriod, filtersByModel, tilePeriod, tileRequest }
 }

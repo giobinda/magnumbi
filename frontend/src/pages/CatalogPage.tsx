@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -265,7 +266,7 @@ function Glossary({ picked }: { picked: string | null }) {
   const load = () => api.glossary().then(r => { setTerms(r.terms); setMayAdd(r.may_add) }, e => setError((e as Error).message))
   useEffect(() => { load() }, [])
   const remove = async (t: GlossaryTerm) => {
-    if (!confirm(`Remove "${t.name}" from the glossary?`)) return
+    if (!(await ask.confirm(`Remove "${t.name}" from the glossary?`, { danger: true, ok: 'Remove' }))) return
     try { await api.deleteTerm(t.name); load() } catch (e) { setError((e as Error).message) }
   }
   return <section className="glossary" id="glossary">

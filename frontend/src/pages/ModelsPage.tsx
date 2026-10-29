@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -38,7 +39,7 @@ export default function ModelsPage() {
   useEffect(() => { load() }, [])
 
   const remove = async (m: ModelDef) => {
-    if (!confirm(`Delete the model "${m.label ?? m.name}"? Dashboards and blends using it stop working.`)) return
+    if (!(await ask.confirm(`Delete the model "${m.label ?? m.name}"? Dashboards and blends using it stop working.`, { danger: true, ok: 'Delete' }))) return
     try { await api.deleteOrgModel(m.name); forgetModels(); load() } catch (e) { setError((e as Error).message) }
   }
   if (editing) {
@@ -222,7 +223,7 @@ function SharedFormulas() {
     setEditing(null); forgetModels(); reload(); load()
   }
   const remove = async (s: SharedFormula) => {
-    if (!confirm(`Delete the formula "${s.formula.label ?? s.formula.name}"? Dashboards using it stop working.`)) return
+    if (!(await ask.confirm(`Delete the formula "${s.formula.label ?? s.formula.name}"? Dashboards using it stop working.`, { danger: true, ok: 'Delete' }))) return
     try { await api.deleteFormula(s.model, s.formula.name); forgetModels(); reload(); load() } catch (e) { setError((e as Error).message) }
   }
   return <>

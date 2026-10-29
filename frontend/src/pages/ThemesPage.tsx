@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { CSSProperties } from 'react'
 import { api } from '../api'
@@ -43,8 +44,8 @@ export default function ThemesPage() {
     } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }) }
   }
   const startFrom = (base: Theme) => setEditing({ isNew: true, theme: { ...base, id: '', label: '', builtin: false } })
-  const remove = (t: Theme) => {
-    if (!confirm(`Delete the theme "${t.label}"?`)) return
+  const remove = async (t: Theme) => {
+    if (!(await ask.confirm(`Delete the theme "${t.label}"?`, { danger: true, ok: 'Delete' }))) return
     save({ themes: data.themes.filter(x => x.id !== t.id),
       default_light: doc.default_light === t.id ? null : doc.default_light,
       default_dark: doc.default_dark === t.id ? null : doc.default_dark }, 'Deleted.')
