@@ -26,7 +26,11 @@ pub const FUNCTIONS: [&str; 34] = [
 /// The parts of a date the functions of that name give, as numbers.
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
 /// Calculations on a chart's results (window functions, run on ScramDB: results.rs).
-pub const RESULT_FUNCTIONS: [&str; 5] = ["running_sum", "moving_avg", "previous", "rank", "percent_of_total"];
+#[rustfmt::skip]
+pub const RESULT_FUNCTIONS: [&str; 10] = [
+    "running_sum", "moving_avg", "previous", "rank", "percent_of_total",
+    "running_avg", "next", "difference", "percent_change", "dense_rank",
+];
 /// Aggregations of a column, as in Explore's Σ: `sum(amount)`.
 pub const AGGREGATIONS: [&str; 6] = ["sum", "avg", "min", "max", "count", "count_distinct"];
 
@@ -328,7 +332,10 @@ impl Parser {
                     };
                     return Ok(Node::Field { name: format!("{lower}({column})"), at });
                 }
-                if !FUNCTIONS.contains(&lower.as_str()) && !RESULT_FUNCTIONS.contains(&lower.as_str()) {
+                if !FUNCTIONS.contains(&lower.as_str())
+                    && !RESULT_FUNCTIONS.contains(&lower.as_str())
+                    && !WINDOW_OPTIONS.contains(&lower.as_str())
+                {
                     return fail(at, format!("unknown function {lower:?}; formulas can use {}", FUNCTIONS.join(", ")));
                 }
                 self.deeper()?;
@@ -397,7 +404,10 @@ fn walk(n: &Node, visit: &mut impl FnMut(&Node)) {
             walk(left, visit);
             walk(right, visit);
         }
-        Node::Call { args, .. } => args.iter().for_each(|a| walk(a, visit)),
+        // along(…) and within(…) name dimensions, not values
+        Node::Call { name, args, .. } if !WINDOW_OPTIONS.contains(&name.as_str()) => {
+            args.iter().for_each(|a| walk(a, visit))
+        }
         _ => {}
     }
 }
@@ -408,7 +418,12 @@ fn walk(n: &Node, visit: &mut impl FnMut(&Node)) {
 pub struct Window {
     pub along: String,
     pub across: Vec<String>,
+    /// the chart's dimensions (field name, column), which along(…) and within(…) may name
+    pub dims: Vec<(String, String)>,
 }
+
+/// What a calculation on results may be told, after its value: along(a dimension), within(…).
+const WINDOW_OPTIONS: [&str; 2] = ["along", "within"];
 
 /// A calculation on a chart's results, as ScramDB SQL over the result's work table.
 pub fn compile_on_results(
@@ -667,6 +682,26 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         if self.inside {
             return fail(at, format!("{name}(…) can't be used inside another calculation on results"));
         }
+        // the value(s), then along(…) and within(…)
+        let first_option = args.iter().position(is_option).unwrap_or(args.len());
+        let (args, options) = args.split_at(first_option);
+        if !options.iter().all(is_option) {
+            return fail(at, format!("along(…) and within(…) come after what {name}(…) calculates"));
+        }
+        let (mut along_given, mut within_given) = (None, None);
+        for o in options {
+            let Node::Call { name: option, args: dims, .. } = o else { unreachable!("an option") };
+            let cols = self.dimensions_named(option, dims, w, at)?;
+            let slot = if option == "along" { &mut along_given } else { &mut within_given };
+            if slot.replace(cols).is_some() {
+                return fail(at, format!("{option}(…) is given once"));
+            }
+        }
+        let along_given = match along_given {
+            Some(cols) if cols.len() == 1 => cols.into_iter().next(),
+            Some(_) => return fail(at, "along(…) takes one dimension of the chart, such as along(sold_at)"),
+            None => None,
+        };
         let n = match (name, args) {
             ("moving_avg", [_, Node::Number(n)]) => match n.parse::<u32>() {
                 Ok(n) if (1..=1000).contains(&n) => n,
@@ -681,25 +716,76 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         self.inside = true;
         let x = self.number(&args[0], at)?;
         self.inside = false;
+        let ranks = matches!(name, "rank" | "dense_rank" | "percent_of_total");
+        if ranks && along_given.is_some() {
+            return fail(
+                at,
+                format!("{name}(…) doesn't go along anything: within(…) says among which rows it compares"),
+            );
+        }
+        // along a dimension (the first date's), separately within each value of the others
+        let order = along_given.clone().unwrap_or_else(|| w.along.clone());
+        let partition = match (within_given.clone(), &along_given) {
+            (Some(cols), _) => cols,
+            (None, Some(a)) => w.dims.iter().map(|(_, c)| c.clone()).filter(|c| c != a).collect(),
+            (None, None) => w.across.clone(),
+        };
+        let partition_by =
+            |cols: &[String]| if cols.is_empty() { String::new() } else { format!("PARTITION BY {}", cols.join(", ")) };
         let mut along = vec![];
-        if !w.across.is_empty() {
-            along.push(format!("PARTITION BY {}", w.across.join(", ")));
+        if !partition.is_empty() {
+            along.push(partition_by(&partition));
         }
-        if !w.along.is_empty() {
-            along.push(format!("ORDER BY {}", w.along));
+        if !order.is_empty() {
+            along.push(format!("ORDER BY {order}"));
         }
-        let across =
-            if w.across.is_empty() || w.along.is_empty() { String::new() } else { format!("PARTITION BY {}", w.along) };
+        // ranks and shares: within each value along, unless told within what
+        let across = match within_given {
+            Some(cols) => partition_by(&cols),
+            None if w.across.is_empty() || w.along.is_empty() => String::new(),
+            None => format!("PARTITION BY {}", w.along),
+        };
         let frame =
             |from: &str| [along.join(" "), format!("ROWS BETWEEN {from} AND CURRENT ROW")].join(" ").trim().to_string();
         let sql = match name {
             "running_sum" => format!("SUM({x}) OVER ({})", frame("UNBOUNDED PRECEDING")),
+            "running_avg" => format!("AVG({x}) OVER ({})", frame("UNBOUNDED PRECEDING")),
+            "next" => format!("LEAD({x}) OVER ({})", along.join(" ")),
+            "difference" => format!("({x} - LAG({x}) OVER ({}))", along.join(" ")),
+            "percent_change" => {
+                let before = format!("LAG({x}) OVER ({})", along.join(" "));
+                format!("(CAST(({x} - {before}) AS {}) / NULLIF({before}, 0))", self.dl.double())
+            }
+            "dense_rank" => {
+                format!("DENSE_RANK() OVER ({})", [across.clone(), format!("ORDER BY {x} DESC")].join(" ").trim())
+            }
             "moving_avg" => format!("AVG({x}) OVER ({})", frame(&format!("{} PRECEDING", n - 1))),
             "previous" => format!("LAG({x}) OVER ({})", along.join(" ")),
             "rank" => format!("RANK() OVER ({})", [across, format!("ORDER BY {x} DESC")].join(" ").trim()),
             _ => format!("(CAST({x} AS {}) / NULLIF(SUM({x}) OVER ({across}), 0))", self.dl.double()),
         };
         Ok((sql, Kind::Number))
+    }
+
+    /// The columns of the chart's dimensions an option names.
+    fn dimensions_named(
+        &self,
+        option: &str,
+        dims: &[Node],
+        w: &Window,
+        at: usize,
+    ) -> Result<Vec<String>, FormulaError> {
+        let names = || w.dims.iter().map(|(n, _)| n.as_str()).collect::<Vec<_>>().join(", ");
+        dims.iter()
+            .map(|d| match d {
+                Node::Field { name, .. } => match w.dims.iter().find(|(n, _)| n == name) {
+                    Some((_, col)) => Ok(col.clone()),
+                    None => fail(at, format!("{option}(…) takes the chart's dimensions: {}", names())),
+                },
+                _ if option == "along" => fail(at, "along(…) takes one dimension of the chart, such as along(sold_at)"),
+                _ => fail(at, format!("{option}(…) takes the chart's dimensions: {}", names())),
+            })
+            .collect()
     }
 
     /// An aggregation of the rows' values (sum_if and the like): their parts are the row's columns.
@@ -743,6 +829,12 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
     fn call(&mut self, name: &str, args: &[Node], at: usize) -> Result<(String, Kind), FormulaError> {
         if RESULT_FUNCTIONS.contains(&name) {
             return self.on_results(name, args, at);
+        }
+        if WINDOW_OPTIONS.contains(&name) {
+            return fail(
+                at,
+                format!("{name}(…) goes inside a calculation on results, such as running_sum(revenue, along(sold_at))"),
+            );
         }
         let count = |ok: bool, how: &str| if ok { Ok(()) } else { fail(at, format!("{name}(…) takes {how}")) };
         match name {
@@ -916,6 +1008,10 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             }
         }
     }
+}
+
+fn is_option(n: &Node) -> bool {
+    matches!(n, Node::Call { name, .. } if WINDOW_OPTIONS.contains(&name.as_str()))
 }
 
 /// A whole number written in the formula (minus included), such as 30 or -7.
@@ -1187,8 +1283,82 @@ pub(crate) mod tests {
     }
 
     fn on_results(expr: &str) -> Result<String, FormulaError> {
-        let w = Window { along: "\"c0\"".into(), across: vec!["\"c3\"".into()] };
-        compile_on_results(expr, &w, &mut result).map(|(sql, _)| sql)
+        compile_on_results(expr, &window(), &mut result).map(|(sql, _)| sql)
+    }
+
+    /// The chart: by sold_at (along, c0) and region (c3); store (c4) too when asked.
+    fn window() -> Window {
+        Window {
+            along: "\"c0\"".into(),
+            across: vec!["\"c3\"".into()],
+            dims: vec![("sold_at".into(), "\"c0\"".into()), ("region".into(), "\"c3\"".into())],
+        }
+    }
+
+    #[test]
+    fn calculations_on_results_go_along_and_within_what_they_are_told() {
+        let three = Window {
+            across: vec!["\"c3\"".into(), "\"c4\"".into()],
+            dims: [window().dims, vec![("store".into(), "\"c4\"".into())]].concat(),
+            ..window()
+        };
+        let sql = |e: &str| compile_on_results(e, &three, &mut result).map(|(s, _)| s);
+        let frame = "ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW";
+        // along the date, within the region only (not each store)
+        assert_eq!(
+            sql("running_sum(revenue, along(sold_at), within(region))").unwrap(),
+            format!("SUM(\"c1\") OVER (PARTITION BY \"c3\" ORDER BY \"c0\" {frame})")
+        );
+        // along another dimension: within the rest
+        assert_eq!(
+            sql("running_sum(revenue, along(region))").unwrap(),
+            format!("SUM(\"c1\") OVER (PARTITION BY \"c0\", \"c4\" ORDER BY \"c3\" {frame})")
+        );
+        // within nothing: the whole chart
+        assert_eq!(
+            sql("running_sum(revenue, within())").unwrap(),
+            format!("SUM(\"c1\") OVER (ORDER BY \"c0\" {frame})")
+        );
+        assert_eq!(
+            sql("moving_avg(revenue, 3, within(store))").unwrap(),
+            "AVG(\"c1\") OVER (PARTITION BY \"c4\" ORDER BY \"c0\" ROWS BETWEEN 2 PRECEDING AND CURRENT ROW)"
+        );
+        assert_eq!(sql("previous(units, within())").unwrap(), "LAG(\"c2\") OVER (ORDER BY \"c0\")");
+        // ranks and shares: within what's given
+        assert_eq!(sql("rank(revenue, within())").unwrap(), "RANK() OVER (ORDER BY \"c1\" DESC)");
+        assert_eq!(
+            sql("dense_rank(revenue, within(region, store))").unwrap(),
+            "DENSE_RANK() OVER (PARTITION BY \"c3\", \"c4\" ORDER BY \"c1\" DESC)"
+        );
+        assert_eq!(
+            sql("percent_of_total(revenue, within(region))").unwrap(),
+            "(CAST(\"c1\" AS DOUBLE PRECISION) / NULLIF(SUM(\"c1\") OVER (PARTITION BY \"c3\"), 0))"
+        );
+        // mistakes
+        let e = |x: &str| sql(x).unwrap_err().message;
+        assert!(
+            e("rank(revenue, along(sold_at))").contains("doesn't go along"),
+            "{}",
+            e("rank(revenue, along(sold_at))")
+        );
+        assert!(e("running_sum(revenue, along(nope))").contains("sold_at, region, store"));
+        assert!(e("running_sum(revenue, along(sold_at, region))").contains("one dimension"));
+        assert!(e("running_sum(revenue, along(revenue + 1))").contains("one dimension"));
+        assert!(
+            e("running_sum(along(sold_at), revenue)").contains("after"),
+            "{}",
+            e("running_sum(along(sold_at), revenue)")
+        );
+        assert!(e("running_sum(revenue, within(region), within(store))").contains("once"));
+        assert!(e("along(sold_at)").contains("inside a calculation on results"));
+        assert!(
+            per_row("within(region)", Dialect::Postgres)
+                .unwrap_err()
+                .message
+                .contains("inside a calculation on results")
+        );
+        // the dimensions they name aren't measures the chart needs
+        assert_eq!(references("running_sum(revenue, along(sold_at), within(region))").unwrap(), ["revenue"]);
     }
 
     #[test]
@@ -1214,8 +1384,25 @@ pub(crate) mod tests {
             on_results("revenue - previous(revenue)").unwrap(),
             format!("(\"c1\" - LAG(\"c1\") OVER ({along}))")
         );
+        // the next value, the change and its percentage, the running average, ranks without gaps
+        assert_eq!(on_results("next(units)").unwrap(), format!("LEAD(\"c2\") OVER ({along})"));
+        assert_eq!(on_results("difference(revenue)").unwrap(), format!("(\"c1\" - LAG(\"c1\") OVER ({along}))"));
+        assert_eq!(
+            on_results("percent_change(revenue)").unwrap(),
+            format!(
+                "(CAST((\"c1\" - LAG(\"c1\") OVER ({along})) AS DOUBLE PRECISION) / NULLIF(LAG(\"c1\") OVER ({along}), 0))"
+            )
+        );
+        assert_eq!(
+            on_results("running_avg(revenue)").unwrap(),
+            format!("AVG(\"c1\") OVER ({along} ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW)")
+        );
+        assert_eq!(
+            on_results("dense_rank(revenue)").unwrap(),
+            "DENSE_RANK() OVER (PARTITION BY \"c0\" ORDER BY \"c1\" DESC)"
+        );
         // one dimension: nothing to partition by
-        let w = Window { along: "\"c0\"".into(), across: vec![] };
+        let w = Window { along: "\"c0\"".into(), across: vec![], dims: vec![] };
         assert_eq!(compile_on_results("rank(units)", &w, &mut result).unwrap().0, "RANK() OVER (ORDER BY \"c2\" DESC)");
         assert_eq!(
             compile_on_results("running_sum(units)", &w, &mut result).unwrap().0,
@@ -1440,7 +1627,7 @@ pub(crate) mod tests {
     fn the_editor_offers_the_functions_there_are() {
         let editor = include_str!("../../frontend/src/formula.ts");
         let offered: Vec<&str> = editor.split("{ name: '").skip(1).filter_map(|rest| rest.split('\'').next()).collect();
-        let mut there: Vec<&str> = FUNCTIONS.iter().chain(&RESULT_FUNCTIONS).copied().collect();
+        let mut there: Vec<&str> = FUNCTIONS.iter().chain(&RESULT_FUNCTIONS).chain(&WINDOW_OPTIONS).copied().collect();
         let mut offered = offered;
         there.sort_unstable();
         offered.sort_unstable();

@@ -78,8 +78,10 @@ with 'text', lower, upper, concat, contains / starts_with / ends_with (capitals 
 replace(t, from, to); dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
 today(), days_between(from, to), date_trunc(d, 'month'), date_add(d, 30, 'day'), date_diff(from, to, 'month')): \
 group by it, filter on it, or sum(it). \
-Calculations on the results (computed after the query, on its rows): running_sum(x), moving_avg(x, n), previous(x), \
-rank(x), percent_of_total(x): along the first date dimension (else the first dimension), for each value of the others",
+Calculations on the results (computed after the query, on its rows): running_sum(x), running_avg(x), moving_avg(x, n), \
+previous(x), next(x), difference(x), percent_change(x), rank(x), dense_rank(x), percent_of_total(x): along the first date \
+dimension (else the first dimension), for each value of the others; or told, after the value: along(dimension), \
+within(dimensions…) (within() for the whole chart). They can be filtered on, and (one dimension) ranked by for top N",
             "items": {"type": "object", "properties": {"name": {"type": "string"}, "expr": {"type": "string"},
                 "label": {"type": "string"}, "format": {"type": "string", "enum": ["number", "currency", "percent"]},
                 "per_row": {"type": "boolean"}},

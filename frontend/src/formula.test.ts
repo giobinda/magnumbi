@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, windowChips, ROW_FUNCTIONS, TOTAL_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -62,7 +62,15 @@ describe('formulas', () => {
   })
 
   it('knows calculations on results', () => {
-    expect(RESULT_FUNCTIONS.map(f => f.name)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total'])
+    expect(RESULT_FUNCTIONS.map(f => f.name)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
+      'running_avg', 'next', 'difference', 'percent_change', 'dense_rank', 'along', 'within'])
+    expect(usesResults('difference(revenue) / 2')).toBe(true)
+    // the easy ones for everyone; dense ranks and saying along or within what, under Advanced
+    const compared = (advanced: boolean) => functionGroups(RESULT_FUNCTIONS, advanced)[0].functions.map(f => f.name)
+    expect(compared(false)).toEqual(['running_sum', 'moving_avg', 'previous', 'rank', 'percent_of_total',
+      'running_avg', 'next', 'difference', 'percent_change'])
+    expect(compared(true)).toContain('dense_rank')
+    expect(compared(true)).toContain('along')
     expect(usesResults('revenue / Running_Sum (revenue)')).toBe(true)
     expect(usesResults('revenue / units')).toBe(false)
     // a field named like one isn't a call
@@ -78,7 +86,8 @@ describe('formulas', () => {
     // each its own name, as code would call it
     expect(calcs.map(c => c.formula.name)).toEqual(['revenue_share_of_total', 'revenue_change', 'revenue_pct_change',
       'revenue_running_total', 'revenue_avg_last_3', 'revenue_rank', 'revenue_per_units'])
-    expect(by('% change from previous')).toMatchObject({ expr: '(revenue - previous(revenue)) / previous(revenue)', format: 'percent' })
+    expect(by('Change from previous')).toMatchObject({ expr: 'difference(revenue)', format: 'currency' })
+    expect(by('% change from previous')).toMatchObject({ expr: 'percent_change(revenue)', format: 'percent' })
     // amounts keep the measure's format
     expect(by('Running total')).toMatchObject({ expr: 'running_sum(revenue)', format: 'currency' })
     expect(by('Rank')).toMatchObject({ expr: 'rank(revenue)', format: 'number' })
@@ -156,5 +165,17 @@ describe('formulas', () => {
     expect(gives('time')).toBe('a date and time')
     expect(gives('datetime')).toBe('a date and time')
     expect(gives(undefined)).toBe('')
+  })
+
+  it('offers the chart\'s dimensions to say along or within what, under Advanced', () => {
+    const chips = windowChips([{ ref: 'sold_at:month', label: 'Sold at (month)' }, { ref: 'region', label: 'Region' }])
+    expect(chips).toEqual([
+      { label: 'along Sold at (month)', insert: ', along(sold_at)' },
+      { label: 'within Sold at (month)', insert: ', within(sold_at)' },
+      { label: 'along Region', insert: ', along(region)' },
+      { label: 'within Region', insert: ', within(region)' },
+      { label: 'within the whole chart', insert: ', within()' },
+    ])
+    expect(windowChips([])).toEqual([])
   })
 })

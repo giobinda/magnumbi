@@ -14,6 +14,13 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **More calculations on results**: `running_avg`, `next`, `difference`, `percent_change`, and
+  `dense_rank` under Advanced; the quick calculations use the shorter forms.
+- **Filter on, and take the Top N of, calculations on results** (Top N: charts with one
+  dimension).
+- **Along and within** (Advanced): `running_sum(revenue, along(sold_at), within(region))`,
+  `rank(revenue, within())`; the editor offers the chart's dimensions.
+
 - **Totals with a condition**: `sum_if(amount, region = 'EMEA')`, `avg_if`, `count_if`, on
   totals; the same as filtering, period comparisons included.
 

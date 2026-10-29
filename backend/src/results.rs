@@ -12,7 +12,7 @@ use serde_json::Value;
 use crate::compiler::Column;
 use crate::formula::{self, Type, Window};
 use crate::materialize::ColType;
-use crate::schema::{ADHOC_MEASURE, Formula, Query};
+use crate::schema::{ADHOC_MEASURE, Filter, Formula, Query, TopN};
 
 /// A query with calculations on its results, taken apart.
 #[derive(Debug)]
@@ -22,7 +22,24 @@ pub struct Split {
     pub calcs: Vec<Formula>,
     /// measures the calculations use that the chart doesn't show
     pub hidden: Vec<String>,
+    /// filters on calculations: applied to the result's rows once they're calculated
+    pub filters: Vec<Filter>,
+    /// top N by a calculation (charts with one dimension): its best rows
+    pub top: Option<TopN>,
 }
+
+/// How a filter on a calculation (a number) may compare, and how many values it needs.
+const NUMBER_OPS: [(&str, usize); 9] = [
+    ("equals", 1),
+    ("not_equals", 1),
+    ("gt", 1),
+    ("gte", 1),
+    ("lt", 1),
+    ("lte", 1),
+    ("between", 2),
+    ("is_null", 0),
+    ("not_null", 0),
+];
 
 /// The query's calculations on results apart from the rest (None: it has none).
 pub fn split(q: &Query) -> Result<Option<Split>, String> {
@@ -39,14 +56,34 @@ pub fn split(q: &Query) -> Result<Option<Split>, String> {
         return Ok(None);
     }
     let is_calc = |name: &str| calcs.iter().any(|c: &Formula| c.name == name);
-    if let Some(f) = q.filters.iter().find(|f| is_calc(&f.field)) {
-        return Err(format!("{}: a calculation on results can't be filtered on (yet)", f.field));
+    let (filters, kept): (Vec<Filter>, Vec<Filter>) = q.filters.iter().cloned().partition(|f| is_calc(&f.field));
+    for f in &filters {
+        let Some((_, need)) = NUMBER_OPS.iter().find(|(op, _)| *op == f.op) else {
+            return Err(format!(
+                "{}: a calculation on results is a number: filter it with =, ≠, <, ≤, >, ≥, between or empty",
+                f.field
+            ));
+        };
+        if f.values.len() < *need {
+            return Err(format!("filter {} {} needs {need} value(s)", f.field, f.op));
+        }
     }
-    if let Some(t) = q.top.as_ref().filter(|t| is_calc(&t.by)) {
-        return Err(format!("{}: top N can't rank by a calculation on results; rank by a measure", t.by));
+    let top = q.top.clone().filter(|t| is_calc(&t.by));
+    if let Some(t) = &top
+        && q.dimensions.len() != 1
+    {
+        return Err(format!(
+            "{}: top N by a calculation on results needs a chart with one dimension (it differs from row to row \
+             within a value); rank by a measure",
+            t.by
+        ));
     }
     let mut inner = q.clone();
     inner.formulas = others;
+    inner.filters = kept;
+    if top.is_some() {
+        inner.top = None;
+    }
     inner.measures.retain(|m| !is_calc(m));
     inner.sort.retain(|s| !is_calc(s.trim_start_matches(['-', '+'])));
     let mut hidden = vec![];
@@ -64,7 +101,7 @@ pub fn split(q: &Query) -> Result<Option<Split>, String> {
             }
         }
     }
-    Ok(Some(Split { inner, calcs, hidden }))
+    Ok(Some(Split { inner, calcs, hidden, filters, top }))
 }
 
 /// The result's column a formula's field is: "sum(qty)" is the column `sum__qty`.
@@ -100,6 +137,11 @@ pub fn sql(table: &str, columns: &[Column], calcs: &[Formula]) -> Result<String,
     let window = Window {
         along: along.map(col).unwrap_or_default(),
         across: dims.iter().filter(|&&i| Some(i) != along).map(|&i| col(i)).collect(),
+        // by field name, whatever the grain: along(sold_at) for sold_at:month
+        dims: dims
+            .iter()
+            .map(|&i| (columns[i].field.split(':').next().unwrap_or_default().to_string(), col(i)))
+            .collect(),
     };
     let mut selects = vec!["\"_row\"".to_string()];
     for c in calcs {
@@ -153,6 +195,23 @@ pub fn finish(
             r
         })
         .collect();
+    let at = |name: &str| out_columns.iter().position(|c| c.name == name).expect("a calculation's column");
+    for f in &split.filters {
+        let i = at(&f.field);
+        out_rows.retain(|r| keeps(number(&r[i]), f));
+    }
+    if let Some(t) = &split.top {
+        let i = at(&t.by);
+        let mut best: Vec<usize> = (0..out_rows.len()).collect();
+        best.sort_by(|&a, &b| by_value(number(&out_rows[a][i]), number(&out_rows[b][i]), !t.bottom));
+        best.truncate(usize::try_from(t.n).unwrap_or(0));
+        // best first, unless the query sorts them its own way (then its order, kept)
+        if !sort.is_empty() {
+            best.sort_unstable();
+        }
+        let mut rows: Vec<Option<Vec<Value>>> = out_rows.into_iter().map(Some).collect();
+        out_rows = best.into_iter().filter_map(|k| rows[k].take()).collect();
+    }
     // sorted by a calculation: the engine couldn't (stable, so ties keep the query's order)
     let keys: Vec<(usize, bool)> = sort
         .iter()
@@ -165,22 +224,7 @@ pub fn finish(
     if !keys.is_empty() {
         out_rows.sort_by(|a, b| {
             keys.iter()
-                .map(|&(i, desc)| {
-                    let (x, y) = (a[i].as_f64(), b[i].as_f64());
-                    // empty values last, either way
-                    match (x, y) {
-                        (Some(x), Some(y)) => {
-                            if desc {
-                                y.total_cmp(&x)
-                            } else {
-                                x.total_cmp(&y)
-                            }
-                        }
-                        (None, None) => std::cmp::Ordering::Equal,
-                        (None, _) => std::cmp::Ordering::Greater,
-                        (_, None) => std::cmp::Ordering::Less,
-                    }
-                })
+                .map(|&(i, desc)| by_value(number(&a[i]), number(&b[i]), desc))
                 .find(|o| o.is_ne())
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
@@ -188,10 +232,49 @@ pub fn finish(
     (out_columns, out_rows)
 }
 
+/// A result's number (a filter's value may come as text).
+fn number(v: &Value) -> Option<f64> {
+    v.as_f64().or_else(|| v.as_str().and_then(|s| s.trim().parse().ok()))
+}
+
+/// Ordered by value, largest first if `desc`; empty values last, either way.
+fn by_value(x: Option<f64>, y: Option<f64>, desc: bool) -> std::cmp::Ordering {
+    match (x, y) {
+        (Some(x), Some(y)) if desc => y.total_cmp(&x),
+        (Some(x), Some(y)) => x.total_cmp(&y),
+        (None, None) => std::cmp::Ordering::Equal,
+        (None, _) => std::cmp::Ordering::Greater,
+        (_, None) => std::cmp::Ordering::Less,
+    }
+}
+
+/// Whether a calculated value passes a filter (checked by `split`: a number's operator).
+fn keeps(v: Option<f64>, f: &Filter) -> bool {
+    let given: Vec<f64> = f.values.iter().filter_map(number).collect();
+    // calculated values are doubles: 0.1 + 0.2 equals 0.3
+    let same = |x: f64, y: f64| (x - y).abs() <= 1e-9 * x.abs().max(y.abs()).max(1.0);
+    let first = given.first().copied();
+    match (f.op.as_str(), v) {
+        ("is_null", v) => v.is_none(),
+        ("not_null", v) => v.is_some(),
+        (_, None) => false,
+        ("equals", Some(x)) => given.iter().any(|&y| same(x, y)),
+        ("not_equals", Some(x)) => !given.iter().any(|&y| same(x, y)),
+        ("gt", Some(x)) => first.is_some_and(|y| x > y),
+        ("gte", Some(x)) => first.is_some_and(|y| x >= y || same(x, y)),
+        ("lt", Some(x)) => first.is_some_and(|y| x < y),
+        ("lte", Some(x)) => first.is_some_and(|y| x <= y || same(x, y)),
+        ("between", Some(x)) => given.len() >= 2 && x >= given[0] && x <= given[1],
+        _ => false,
+    }
+}
+
 /// Shares are shown as percentages unless the formula says otherwise.
 fn default_format(expr: &str) -> &'static str {
     let e = expr.trim().to_lowercase();
-    let Some(inside) = e.strip_prefix("percent_of_total(") else { return "number" };
+    let Some(inside) = e.strip_prefix("percent_of_total(").or_else(|| e.strip_prefix("percent_change(")) else {
+        return "number";
+    };
     // the whole formula is that one call: its bracket closes at the very end
     let mut depth = 1;
     for (i, c) in inside.char_indices() {
@@ -248,18 +331,29 @@ mod tests {
         assert_eq!(s.hidden, ["sum__qty"]);
         // none: nothing to do
         assert!(split(&q(json!({"model": "sales", "measures": ["revenue"]}))).unwrap().is_none());
-        // what can't be done (yet)
-        let e = |v: Value| split(&q(v)).unwrap_err();
+        // filtered on, and top N by, a calculation: after it runs, on the result's rows
         let running = json!([{"name": "running", "expr": "running_sum(revenue)"}]);
+        let s = split(&q(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue", "running"],
+            "formulas": running, "filters": [{"field": "running", "op": "gt", "values": [1]},
+                                             {"field": "region", "op": "equals", "values": ["EMEA"]}],
+            "top": {"dimension": "region", "n": 2, "by": "running"}})))
+        .unwrap()
+        .unwrap();
+        assert_eq!(s.filters.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(), ["running"]);
+        assert_eq!(s.inner.filters.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(), ["region"]);
+        assert_eq!(s.top.as_ref().map(|t| t.n), Some(2));
+        assert!(s.inner.top.is_none());
+        // what can't be done
+        let e = |v: Value| split(&q(v)).unwrap_err();
         assert!(
             e(json!({"model": "sales", "measures": ["revenue"], "formulas": running,
-            "filters": [{"field": "running", "op": "gt", "values": [1]}]}))
-            .contains("filtered")
+            "filters": [{"field": "running", "op": "contains", "values": ["1"]}]}))
+            .contains("number")
         );
         assert!(
-            e(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"], "formulas": running,
+            e(json!({"model": "sales", "dimensions": ["region", "store"], "measures": ["revenue"], "formulas": running,
             "top": {"dimension": "region", "n": 2, "by": "running"}}))
-            .contains("top N")
+            .contains("one dimension")
         );
         let chained = json!([{"name": "a", "expr": "running_sum(revenue)"}, {"name": "b", "expr": "rank(a)"}]);
         assert!(e(json!({"model": "sales", "measures": ["revenue"], "formulas": chained})).contains("another"));
@@ -296,6 +390,8 @@ mod tests {
             inner: q(json!({"model": "sales", "measures": ["sum(qty)"]})),
             calcs: serde_json::from_value(json!([{"name": "share", "expr": "percent_of_total(sum(qty))"}])).unwrap(),
             hidden: vec!["sum__qty".into()],
+            filters: vec![],
+            top: None,
         };
         let (cols, out) = finish(columns, rows, values, &s, &["-share".into()]);
         assert_eq!(
@@ -306,5 +402,41 @@ mod tests {
             out,
             [vec![json!("AMER"), json!(0.6)], vec![json!("EMEA"), json!(0.3)], vec![json!("APAC"), json!(0.1)]]
         );
+    }
+
+    #[test]
+    fn filters_and_top_n_on_calculations_keep_the_rows_they_say() {
+        let columns = vec![column("region", "dimension", "string"), column("revenue", "measure", "number")];
+        let rows: Vec<Vec<Value>> =
+            ["A", "B", "C", "D"].iter().zip([5, 9, 2, 7]).map(|(r, v)| vec![json!(r), json!(v)]).collect();
+        let values: Vec<Vec<Value>> = [0.2, 0.39, 0.08, 0.3].iter().map(|v| vec![json!(v)]).collect();
+        let base = |filters: Value, top: Value| Split {
+            inner: q(json!({"model": "sales", "dimensions": ["region"], "measures": ["revenue"]})),
+            calcs: serde_json::from_value(json!([{"name": "share", "expr": "percent_of_total(revenue)"}])).unwrap(),
+            hidden: vec![],
+            filters: serde_json::from_value(filters).unwrap(),
+            top: serde_json::from_value(top).unwrap(),
+        };
+        let regions = |s: &Split, sort: &[String]| {
+            let (_, out) = finish(columns.clone(), rows.clone(), values.clone(), s, sort);
+            out.iter().map(|r| r[0].as_str().unwrap().to_string()).collect::<Vec<_>>()
+        };
+        let f = |op: &str, v: Value| base(json!([{"field": "share", "op": op, "values": v}]), json!(null));
+        assert_eq!(regions(&f("gt", json!([0.25])), &[]), ["B", "D"]);
+        assert_eq!(regions(&f("lte", json!([0.2])), &[]), ["A", "C"]);
+        assert_eq!(regions(&f("between", json!([0.1, 0.35])), &[]), ["A", "D"]);
+        assert_eq!(regions(&f("equals", json!([0.08, 0.3])), &[]), ["C", "D"]);
+        assert_eq!(regions(&f("not_equals", json!([0.08])), &[]), ["A", "B", "D"]);
+        assert_eq!(regions(&f("not_null", json!([])), &[]), ["A", "B", "C", "D"]);
+        // numbers given as text, as filter bars send them
+        assert_eq!(regions(&f("gt", json!(["0.25"])), &[]), ["B", "D"]);
+        // top N: the best rows, best first; bottom: the worst first
+        let top = |n: i64, bottom: bool| {
+            base(json!([]), json!({"dimension": "region", "n": n, "by": "share", "bottom": bottom}))
+        };
+        assert_eq!(regions(&top(2, false), &[]), ["B", "D"]);
+        assert_eq!(regions(&top(2, true), &[]), ["C", "A"]);
+        // the query's own sort still orders the rows kept
+        assert_eq!(regions(&top(3, false), &["region".into()]), ["A", "B", "D"]);
     }
 }

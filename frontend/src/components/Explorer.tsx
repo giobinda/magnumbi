@@ -413,6 +413,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
       </section>
       {editing && model && (
         <FormulaEditor model={model} initial={typeof editing === 'string' ? null : editing} startPerRow={editing === 'new-row'} inChart
+          dimensions={dims.map(d => ({ ref: d, label: label(d) }))}
           others={formulas.filter(f => typeof editing === 'string' || f.name !== editing.name)}
           taken={[...model.dimensions.map(d => d.name), ...model.measures.map(m => m.name), ...formulas.map(f => f.name)]}
           canShare={can('manage_members')}
