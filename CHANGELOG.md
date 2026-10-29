@@ -5,7 +5,17 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ## Unreleased
 
+### Fixed
+
+- **Confirmations and names in the desktop app**: *New dashboard*, deleting a dashboard and every
+  other "are you sure?" asked through the browser's dialogs, which the macOS window doesn't show
+  (a silent no). They're the app's own now, everywhere.
+- **"Click to drill down"** only where a field shown has a level below it (not on the last level,
+  a field off the drill path, or a day).
+
 ### Changed
+
+- **Explore's period**: "Compare periods on", with a line on what it does.
 
 - **A simpler top bar**: Chat, Discover, the catalog's search (as wide as it can be), Data,
   Settings. Settings has everyone's theme and security and API tokens, then the organisation's
@@ -13,6 +23,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
   signing out. The tour shows the search and the settings to everyone.
 
 ### Added
+
+- **Dashboard filters in the app**: *+ Add a filter* in edit mode (is, is not, contains, empty or
+  not), × to remove; viewers flip *is* to *is not*. The period says which date it's on.
+- **The period and filters across models**: on a dashboard mixing models, each names its field
+  on the others (`fields`), suggested when added; tiles on a blend follow them too.
 
 - **`total(x)`** on a chart's results: the total next to each row, at the level asked
   (`within(region)`: each region's; `within()`: the whole chart's).

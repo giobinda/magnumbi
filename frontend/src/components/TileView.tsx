@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { shortLabels } from '../fieldGroups'
 import { tileStats } from '../tileStats'
 import { useMemo, useRef, useState } from 'react'
@@ -5,7 +6,7 @@ import * as echarts from 'echarts'
 import type { ReactNode } from 'react'
 import type { ChartTile, Column, Filter, ModelInfo, Period, TileRequest } from '../api'
 import { drillPath, fieldLabel } from '../api'
-import { applyDrill, nextDrill } from '../drill'
+import { applyDrill, drillable, nextDrill } from '../drill'
 import type { DrillStep } from '../drill'
 import { windowLabel } from '../period'
 import { useQuery, useTileQuery } from '../hooks'
@@ -82,11 +83,11 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
         const blob = blobOf(chart.getDataURL({ type: 'png', pixelRatio: 2, backgroundColor: background }))
         saveFile(blob, `${tile.id}.png`)
       }
-    } catch (e) { alert(`Download failed: ${(e as Error).message}`) }
+    } catch (e) { void ask.alert(`Download failed: ${(e as Error).message}`) }
   }
 
-  const canDrill = !editing && can('drill') && (path.length > 0 ||
-    (tile.query.dimensions ?? []).some(d => d.includes(':') && d.split(':')[0] !== effectivePeriod?.field))
+  // the dimensions on screen (after drilling) have a level below them
+  const canDrill = !editing && can('drill') && drillable(query.dimensions ?? [], path, effectivePeriod?.field)
   const onDrill = canDrill
     ? (c: DrillClick) => {
         const step = nextDrill(c.column, c.value, path, effectivePeriod?.field)

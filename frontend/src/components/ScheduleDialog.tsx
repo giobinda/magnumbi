@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { AlertRule, ReportFormat, Role, Schedule, ScheduleWhen, ShareLink, Tile, TileRequest } from '../api'
@@ -78,7 +79,7 @@ export default function ScheduleDialog({ id, me, myRole, isAdmin, inOrg, request
                   <div className="nowrap">
                     <button className="link" onClick={() => act(() => api.runSchedule(s.id))}>Send now</button>{' · '}
                     <button className="link" onClick={() => act(() => api.setScheduleActive(s.id, !s.active))}>{s.active ? 'Pause' : 'Resume'}</button>{' · '}
-                    <button className="link danger" onClick={() => confirm(`Delete "${s.name}"?`) && act(() => api.deleteSchedule(s.id))}>Delete</button>
+                    <button className="link danger" onClick={async () => (await ask.confirm(`Delete "${s.name}"?`, { danger: true, ok: 'Delete' })) && act(() => api.deleteSchedule(s.id))}>Delete</button>
                   </div>
                 </td>
                 <td>{describeWhen(s.when)}{s.active && <div className="muted">next {new Date(s.next_run_at).toLocaleString()}</div>}</td>

@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { ShareLink } from '../api'
@@ -27,7 +28,7 @@ export default function ShareDialog({ id, org, tiles, onClose }: { id: string; o
     } catch (e) { setError((e as Error).message) } finally { setBusy(false) }
   }
   const revoke = async (l: ShareLink) => {
-    if (!confirm('Remove this public link? It stops working at once, for everyone who has it.')) return
+    if (!(await ask.confirm('Remove this public link? It stops working at once, for everyone who has it.', { danger: true, ok: 'Remove' }))) return
     try { await api.revokeShareLink(l.id); await load() } catch (e) { setError((e as Error).message) }
   }
   const copy = (l: ShareLink) => navigator.clipboard.writeText(l.url).then(() => { setCopied(l.id); setTimeout(() => setCopied(null), 1500) })

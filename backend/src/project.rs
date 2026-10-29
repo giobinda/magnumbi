@@ -353,6 +353,18 @@ impl ProjectState {
                 warnings.push(format!("filter {}: not a field of model {:?}", f.field, f.model));
             }
         }
+        // the period and filters on other models: each a field of its model
+        let linked = d.period.iter().flat_map(|p| p.fields.iter().map(|(m, f)| ("period", m, f, true)));
+        let linked = linked
+            .chain(d.filters.iter().flat_map(|x| x.fields.iter().map(move |(m, f)| (x.field.as_str(), m, f, false))));
+        for (what, model, field, date) in linked {
+            let fits =
+                self.models.get(model).and_then(|m| m.dimension(field)).is_some_and(|d| !date || is_temporal(&d.kind));
+            if !fits {
+                let kind = if date { "a date/time dimension" } else { "a field" };
+                warnings.push(format!("{what} on {model}: {field:?} is not {kind} of model {model:?}"));
+            }
+        }
         warnings
     }
 }
@@ -384,7 +396,7 @@ pub fn with_dashboard_period(
     if let Some(p) = &d.period
         && q.period.is_none()
         && options.get("period") != Some(&Value::Bool(false))
-        && let Some(field) = crate::tile_query::tile_field(&q.model, model, &p.model, &p.field)
+        && let Some(field) = crate::tile_query::reach(&q.model, model, &p.model, &p.field, &p.fields)
     {
         q.period = Some(crate::schema::Period { field, current: p.current.clone(), compare: p.compare.clone() });
     }
@@ -776,6 +788,27 @@ mod tests {
         };
         assert_eq!(j.query.measures, ["per_m"]);
         assert!(j.sides[0].source.dimension("big").is_some(), "the field of each row is on its model");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn a_dashboards_links_to_other_models_are_checked() {
+        let a = "name: a\nconnection: db\ntable: t\ndimensions: [{name: k}, {name: at, type: time}]\nmeasures: [{name: n, type: count}]\n";
+        let b = "name: b\nconnection: db\ntable: u\ndimensions: [{name: k}, {name: on, type: date}]\nmeasures: [{name: m, type: count}]\n";
+        let dir = tmp_project(&[("models/a.yaml", a), ("models/b.yaml", b)]);
+        let s = Project::new(&dir).current();
+        let all: BTreeSet<String> = s.models.keys().cloned().collect();
+        let db = |_: &str| Some(Dialect::Postgres);
+        let d = |links: &str| {
+            parse_dashboard(&format!(
+                "title: t\nperiod: {{model: a, field: at, fields: {{b: {links}}}, current: {{last_n_days: 7}}}}\n\
+                 filters: [{{model: a, field: k, fields: {{b: k}}}}]\ntiles:\n  - {{id: x, type: table, query: {{model: b, measures: [m]}}}}\n"
+            ))
+            .unwrap()
+        };
+        assert_eq!(s.validate_dashboard(&d("on"), &all, &db), Vec::<String>::new());
+        let w = s.validate_dashboard(&d("k"), &all, &db);
+        assert!(w.iter().any(|w| w.contains("period on b") && w.contains("date/time")), "{w:?}");
         std::fs::remove_dir_all(dir).ok();
     }
 }

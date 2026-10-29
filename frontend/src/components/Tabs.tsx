@@ -1,13 +1,14 @@
+import { ask } from '../dialogs'
 /** A dashboard's tabs. While editing: add one, or remove one (its tiles move to the first tab). */
 export default function Tabs({ tabs, current, onPick, onAdd, onRemove }: {
   tabs: string[]; current: string | null; onPick: (tab: string) => void
   onAdd?: (tab: string) => void; onRemove?: (tab: string) => void
 }) {
   if (!tabs.length && !onAdd) return null
-  const add = () => {
-    const name = prompt(tabs.length ? 'Name of the new tab' : 'Tabs split a dashboard into pages. The tiles you have go on the first tab.\n\nName of the first tab', tabs.length ? '' : 'Overview')?.trim()
+  const add = async () => {
+    const name = await ask.prompt(tabs.length ? 'Name of the new tab' : 'Tabs split a dashboard into pages. The tiles you have go on the first tab.\n\nName of the first tab', tabs.length ? '' : 'Overview')
     if (!name) return
-    if (tabs.includes(name)) { alert(`There is already a tab called "${name}".`); return }
+    if (tabs.includes(name)) { void ask.alert(`There is already a tab called "${name}".`); return }
     onAdd!(name)
   }
   return (

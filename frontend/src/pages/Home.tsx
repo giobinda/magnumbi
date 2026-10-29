@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
@@ -16,7 +17,7 @@ export default function Home() {
   useEffect(() => { api.dashboards().then(r => setList(r.dashboards), e => setError(e.message)) }, [])
 
   const create = async () => {
-    const title = prompt('Dashboard title')
+    const title = await ask.prompt('Dashboard title')
     if (!title) return
     const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_|_$/g, '') || 'dashboard'
     let id = base, n = 2
@@ -24,7 +25,7 @@ export default function Home() {
     try {
       await api.saveDashboard(id, { title, filters: [], tiles: [] })
       navigate(`/dashboards/${id}?edit`)
-    } catch (e) { alert((e as Error).message) }
+    } catch (e) { void ask.alert((e as Error).message) }
   }
 
   return (

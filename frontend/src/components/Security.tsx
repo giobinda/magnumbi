@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
@@ -95,7 +96,7 @@ export function SecurityCard({ onClose }: { onClose: () => void }) {
     } catch (x) { fail(x) }
   }
   const removeKey = async (k: PasskeyInfo) => {
-    if (!confirm(`Remove the passkey "${k.name}"? It won't sign you in any more.`)) return
+    if (!(await ask.confirm(`Remove the passkey "${k.name}"? It won't sign you in any more.`, { danger: true, ok: 'Remove' }))) return
     try { await api.deletePasskey(k.id); loadKeys() } catch (x) { fail(x) }
   }
   const switchOff = async (e: FormEvent) => {
@@ -194,7 +195,7 @@ function ApiTokens() {
     } catch (e) { setErr((e as Error).message) }
   }
   const revoke = async (t: ApiToken) => {
-    if (!confirm(`Revoke "${t.name}"? Anything using it stops working.`)) return
+    if (!(await ask.confirm(`Revoke "${t.name}"? Anything using it stops working.`, { danger: true, ok: 'Revoke' }))) return
     try { await api.revokeToken(t.id); load() } catch (e) { setErr((e as Error).message) }
   }
   return (

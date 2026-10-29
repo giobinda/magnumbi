@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
@@ -77,7 +78,7 @@ function AllReports() {
           <td>{s.last_run_at ? new Date(s.last_run_at).toLocaleString() : '–'}<div>{s.last_status}</div></td>
           <td className="nowrap">
             <button className="link" onClick={() => act(() => api.setScheduleActive(s.id, !s.active))}>{s.active ? 'Pause' : 'Resume'}</button>{' '}
-            <button className="link danger" onClick={() => confirm(`Delete "${s.name}"?`) && act(() => api.deleteSchedule(s.id))}>Delete</button>
+            <button className="link danger" onClick={async () => (await ask.confirm(`Delete "${s.name}"?`, { danger: true, ok: 'Delete' })) && act(() => api.deleteSchedule(s.id))}>Delete</button>
           </td>
         </tr>
       ))}</tbody>
@@ -94,7 +95,7 @@ function MailSummary({ mail, onEdit, onRemoved }: { mail: MailServerInfo; onEdit
     setBusy(false)
   }
   const remove = async () => {
-    if (!confirm('Remove the mail server? Reports can no longer be emailed from here.')) return
+    if (!(await ask.confirm('Remove the mail server? Reports can no longer be emailed from here.', { danger: true, ok: 'Remove' }))) return
     try { await api.deleteMail(); onRemoved() } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }) }
   }
   return (
@@ -158,7 +159,7 @@ function WebhookRow({ name, kind, host, onChanged }: { name: string; kind: Webho
     try { await api.testWebhook(name); setMsg({ kind: 'ok', text: 'Sent.' }) } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }) }
   }
   const remove = async () => {
-    if (!confirm(`Remove the webhook "${name}"?`)) return
+    if (!(await ask.confirm(`Remove the webhook "${name}"?`, { danger: true, ok: 'Remove' }))) return
     try { await api.deleteWebhook(name); onChanged() } catch (e) { setMsg({ kind: 'error', text: (e as Error).message }) }
   }
   return (

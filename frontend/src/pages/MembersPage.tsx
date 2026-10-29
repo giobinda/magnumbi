@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
 import type { Members, MembersResponse, Permission, Role, RowRule } from '../api'
@@ -62,7 +63,7 @@ export default function MembersPage() {
   const perms = (Object.keys(PERM_LABELS) as Permission[]).filter(p => roles.some(r => r.permissions.includes(p)))
   const errors = Object.values(data.errors)
   const issue = async (who: string) => {
-    if (!confirm(`Give ${who} a one-time password? Their current password stops working and they choose a new one at their next sign-in.`)) return
+    if (!(await ask.confirm(`Give ${who} a one-time password? Their current password stops working and they choose a new one at their next sign-in.`, { ok: 'Give a one-time password' }))) return
     try {
       const r = await api.resetMemberPassword(who)
       setIssued(x => ({ ...x, [r.email]: r.password }))

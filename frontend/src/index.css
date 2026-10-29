@@ -149,6 +149,17 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 .period label select { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); }
 .period > input[type=date] { min-height: 32px; }
 .period > .muted { align-self: center; }
+.period > .period-hint { align-self: flex-end; padding-bottom: 8px; }
+/* the dashboard's own filters: is / is not, adding and removing them while editing */
+.filter-input { display: inline-flex; align-items: center; gap: 6px; }
+.filter .filter-input select.filter-op { flex: none; width: auto; min-width: 0; min-height: 32px; padding: 2px 6px; }
+.filter .filter-input .filter-fixed { min-height: 32px; display: inline-flex; align-items: center; text-transform: none; letter-spacing: 0; font-weight: 400; font-size: 13px; color: var(--text); }
+.filter .filter-input { text-transform: none; letter-spacing: 0; font-weight: 400; }
+.filter-remove { margin-left: 6px; font-size: 14px; color: var(--text-muted); }
+.add-filter { align-self: flex-end; min-height: 32px; }
+.add-filter-form { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; align-self: flex-end; }
+.period-field { display: flex; flex-direction: column; gap: 3px; font-size: 11px; color: var(--text-muted); font-weight: 600; text-transform: uppercase; letter-spacing: .03em; }
+.period-field select { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--text); }
 .builder > .period { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 8px 12px; }
 .change { font-weight: 600; font-variant-numeric: tabular-nums; white-space: nowrap; }
 .change.good { color: var(--good); } .change.bad { color: var(--danger); } .change.flat { color: var(--text-muted); }
@@ -446,6 +457,12 @@ input.wide { width: 100%; }
 .danger-panel .check { display: flex; gap: 8px; align-items: flex-start; font-size: 13.5px; }
 .danger-panel .check input { margin-top: 3px; }
 .danger-panel label.small { display: flex; flex-direction: column; gap: 4px; }
+/* the app's own questions (dialogs.ts): above any other dialog */
+.dialog-bg { z-index: 200; }
+.dialog { width: min(440px, 100%); display: flex; flex-direction: column; gap: 14px; }
+.dialog-message { margin: 0; white-space: pre-wrap; line-height: 1.5; }
+.dialog-buttons { justify-content: flex-end; gap: 8px; }
+button.danger.primary { background: var(--danger); border-color: var(--danger); color: #fff; }
 button.danger-solid { background: var(--danger); color: #fff; border-color: var(--danger); font-weight: 600; }
 button.danger-solid:disabled { opacity: .45; }
 .page.public { max-width: 1400px; margin: 0 auto; }

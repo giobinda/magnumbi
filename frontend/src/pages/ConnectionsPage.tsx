@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
@@ -92,7 +93,7 @@ export default function ConnectionsPage() {
 
   const needed = missingConnections(models, (list ?? []).map(c => c.name))
   const remove = async (c: ConnectionInfo) => {
-    if (!confirm(`Delete the connection "${c.name}"? Models that use it stop working here.`)) return
+    if (!(await ask.confirm(`Delete the connection "${c.name}"? Models that use it stop working here.`, { danger: true, ok: 'Delete' }))) return
     try { await api.deleteConnection(c.name); load() } catch (e) { setError((e as Error).message) }
   }
   const refresh = async (c: ConnectionInfo) => {

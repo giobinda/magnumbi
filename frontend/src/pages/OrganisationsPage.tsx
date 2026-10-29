@@ -1,3 +1,4 @@
+import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api, setOrg, SIGN_IN_LABELS, SIGN_IN_METHODS } from '../api'
 import type { Organisation, Platform, PlatformResponse, RowRule, SignInMethod, SignInPolicy } from '../api'
@@ -98,7 +99,7 @@ export default function OrganisationsPage() {
                 {!r.isNew && <span className="muted small">{data.members[r.id] ?? 0} members</span>}
                 {!r.isNew && <button className="link" data-tour="org-open" onClick={() => enter(r.id)}>Open</button>}
                 <button className="icon" title="Remove organisation (its members lose access)"
-                  onClick={() => confirm(`Remove ${r.name || r.id}? Its members lose access.`) && setRows(rows.filter((_, j) => j !== i))}>✕</button>
+                  onClick={async () => (await ask.confirm(`Remove ${r.name || r.id}? Its members lose access.`, { danger: true, ok: 'Remove' })) && setRows(rows.filter((_, j) => j !== i))}>✕</button>
               </div>
               {!r.isNew && (
                 <OrgDatabase org={r.id} current={data.databases[r.id]} keySet={data.secret_key}

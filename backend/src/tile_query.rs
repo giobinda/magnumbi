@@ -41,6 +41,9 @@ pub struct TileRequest {
     /// "model.field" -> values
     #[serde(default)]
     pub filters: BTreeMap<String, Vec<Value>>,
+    /// "model.field" -> "equals" | "not_equals": the viewer's is / is not, on a filter that is one
+    #[serde(default)]
+    pub ops: BTreeMap<String, String>,
     /// window for the dashboard's period (its field is fixed)
     #[serde(default)]
     pub period: Option<TilePeriod>,
@@ -115,6 +118,19 @@ pub fn tile_field(q_model: &str, model: &Model, owner: &str, field: &str) -> Opt
     model.dimension(&name).is_some().then_some(name)
 }
 
+/// A dashboard field (the period's, a filter's) as the tile's model names it: on its own model,
+/// or on another through the field it names there (`fields`).
+pub fn reach(
+    q_model: &str,
+    model: &Model,
+    owner: &str,
+    field: &str,
+    fields: &BTreeMap<String, String>,
+) -> Option<String> {
+    tile_field(q_model, model, owner, field)
+        .or_else(|| fields.iter().find_map(|(m, f)| tile_field(q_model, model, m, f)))
+}
+
 pub fn build(
     dash: &Dashboard,
     tile: &Tile,
@@ -130,7 +146,7 @@ pub fn build(
     if q.period.is_none()
         && !opted_out
         && let Some(p) = dash.period.as_ref()
-        && let Some(field) = tile_field(&q.model, model, &p.model, &p.field)
+        && let Some(field) = reach(&q.model, model, &p.model, &p.field, &p.fields)
     {
         let (current, compare) = match &req.period {
             Some(w) => (w.current.clone(), w.compare.clone()),
@@ -142,9 +158,17 @@ pub fn build(
 
     // dashboard filters only: unknown keys are refused rather than ignored
     let declared: BTreeMap<String, _> = dash.filters.iter().map(|f| (format!("{}.{}", f.model, f.field), f)).collect();
-    let unknown: Vec<&String> = req.filters.keys().filter(|k| !declared.contains_key(*k)).collect();
+    let unknown: Vec<&String> =
+        req.filters.keys().chain(req.ops.keys()).filter(|k| !declared.contains_key(*k)).collect();
     if !unknown.is_empty() {
         return invalid(format!("not a filter of this dashboard: {unknown:?}"));
+    }
+    // is / is not: a viewer may flip one, nothing else
+    const FLIPPABLE: [&str; 2] = ["equals", "not_equals"];
+    for (key, op) in &req.ops {
+        if !FLIPPABLE.contains(&op.as_str()) || !FLIPPABLE.contains(&declared[key].op.as_str()) {
+            return invalid(format!("{key}: a viewer may only choose is or is not, on a filter that is one"));
+        }
     }
     // those the tile ignores (its author's choice: dashboard filters only, never restrictions)
     let ignored = |key: &str| {
@@ -154,13 +178,14 @@ pub fn build(
         if ignored(key) {
             continue;
         }
-        let Some(field) = tile_field(&q.model, model, &f.model, &f.field) else { continue };
+        let Some(field) = reach(&q.model, model, &f.model, &f.field, &f.fields) else { continue };
         let values = req.filters.get(key).unwrap_or(&f.default);
         if values.len() > MAX_VALUES {
             return invalid(format!("too many values for {key}"));
         }
+        let op = req.ops.get(key).unwrap_or(&f.op);
         if !values.is_empty() || f.op == "is_null" || f.op == "not_null" {
-            q.filters.push(Filter { field, op: f.op.clone(), values: values.clone() });
+            q.filters.push(Filter { field, op: op.clone(), values: values.clone() });
         }
     }
 
@@ -314,5 +339,63 @@ tiles:
         // the others follow every filter
         let q = build(&d, &d.tiles[1], &m, &req, true).unwrap();
         assert_eq!(q.filters.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(), ["category", "region"]);
+    }
+
+    #[test]
+    fn viewers_may_exclude_what_a_filter_picks() {
+        let (mut d, m) = fixtures();
+        d.filters.push(serde_yaml::from_str("{model: sales, field: region, op: not_null}").unwrap());
+        let req = |v: Value| serde_json::from_value::<TileRequest>(v).unwrap();
+        // "is not" instead of "is": the values picked are left out
+        let q = build(
+            &d,
+            &d.tiles[0],
+            &m,
+            &req(json!({"filters": {"sales.category": ["Bags"]},
+            "ops": {"sales.category": "not_equals"}})),
+            true,
+        )
+        .unwrap();
+        let f = q.filters.iter().find(|f| f.field == "category").unwrap();
+        assert_eq!((f.op.as_str(), &f.values), ("not_equals", &vec![json!("Bags")]));
+        // back to "is"
+        let q = build(&d, &d.tiles[0], &m, &req(json!({"ops": {"sales.category": "equals"}})), true).unwrap();
+        assert_eq!(q.filters.iter().find(|f| f.field == "category").unwrap().op, "equals");
+        // only is / is not, only on a filter of the dashboard that is one of those
+        let bad = |v: Value| matches!(build(&d, &d.tiles[0], &m, &req(v), true), Err(TileRequestError::Invalid(_)));
+        assert!(bad(json!({"ops": {"sales.category": "contains"}})));
+        assert!(bad(json!({"ops": {"sales.store": "not_equals"}})));
+        assert!(bad(json!({"ops": {"sales.region": "equals"}})), "an is-not-empty filter stays one");
+    }
+
+    #[test]
+    fn the_period_and_filters_reach_other_models_through_their_fields() {
+        let (mut d, m) = fixtures();
+        d.period = Some(
+            serde_yaml::from_str(
+                "{model: sales, field: sold_at, fields: {stock: counted_at}, current: {last_n_days: 7}}",
+            )
+            .unwrap(),
+        );
+        d.filters = vec![serde_yaml::from_str("{model: sales, field: category, fields: {stock: kind}}").unwrap()];
+        let stock: Model = serde_yaml::from_str(
+            "name: stock\nconnection: c\ntable: s\ndimensions: [{name: counted_at, type: time}, {name: kind}]\nmeasures: [{name: units, type: sum, sql: n}]",
+        )
+        .unwrap();
+        let tile: Tile =
+            serde_yaml::from_str("{id: s, type: bar, query: {model: stock, dimensions: [kind], measures: [units]}}")
+                .unwrap();
+        let req: TileRequest = serde_json::from_value(json!({"filters": {"sales.category": ["Shoes"]}})).unwrap();
+        // a tile on the other model: the period on its date, the filter on its field
+        let q = build(&d, &tile, &stock, &req, true).unwrap();
+        assert_eq!(q.period.as_ref().map(|p| p.field.as_str()), Some("counted_at"));
+        assert_eq!(
+            q.filters.iter().map(|f| (f.field.as_str(), f.values.clone())).collect::<Vec<_>>(),
+            [("kind", vec![json!("Shoes")])]
+        );
+        // the dashboard's own model as before
+        let q = build(&d, &d.tiles[0], &m, &req, true).unwrap();
+        assert_eq!(q.period.as_ref().map(|p| p.field.as_str()), Some("sold_at"));
+        assert_eq!(q.filters[0].field, "category");
     }
 }

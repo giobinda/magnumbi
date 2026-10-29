@@ -2,7 +2,7 @@
 // some (`options.ignore_filters`, `options.period: false`): a chart that keeps its own context. Such
 // a tile says so, as does one with filters of its own, so readers know it differs from the rest.
 import { fieldLabel } from './api'
-import type { ChartTile, Dashboard, Filter, ModelInfo } from './api'
+import type { ChartTile, Dashboard, ModelInfo } from './api'
 
 export type Input = { key: string; label: string }
 
@@ -35,12 +35,6 @@ export function withIgnored(options: Record<string, unknown>, ignored: string[])
     ...(ignored.includes('period') ? { period: false } : {}),
     ...(filters.length ? { ignore_filters: filters } : {}),
   }
-}
-
-/** The dashboard filters on `model` a tile gets, without those it ignores. */
-export function followed(filters: Filter[] | undefined, model: string, options?: Record<string, unknown>): Filter[] | undefined {
-  const ignored = ignoredOf(options)
-  return filters?.filter(f => !ignored.includes(`${model}.${f.field}`))
 }
 
 const and = (xs: string[]) => (xs.length > 1 ? `${xs.slice(0, -1).join(', ')} and ${xs[xs.length - 1]}` : xs[0])
