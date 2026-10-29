@@ -16,13 +16,18 @@ const MAX_LENGTH: usize = 1000;
 const MAX_DEPTH: usize = 32;
 /// The functions a formula may call, besides aggregations.
 #[rustfmt::skip]
-pub const FUNCTIONS: [&str; 34] = [
+pub const FUNCTIONS: [&str; 54] = [
     "if", "coalesce", "round", "abs", "least", "greatest", "in", "case", // numbers, logic
+    "floor", "ceil", "mod", "power", "sqrt", "ln", "log10", "exp",
     "lower", "upper", "concat", "contains", "starts_with", "ends_with", "length", "trim", "left", "right", "replace",
+    "substring", "position", "split_part", "to_number", "to_text",
     "year", "quarter", "month", "week", "day", "weekday", "hour", "today", "days_between", // dates
-    "date_trunc", "date_add", "date_diff",
-    "sum_if", "avg_if", "count_if", // on totals, over the rows
+    "date_trunc", "date_add", "date_diff", "hours_between", "minutes_between",
+    "sum_if", "avg_if", "count_if", "min_if", "max_if", "count_distinct_if", "stddev", "variance", // over the rows
 ];
+/// On totals, the functions that add up rows (each row's columns inside them).
+pub const OVER_ROWS: [&str; 8] =
+    ["sum_if", "avg_if", "count_if", "min_if", "max_if", "count_distinct_if", "stddev", "variance"];
 /// The parts of a date the functions of that name give, as numbers.
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
 /// Calculations on a chart's results (window functions, run on ScramDB: results.rs).
@@ -512,6 +517,12 @@ pub enum Aggregate {
     Sum,
     Avg,
     Count,
+    Min,
+    Max,
+    CountDistinct,
+    /// of a sample, as the engines' STDDEV_SAMP and VAR_SAMP
+    StdDev,
+    Variance,
 }
 
 type Resolve<'a> = &'a mut dyn FnMut(&str) -> Result<(String, Type), String>;
@@ -632,10 +643,44 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
 
     /// A date, time or date-time, and which.
     fn date(&mut self, n: &Node, at: usize) -> Result<(String, Kind), FormulaError> {
+        if let Node::Text(t) = n {
+            let kind = if t.trim().len() > 10 { Kind::DateTime } else { Kind::Date };
+            return Ok((self.written_date(t, kind, at)?, kind));
+        }
         match self.node(n)? {
             (sql, k) if k.is_date() => Ok((sql, k)),
             _ => fail(at, "a date is expected here, such as a date field"),
         }
+    }
+
+    /// A date written in a formula ('2026-01-31', '2026-01-31 14:30'), as a date of `kind`.
+    fn written_date(&self, t: &str, kind: Kind, at: usize) -> Result<String, FormulaError> {
+        use chrono::{NaiveDate, NaiveDateTime};
+        let t = t.trim();
+        let when = NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M:%S")
+            .or_else(|_| NaiveDateTime::parse_from_str(t, "%Y-%m-%d %H:%M"))
+            .or_else(|_| NaiveDateTime::parse_from_str(t, "%Y-%m-%dT%H:%M:%S"))
+            .ok()
+            .map(|d| (d, true))
+            .or_else(|| {
+                NaiveDate::parse_from_str(t, "%Y-%m-%d")
+                    .ok()
+                    .map(|d| (d.and_hms_opt(0, 0, 0).expect("midnight"), false))
+            });
+        let Some((when, timed)) = when else {
+            return fail(at, format!("'{t}' isn't a date: write it as 2026-01-31, or 2026-01-31 14:30"));
+        };
+        let day = when.format("%Y-%m-%d");
+        let instant = when.format("%Y-%m-%d %H:%M:%S");
+        Ok(match (kind, self.dl) {
+            (Kind::Date, _) if timed => return fail(at, format!("'{t}': a date has no time of day")),
+            (Kind::Date, _) => format!("CAST('{day}' AS DATE)"),
+            // instants are UTC
+            (Kind::Time, Dialect::Postgres) => format!("CAST('{instant}+00' AS TIMESTAMPTZ)"),
+            (Kind::Time, Dialect::BigQuery) => format!("CAST('{instant}+00' AS TIMESTAMP)"),
+            (_, Dialect::BigQuery) => format!("CAST('{instant}' AS DATETIME)"),
+            _ => format!("CAST('{instant}' AS TIMESTAMP)"),
+        })
     }
 
     /// A function's unit, one of `units`, in quotes ('month').
@@ -709,7 +754,15 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 }
             }
             Node::Binary { op, left, right } => {
-                let ((l, a), (r, b)) = (self.node(left)?, self.node(right)?);
+                let ((mut l, a), (mut r, b)) = (self.node(left)?, self.node(right)?);
+                // a date compared with a written one ('2026-01-01'): that date, of its kind
+                if let (true, Node::Text(t)) = (a.is_date(), right.as_ref()) {
+                    r = self.written_date(t, a, 0)?;
+                } else if let (Node::Text(t), true) = (left.as_ref(), b.is_date()) {
+                    l = self.written_date(t, b, 0)?;
+                }
+                let b = if a.is_date() && matches!(right.as_ref(), Node::Text(_)) { a } else { b };
+                let a = if b.is_date() && matches!(left.as_ref(), Node::Text(_)) { b } else { a };
                 match same(a, b) {
                     Some(k) if k != Kind::Condition => (format!("({l} {op} {r})"), Kind::Condition),
                     _ => {
@@ -862,12 +915,31 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
     fn each_row(&mut self, name: &str, args: &[Node], at: usize) -> Result<(Aggregate, String), FormulaError> {
         let count = |ok: bool, how: &str| if ok { Ok(()) } else { fail(at, format!("{name}(…) takes {how}")) };
         match name {
-            "sum_if" | "avg_if" => {
+            "sum_if" | "avg_if" | "min_if" | "max_if" => {
                 count(args.len() == 2, &format!("a number and a condition: {name}(amount, region = 'EMEA')"))?;
                 let x = self.number(&args[0], at)?;
                 let when = self.condition(&args[1], at, &format!("{name}(…)'s second part"))?;
-                let agg = if name == "sum_if" { Aggregate::Sum } else { Aggregate::Avg };
+                let agg = match name {
+                    "sum_if" => Aggregate::Sum,
+                    "avg_if" => Aggregate::Avg,
+                    "min_if" => Aggregate::Min,
+                    _ => Aggregate::Max,
+                };
                 Ok((agg, format!("CASE WHEN {when} THEN {x} END")))
+            }
+            "count_distinct_if" => {
+                count(args.len() == 2, "a value and a condition: count_distinct_if(store, region = 'EMEA')")?;
+                let x = match self.node(&args[0])? {
+                    (_, Kind::Condition) => return fail(at, "count_distinct_if(…) counts values, not conditions"),
+                    (sql, _) => sql,
+                };
+                let when = self.condition(&args[1], at, "count_distinct_if(…)'s second part")?;
+                Ok((Aggregate::CountDistinct, format!("CASE WHEN {when} THEN {x} END")))
+            }
+            "stddev" | "variance" => {
+                count(args.len() == 1, &format!("one number: {name}(amount)"))?;
+                let agg = if name == "stddev" { Aggregate::StdDev } else { Aggregate::Variance };
+                Ok((agg, self.number(&args[0], at)?))
             }
             _ => {
                 count(args.len() == 1, "a condition: count_if(region = 'EMEA')")?;
@@ -934,7 +1006,93 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 }
                 Ok((format!("CONCAT({})", parts.join(", ")), Kind::Text))
             }
-            "sum_if" | "avg_if" | "count_if" => self.over_rows(name, args, at),
+            f if OVER_ROWS.contains(&f) => self.over_rows(name, args, at),
+            "floor" | "ceil" | "sqrt" | "ln" | "log10" | "exp" => {
+                count(args.len() == 1, "one number")?;
+                let x = self.number(&args[0], at)?;
+                // what can't be computed is empty, as dividing by zero, not an error
+                Ok((
+                    match name {
+                        "sqrt" => format!("CASE WHEN {x} >= 0 THEN SQRT({x}) END"),
+                        "ln" | "log10" => format!("CASE WHEN {x} > 0 THEN {}({x}) END", name.to_uppercase()),
+                        _ => format!("{}({x})", name.to_uppercase()),
+                    },
+                    Kind::Number,
+                ))
+            }
+            "mod" | "power" => {
+                count(args.len() == 2, &format!("two numbers: {name}(qty, 2)"))?;
+                let (a, b) = (self.number(&args[0], at)?, self.number(&args[1], at)?);
+                Ok((
+                    match (name, self.dl) {
+                        ("mod", Dialect::DuckDb) => format!("({a} % NULLIF({b}, 0))"),
+                        ("mod", _) => format!("MOD(CAST({a} AS NUMERIC), CAST(NULLIF({b}, 0) AS NUMERIC))"),
+                        // a negative number to a fraction has no real answer
+                        _ => format!("CASE WHEN {a} < 0 AND {b} <> FLOOR({b}) THEN NULL ELSE POWER({a}, {b}) END"),
+                    },
+                    Kind::Number,
+                ))
+            }
+            "substring" => {
+                count(args.len() == 3, "a text, where to start and how many characters: substring(store, 1, 3)")?;
+                let t = self.text(&args[0], at)?;
+                let (Some(from), Some(n)) = (whole(&args[1]), whole(&args[2])) else {
+                    return fail(at, "substring(…)'s start and length are whole numbers: start from 1");
+                };
+                if !(1..=10_000).contains(&from) || !(0..=10_000).contains(&n) {
+                    return fail(at, "substring(…) starts from 1 (the first character), up to 10000 characters");
+                }
+                Ok((format!("SUBSTR({t}, {from}, {n})"), Kind::Text))
+            }
+            "position" => {
+                count(args.len() == 2, "a text and the text to find: position(store, 'Centro')")?;
+                let (t, x) = (self.text(&args[0], at)?, self.text(&args[1], at)?);
+                Ok((format!("STRPOS({t}, {x})"), Kind::Number))
+            }
+            "split_part" => {
+                count(args.len() == 3, "a text, what separates its parts, and which: split_part(code, '-', 2)")?;
+                let (t, sep) = (self.text(&args[0], at)?, self.text(&args[1], at)?);
+                let Some(n) = whole(&args[2]).filter(|n| (1..=1000).contains(n)) else {
+                    return fail(at, "split_part(…)'s part is a whole number from 1 (the first)");
+                };
+                Ok((
+                    match self.dl {
+                        Dialect::BigQuery => format!("COALESCE(SPLIT({t}, {sep})[SAFE_ORDINAL({n})], '')"),
+                        _ => format!("SPLIT_PART({t}, {sep}, {n})"),
+                    },
+                    Kind::Text,
+                ))
+            }
+            "to_number" => {
+                count(args.len() == 1, "one text: to_number(code)")?;
+                let t = format!("TRIM({})", self.text(&args[0], at)?);
+                // text that isn't a number is empty, not an error
+                Ok((
+                    match self.dl {
+                        Dialect::BigQuery => format!("SAFE_CAST({t} AS FLOAT64)"),
+                        Dialect::DuckDb => format!("TRY_CAST({t} AS DOUBLE)"),
+                        Dialect::Postgres => format!(
+                            "CASE WHEN {t} ~ '^[-+]?([0-9]+[.]?[0-9]*|[.][0-9]+)([eE][-+]?[0-9]+)?$' \
+                             THEN CAST({t} AS DOUBLE PRECISION) END"
+                        ),
+                    },
+                    Kind::Number,
+                ))
+            }
+            "to_text" => {
+                count(args.len() == 1, "a number or a date: to_text(qty)")?;
+                match self.node(&args[0])? {
+                    (_, Kind::Condition) => fail(at, "to_text(…) takes a number or a date; if(…) words a condition"),
+                    (sql, Kind::Text) => Ok((sql, Kind::Text)),
+                    (sql, _) => Ok((format!("CAST({sql} AS {})", self.dl.text()), Kind::Text)),
+                }
+            }
+            "hours_between" | "minutes_between" => {
+                count(args.len() == 2, &format!("two dates or times: {name}(started_at, ended_at)"))?;
+                let (from, to) = (self.date(&args[0], at)?, self.date(&args[1], at)?);
+                let per = if name == "hours_between" { 3600 } else { 60 };
+                Ok((format!("({} / {per})", seconds_between(self.dl, from, to)), Kind::Number))
+            }
             "contains" | "starts_with" | "ends_with" => {
                 count(args.len() == 2, &format!("a text and the text to look for: {name}(store, 'milano')"))?;
                 let (t, x) = (self.text(&args[0], at)?, self.text(&args[1], at)?);
@@ -970,6 +1128,21 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             }
             "in" => {
                 count(args.len() >= 2, "a value and one or more to look for: in(region, 'EMEA', 'APAC')")?;
+                // a date among written ones
+                let (first, kind) = self.node(&args[0])?;
+                if kind.is_date() {
+                    let mut v = vec![first];
+                    for a in &args[1..] {
+                        v.push(match a {
+                            Node::Text(t) => self.written_date(t, kind, at)?,
+                            other => match self.node(other)? {
+                                (sql, k) if same(k, kind).is_some() => sql,
+                                _ => return fail(at, "in(…) needs values of the same kind: all dates here"),
+                            },
+                        });
+                    }
+                    return Ok((format!("({} IN ({}))", v[0], v[1..].join(", ")), Kind::Condition));
+                }
                 let (v, _) = self.alike(args, at, "in(…)")?;
                 Ok((format!("({} IN ({}))", v[0], v[1..].join(", ")), Kind::Condition))
             }
@@ -1102,6 +1275,20 @@ fn days_between(dl: Dialect, from: (String, Kind), to: (String, Kind)) -> String
     }
 }
 
+/// The seconds from one date or time to another, as a number.
+fn seconds_between(dl: Dialect, from: (String, Kind), to: (String, Kind)) -> String {
+    match dl {
+        Dialect::BigQuery => {
+            let ts = |(x, k): (String, Kind)| if k == Kind::Time { x } else { format!("TIMESTAMP({x})") };
+            format!("TIMESTAMP_DIFF({}, {}, SECOND)", ts(to), ts(from))
+        }
+        Dialect::DuckDb => format!("(EPOCH(CAST({} AS TIMESTAMP)) - EPOCH(CAST({} AS TIMESTAMP)))", to.0, from.0),
+        Dialect::Postgres => {
+            format!("EXTRACT(EPOCH FROM (CAST({} AS TIMESTAMP) - CAST({} AS TIMESTAMP)))", to.0, from.0)
+        }
+    }
+}
+
 /// The dimension type `Dialect::trunc` takes for a kind of date (DuckDB reads instants as UTC
 /// timestamps: see `compiler::col_expr`).
 fn trunc_type(dl: Dialect, k: Kind) -> &'static str {
@@ -1178,6 +1365,11 @@ pub(crate) mod tests {
             Aggregate::Sum => format!("SUM({x})"),
             Aggregate::Avg => format!("AVG({x})"),
             Aggregate::Count => format!("COUNT({x})"),
+            Aggregate::Min => format!("MIN({x})"),
+            Aggregate::Max => format!("MAX({x})"),
+            Aggregate::CountDistinct => format!("COUNT_DISTINCT({x})"),
+            Aggregate::StdDev => format!("STDDEV({x})"),
+            Aggregate::Variance => format!("VARIANCE({x})"),
         })
     }
 
@@ -1477,7 +1669,7 @@ pub(crate) mod tests {
     }
 
     /// The date functions' answers, on 2026-03-15 (a Sunday; 13:45 UTC) and 2025-11-30.
-    const DATES: [(&str, &str); 31] = [
+    const DATES: &[(&str, &str)] = &[
         ("year(sold_at)", "2026"),
         ("quarter(sold_at)", "1"),
         ("month(sold_on)", "3"),
@@ -1509,6 +1701,18 @@ pub(crate) mod tests {
         ("days_between(today(), today())", "0"),
         ("if(year(today()) >= 2026, 'yes', 'no')", "yes"),
         ("coalesce(null, sold_on)", "2026-03-15"),
+        // written dates, compared with dates of each kind
+        ("if(sold_on >= '2026-01-01', 'yes', 'no')", "yes"),
+        ("if(sold_at < '2026-03-15 13:00', 'yes', 'no')", "no"),
+        ("if(sold_at > '2026-03-15', 'yes', 'no')", "yes"),
+        ("if(naive = '2026-03-15 13:45:00', 'yes', 'no')", "yes"),
+        ("days_between('2026-03-01', sold_on)", "14"),
+        ("if(in(sold_on, '2026-03-14', '2026-03-15'), 'yes', 'no')", "yes"),
+        // hours and minutes, as numbers (1.5: an hour and a half)
+        ("hours_between(ordered_on, sold_on)", "2520"),
+        ("hours_between(sold_on, sold_at)", "13.75"),
+        ("minutes_between(sold_at, date_add(sold_at, 2, 'hour'))", "120"),
+        ("minutes_between(naive, sold_at)", "0"),
     ];
 
     /// The dates of [`DATES`] as each engine writes them.
@@ -1532,11 +1736,11 @@ pub(crate) mod tests {
 
     /// Each of [`DATES`] as a query giving its answer as text (a date as its day).
     pub(crate) fn date_queries(dl: Dialect) -> Vec<(String, &'static str, &'static str)> {
-        answer_queries(dl, &DATES, &mut date_columns(dl))
+        answer_queries(dl, DATES, &mut date_columns(dl))
     }
 
     /// The text functions' answers, on a sale in 'EMEA' from the store 'Milano Centro'.
-    const TEXTS: [(&str, &str); 26] = [
+    const TEXTS: &[(&str, &str)] = &[
         ("if(contains(store, 'milano'), 'yes', 'no')", "yes"),
         ("if(contains(store, 'MILANO'), 'yes', 'no')", "yes"),
         ("if(contains(store, 'roma'), 'yes', 'no')", "no"),
@@ -1564,6 +1768,33 @@ pub(crate) mod tests {
         ("case(qty, 1, 'one', 3, 'three', 'many')", "three"),
         ("case(region, 'AMER', 1, 0) + 1", "1"),
         ("concat(left(region, 2), '-', qty)", "EM-3"),
+        ("substring(store, 8, 6)", "Centro"),
+        ("concat('[', substring(store, 1, 0), ']')", "[]"),
+        ("position(store, 'Centro')", "8"),
+        ("position(store, 'Roma')", "0"),
+        ("split_part(words, '-', 2)", "b"),
+        ("concat('[', split_part(words, '-', 9), ']')", "[]"),
+        ("to_number(digits) + 1", "43"),
+        ("to_number(cost)", "12.5"),
+        // not a number: empty, not an error
+        ("to_number(bad)", "(empty)"),
+        ("concat(to_text(qty), 'x')", "3x"),
+        // numbers
+        ("floor(half)", "2"),
+        ("ceil(half)", "3"),
+        ("floor(neg / 3)", "-2"),
+        ("mod(qty, 2)", "1"),
+        ("mod(neg, 3)", "-1"),
+        ("mod(qty, 0)", "(empty)"),
+        ("power(qty, 2)", "9"),
+        ("power(neg, 2)", "16"),
+        ("power(neg, 0.5)", "(empty)"),
+        ("sqrt(qty * 3)", "3"),
+        ("sqrt(neg)", "(empty)"),
+        ("ln(exp(2))", "2"),
+        ("log10(1000)", "3"),
+        ("log10(0)", "(empty)"),
+        ("exp(0)", "1"),
     ];
 
     /// The columns of [`TEXTS`], as literals for each engine.
@@ -1576,16 +1807,30 @@ pub(crate) mod tests {
                 "padded" => text("  a b  "),
                 "cafe" => text("Café"),
                 "qty" => Ok(("3".into(), Type::Number)),
+                "neg" => Ok(("(-4)".into(), Type::Number)),
+                "half" => Ok(("2.5".into(), Type::Number)),
+                "digits" => text("42"),
+                "cost" => text(" 12.5 "),
+                "bad" => text("12x"),
+                "words" => text("a-b-c"),
                 other => Err(format!("unknown column {other:?}")),
             }
         }
     }
 
     pub(crate) fn text_queries(dl: Dialect) -> Vec<(String, &'static str, &'static str)> {
-        answer_queries(dl, &TEXTS, &mut text_columns(dl))
+        answer_queries(dl, TEXTS, &mut text_columns(dl))
     }
 
-    /// Each formula as a query giving its answer as text (a date as its day).
+    /// An answer as expected: numbers as numbers (engines write 2, 2.0 or 2.000).
+    pub(crate) fn same_answer(got: &str, want: &str) -> bool {
+        match (got.trim().parse::<f64>(), want.parse::<f64>()) {
+            (Ok(a), Ok(b)) => (a - b).abs() <= 1e-9 * b.abs().max(1.0),
+            _ => got == want,
+        }
+    }
+
+    /// Each formula as a query giving its answer as text (a date as its day; empty as "(empty)").
     fn answer_queries(
         dl: Dialect,
         cases: &[(&'static str, &'static str)],
@@ -1599,7 +1844,7 @@ pub(crate) mod tests {
                     Type::Date | Type::Time | Type::DateTime => format!("CAST({sql} AS DATE)"),
                     _ => sql,
                 };
-                (format!("SELECT CAST({sql} AS {})", dl.text()), *expr, *want)
+                (format!("SELECT COALESCE(CAST({sql} AS {}), '(empty)')", dl.text()), *expr, *want)
             })
             .collect()
     }
@@ -1615,7 +1860,8 @@ pub(crate) mod tests {
             for (sql, expr, want) in date_queries(Dialect::Postgres).into_iter().chain(text_queries(Dialect::Postgres))
             {
                 let row = client.query_one(&sql, &[]).await.unwrap_or_else(|e| panic!("{var}: {expr}: {sql}: {e}"));
-                assert_eq!(row.get::<_, String>(0), want, "{var}: {expr}: {sql}");
+                let got = row.get::<_, String>(0);
+                assert!(same_answer(&got, want), "{var}: {expr}: {got:?}, not {want:?}: {sql}");
             }
         }
     }
@@ -1795,5 +2041,50 @@ pub(crate) mod tests {
             per_row(&row, Dialect::Postgres).unwrap(),
             per_row("concat(region, ' / ', lower(store))", Dialect::Postgres).unwrap()
         );
+    }
+
+    #[test]
+    fn written_dates_numbers_and_text_on_bigquery() {
+        let bq = |e| per_row(e, Dialect::BigQuery).unwrap().0;
+        assert_eq!(bq("sold_on >= '2026-01-01'"), "(\"sold_on\" >= CAST('2026-01-01' AS DATE))");
+        assert_eq!(bq("sold_at < '2026-03-15 13:00'"), "(\"sold_at\" < CAST('2026-03-15 13:00:00+00' AS TIMESTAMP))");
+        assert_eq!(bq("to_number(store)"), "SAFE_CAST(TRIM(\"store\") AS FLOAT64)");
+        assert_eq!(bq("split_part(store, '-', 2)"), "COALESCE(SPLIT(\"store\", '-')[SAFE_ORDINAL(2)], '')");
+        assert!(
+            bq("hours_between(sold_on, sold_at)").starts_with("(TIMESTAMP_DIFF("),
+            "{}",
+            bq("hours_between(sold_on, sold_at)")
+        );
+        assert_eq!(per_row("to_number(store)", Dialect::DuckDb).unwrap().0, "TRY_CAST(TRIM(\"store\") AS DOUBLE)");
+    }
+
+    #[test]
+    fn written_dates_numbers_and_text_mistakes() {
+        let pg = |e| per_row(e, Dialect::Postgres).unwrap_err().message;
+        assert!(pg("sold_on > '2026-13-01'").contains("isn't a date"), "{}", pg("sold_on > '2026-13-01'"));
+        assert!(pg("sold_on > 'yesterday'").contains("isn't a date"));
+        assert!(pg("substring(store, 0, 2)").contains("from 1"));
+        assert!(pg("split_part(store, '-', 0)").contains("from 1"));
+        assert!(pg("to_number(qty)").contains("text is expected"));
+        assert!(pg("mod(qty)").contains("mod(…) takes"));
+        assert!(pg("sqrt(store)").contains("number"));
+        // text stays text where no date is around
+        assert_eq!(per_row("if(region = '2026-01-01', 1, 0)", Dialect::Postgres).unwrap().1, Type::Number);
+        assert_eq!(per_row("to_text(sold_on)", Dialect::Postgres).unwrap().1, Type::Text);
+    }
+
+    #[test]
+    fn spread_and_more_totals_with_a_condition() {
+        assert_eq!(sql("stddev(amount)").unwrap(), "STDDEV(\"amount\")");
+        assert_eq!(sql("variance(amount * qty)").unwrap(), "VARIANCE((\"amount\" * \"qty\"))");
+        assert_eq!(sql("min_if(amount, returned)").unwrap(), "MIN(CASE WHEN \"returned\" THEN \"amount\" END)");
+        assert_eq!(sql("max_if(amount, qty > 1)").unwrap(), "MAX(CASE WHEN (\"qty\" > 1) THEN \"amount\" END)");
+        assert_eq!(
+            sql("count_distinct_if(store, region = 'EMEA')").unwrap(),
+            "COUNT_DISTINCT(CASE WHEN (\"region\" = 'EMEA') THEN \"store\" END)"
+        );
+        // a distinct count of text, a minimum of dates
+        assert!(sql("count_distinct_if(store, returned)").is_ok());
+        assert!(per_row("stddev(amount)", Dialect::Postgres).unwrap_err().message.contains("on totals"));
     }
 }

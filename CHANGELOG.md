@@ -14,6 +14,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **More functions**: written dates (`sold_on >= '2026-01-01'`); `floor`, `ceil`, `mod`, `power`,
+  `sqrt`, `ln`, `log10`, `exp`; `substring`, `position`, `split_part`, `to_number`, `to_text`;
+  `hours_between`, `minutes_between`; on totals `min_if`, `max_if`, `count_distinct_if`, `stddev`,
+  `variance`. What can't be computed is empty, never an error.
+
 - **A tile can ignore the dashboard's filters or period** (`options.ignore_filters`, `period:
   false`; in the tile editor, *Follows the dashboard's*), and a tile filtered differently from the
   rest says so with a badge. Data restrictions and guest links' filters always apply.

@@ -377,6 +377,11 @@ fn formula_sql(
             formula::Aggregate::Sum => format!("SUM({arg})"),
             formula::Aggregate::Avg => format!("AVG({arg})"),
             formula::Aggregate::Count => format!("COUNT({arg})"),
+            formula::Aggregate::Min => format!("MIN({arg})"),
+            formula::Aggregate::Max => format!("MAX({arg})"),
+            formula::Aggregate::CountDistinct => format!("COUNT(DISTINCT {arg})"),
+            formula::Aggregate::StdDev => format!("STDDEV_SAMP({arg})"),
+            formula::Aggregate::Variance => format!("VAR_SAMP({arg})"),
         })
     };
     let row = &mut |name: &str| row_field(dl, model, name, &mut vec![]);

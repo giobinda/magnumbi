@@ -17,6 +17,14 @@ export const FUNCTIONS: FormulaFunction[] = [
   { name: 'greatest', template: 'greatest(|, )', help: 'the largest of the numbers', group: 'Numbers', advanced: true },
   { name: 'in', template: "in(|, '', '')", help: 'whether a value is one of those listed: in(region, \'EMEA\', \'APAC\')', group: 'Logic' },
   { name: 'case', template: "case(|, '', '', 'other')", help: 'one answer per value, then one for the rest: case(region, \'EMEA\', \'Europe\', \'Other\')', group: 'Logic', advanced: true },
+  { name: 'floor', template: 'floor(|)', help: 'the whole number at or below: floor(2.7) is 2', group: 'Numbers' },
+  { name: 'ceil', template: 'ceil(|)', help: 'the whole number at or above: ceil(2.1) is 3', group: 'Numbers' },
+  { name: 'mod', template: 'mod(|, 2)', help: 'what remains after dividing: mod(7, 2) is 1', group: 'Numbers', advanced: true },
+  { name: 'power', template: 'power(|, 2)', help: 'a number to a power: power(3, 2) is 9', group: 'Numbers', advanced: true },
+  { name: 'sqrt', template: 'sqrt(|)', help: 'the square root (empty below zero)', group: 'Numbers', advanced: true },
+  { name: 'ln', template: 'ln(|)', help: 'the natural logarithm (empty at zero and below)', group: 'Numbers', advanced: true },
+  { name: 'log10', template: 'log10(|)', help: 'the logarithm in base 10: log10(1000) is 3', group: 'Numbers', advanced: true },
+  { name: 'exp', template: 'exp(|)', help: 'e to the power of the number', group: 'Numbers', advanced: true },
 ]
 
 /** A formula on totals may also add up the rows that meet a condition. */
@@ -25,6 +33,11 @@ export const TOTAL_FUNCTIONS: FormulaFunction[] = [
   { name: 'sum_if', template: "sum_if(|, region = '')", help: "the total of a column over the rows that meet a condition: sum_if(amount, region = 'EMEA')", group: 'Totals with a condition' },
   { name: 'count_if', template: "count_if(| = '')", help: "how many rows meet a condition: count_if(region = 'EMEA')", group: 'Totals with a condition' },
   { name: 'avg_if', template: "avg_if(|, region = '')", help: "the average of a column over the rows that meet a condition", group: 'Totals with a condition' },
+  { name: 'min_if', template: "min_if(|, region = '')", help: 'the smallest value over the rows that meet a condition', group: 'Totals with a condition' },
+  { name: 'max_if', template: "max_if(|, region = '')", help: 'the largest value over the rows that meet a condition', group: 'Totals with a condition' },
+  { name: 'count_distinct_if', template: "count_distinct_if(|, region = '')", help: 'how many different values over the rows that meet a condition', group: 'Totals with a condition', advanced: true },
+  { name: 'stddev', template: 'stddev(|)', help: 'how spread out a column\'s values are (standard deviation of a sample)', group: 'Spread', advanced: true },
+  { name: 'variance', template: 'variance(|)', help: 'the variance of a column\'s values (of a sample)', group: 'Spread', advanced: true },
 ]
 
 /** A per-row formula may also work on text. */
@@ -41,6 +54,11 @@ export const ROW_FUNCTIONS: FormulaFunction[] = [
   { name: 'left', template: 'left(|, 3)', help: 'the first characters of a text', group: 'Text' },
   { name: 'right', template: 'right(|, 3)', help: 'the last characters of a text', group: 'Text' },
   { name: 'replace', template: "replace(|, '', '')", help: 'a text with one piece replaced by another, everywhere', group: 'Text' },
+  { name: 'substring', template: 'substring(|, 1, 3)', help: 'a piece of a text: from a character (1: the first), so many characters', group: 'Text' },
+  { name: 'position', template: "position(|, '')", help: 'where a text is in another (1: at the start; 0: not in it)', group: 'Text', advanced: true },
+  { name: 'split_part', template: "split_part(|, '-', 1)", help: 'one part of a text split by a separator: split_part(code, \'-\', 2)', group: 'Text', advanced: true },
+  { name: 'to_number', template: 'to_number(|)', help: 'a text as a number (empty if it isn\'t one)', group: 'Text' },
+  { name: 'to_text', template: 'to_text(|)', help: 'a number or a date as text', group: 'Text' },
   { name: 'year', template: 'year(|)', help: 'the year of a date, e.g. 2026', group: 'Dates' },
   { name: 'quarter', template: 'quarter(|)', help: 'the quarter of a date, 1 to 4', group: 'Dates' },
   { name: 'month', template: 'month(|)', help: 'the month of a date, 1 to 12', group: 'Dates' },
@@ -53,6 +71,8 @@ export const ROW_FUNCTIONS: FormulaFunction[] = [
   { name: 'date_trunc', template: "date_trunc(|, 'month')", help: "the start of its hour, day, week, month, quarter or year", group: 'Dates', advanced: true },
   { name: 'date_add', template: "date_add(|, 30, 'day')", help: 'a date moved by a number of hours, days, weeks, months or years (minus: back)', group: 'Dates', advanced: true },
   { name: 'date_diff', template: "date_diff(|, today(), 'month')", help: 'calendar days, months or years from one date to another', group: 'Dates', advanced: true },
+  { name: 'hours_between', template: 'hours_between(|, )', help: 'the hours from one time to another (1.5: an hour and a half)', group: 'Dates' },
+  { name: 'minutes_between', template: 'minutes_between(|, )', help: 'the minutes from one time to another', group: 'Dates' },
 ]
 
 /** What a per-row formula gives (its type, as the server says), in words. */
@@ -104,7 +124,7 @@ export function editorFunctions({ perRow, inChart, blend }: { perRow: boolean; i
   return inChart ? [...totals, ...RESULT_FUNCTIONS] : totals
 }
 
-const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Totals with a condition', 'Compared with other rows']
+const GROUPS = ['Numbers', 'Logic', 'Text', 'Dates', 'Totals with a condition', 'Spread', 'Compared with other rows']
 
 /** The functions by group, in the editor's order; the advanced ones only when Advanced is open. */
 export function functionGroups(fns: FormulaFunction[], advanced: boolean): { group: string; functions: FormulaFunction[] }[] {

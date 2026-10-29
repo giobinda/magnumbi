@@ -666,8 +666,15 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   per value, then one for the rest); text in single quotes with `lower`, `upper`, `concat`,
   `contains`, `starts_with`, `ends_with` (capitals aside, no wildcards), `length`, `trim`,
   `left(t, 3)`, `right(t, 3)`, `replace(t, 'a', 'b')`; `true`, `false`, `null`.
-- **Totals with a condition** (on totals): `sum_if(amount, region = 'EMEA')`, `avg_if(…)` and
-  `count_if(region = 'EMEA')` add up only the rows that meet the condition, whose parts are each
+- **Numbers**: `floor`, `ceil`; under Advanced `mod`, `power`, `sqrt`, `ln`, `log10`, `exp`. What
+  can't be computed (√ of a negative, a logarithm of 0, `mod(x, 0)`) is empty, as dividing by zero.
+- **More text**: `substring(t, 1, 3)`, `to_number(t)` (empty when it isn't a number), `to_text(x)`;
+  under Advanced `position(t, 'x')` and `split_part(t, '-', 2)`.
+- **Written dates**: `sold_on >= '2026-01-01'`, `sold_at < '2026-03-15 13:00'` (times in UTC), in
+  `in(…)` and the date functions too; `hours_between` and `minutes_between` (1.5: an hour and a half).
+- **Totals with a condition** (on totals): `sum_if(amount, region = 'EMEA')`, `avg_if(…)`,
+  `min_if`, `max_if`, `count_if(region = 'EMEA')` and, under Advanced, `count_distinct_if`; and the
+  spread of a sample, `stddev(x)` and `variance(x)`. `sum_if` and the like add up only the rows that meet the condition, whose parts are each
   row's columns (as per row): `sum_if(amount, region = 'EMEA') / revenue` is EMEA's share. The same
   as filtering, period comparisons included.
 - **Dates** (per row): `year`, `quarter`, `month`, `week` (ISO, from Monday), `day`, `weekday`

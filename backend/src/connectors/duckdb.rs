@@ -386,7 +386,8 @@ mod tests {
             crate::formula::tests::date_queries(duck).into_iter().chain(crate::formula::tests::text_queries(duck))
         {
             let r = c.run(&sql, &[]).await.unwrap_or_else(|e| panic!("{expr}: {sql}: {e:?}"));
-            assert_eq!(r.rows[0][0], json!(want), "{expr}: {sql}");
+            let got = r.rows[0][0].as_str().unwrap_or_default().to_string();
+            assert!(crate::formula::tests::same_answer(&got, want), "{expr}: {got:?}, not {want:?}: {sql}");
         }
         std::fs::remove_dir_all(base).ok();
     }

@@ -71,11 +71,14 @@ fn query_schema() -> Value {
         "formulas": {"type": "array", "description": "calculations on the model's measures, each a column: \
 [{name, expr, label?, format?}]; expr like \"(revenue - cost) / revenue\" or \"sum(amount) / count_distinct(store)\"; \
 + - * / (x / 0 is empty), comparisons, and/or/not, if(cond, a, b), coalesce, round(x, places), abs, least, greatest, \
-in(x, a, b, …), case(x, when, then, …, else); on totals, sum_if(column, condition), avg_if(…), count_if(condition), \
+in(x, a, b, …), case(x, when, then, …, else), floor, ceil, mod, power, sqrt, ln, log10, exp (what can't be computed is empty); \
+on totals, sum_if(column, condition), avg_if, min_if, max_if, count_distinct_if(value, condition), count_if(condition), \
+stddev(x), variance(x), \
 over the rows meeting it (e.g. \"sum_if(amount, region = 'EMEA') / revenue\"). \
 per_row: true makes a field of each row from the model's columns (e.g. \"amount * qty\", \"if(region = 'EMEA', 'home', 'away')\", \
 with 'text', lower, upper, concat, contains / starts_with / ends_with (capitals aside), length, trim, left(t, n), right(t, n), \
-replace(t, from, to); dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
+replace(t, from, to), substring(t, start, n), position(t, part), split_part(t, sep, n), to_number(t), to_text(x); \
+dates written as '2026-01-31' or '2026-01-31 14:30' (UTC), hours_between, minutes_between; dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
 today(), days_between(from, to), date_trunc(d, 'month'), date_add(d, 30, 'day'), date_diff(from, to, 'month')): \
 group by it, filter on it, or sum(it). \
 Calculations on the results (computed after the query, on its rows): running_sum(x), running_avg(x), moving_avg(x, n), \
