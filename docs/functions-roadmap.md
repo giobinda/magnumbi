@@ -71,12 +71,22 @@ How it went:
   differ per engine; `year`/`month` with `concat` cover most of it), dates in conditions on totals
   (with step 4's `sum_if`).
 
-## Step 3: Text and choices
+## Step 3: Text and choices — done
 
-Easy: `contains(t, 'x')`, `starts_with`, `ends_with`, `length`, `trim`, `left(t, n)`, `right(t, n)`,
-`replace(t, 'a', 'b')`, `in(x, 'a', 'b', 'c')`.
-Advanced: `case(x, 'a', 1, 'b', 2, else)`; `matches(t, 'pattern')` and `extract(t, 'pattern')`
-(patterns per engine; refused where an engine can't run them safely).
+Easy: `contains(t, 'x')`, `starts_with`, `ends_with` (capitals aside, as the contains filter; no
+wildcards), `length`, `trim`, `left(t, n)`, `right(t, n)`, `replace(t, 'a', 'b')`,
+`in(x, 'a', 'b', 'c')`.
+Advanced: `case(x, 'a', 1, 'b', 2, else)`.
+
+Tested as dates are: one table of answers (`formula::tests::TEXTS`) on ScramDB, PostgreSQL and in
+DuckDB's sandbox, BigQuery as SQL, and `api::formulas::text_and_choices_in_fields_of_each_row`
+end to end.
+
+Not yet: **patterns** (`matches(t, 'pattern')`, `extract(t, 'pattern')`). A pattern people type
+would run on each engine's own regular expressions; PostgreSQL's (so ScramDB's) can take
+exponential time on some patterns, held back only by the statement timeout. To do safely: a
+pattern language of our own (parsed like formulas, so only safe constructs reach the engine), or
+patterns only on engines with linear-time matching (DuckDB and BigQuery use RE2).
 
 ## Step 4: Smarter totals
 

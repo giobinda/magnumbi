@@ -15,6 +15,8 @@ export const FUNCTIONS: FormulaFunction[] = [
   { name: 'abs', template: 'abs(|)', help: 'the number without its sign', group: 'Numbers' },
   { name: 'least', template: 'least(|, )', help: 'the smallest of the numbers', group: 'Numbers', advanced: true },
   { name: 'greatest', template: 'greatest(|, )', help: 'the largest of the numbers', group: 'Numbers', advanced: true },
+  { name: 'in', template: "in(|, '', '')", help: 'whether a value is one of those listed: in(region, \'EMEA\', \'APAC\')', group: 'Logic' },
+  { name: 'case', template: "case(|, '', '', 'other')", help: 'one answer per value, then one for the rest: case(region, \'EMEA\', \'Europe\', \'Other\')', group: 'Logic', advanced: true },
 ]
 
 /** A per-row formula may also work on text. */
@@ -23,6 +25,14 @@ export const ROW_FUNCTIONS: FormulaFunction[] = [
   { name: 'lower', template: 'lower(|)', help: 'the text in small letters', group: 'Text' },
   { name: 'upper', template: 'upper(|)', help: 'the text in capitals', group: 'Text' },
   { name: 'concat', template: "concat(|, ' ', )", help: 'texts (and numbers) joined', group: 'Text' },
+  { name: 'contains', template: "contains(|, '')", help: 'whether a text has another in it (capitals aside)', group: 'Text' },
+  { name: 'starts_with', template: "starts_with(|, '')", help: 'whether a text begins with another (capitals aside)', group: 'Text' },
+  { name: 'ends_with', template: "ends_with(|, '')", help: 'whether a text ends with another (capitals aside)', group: 'Text' },
+  { name: 'length', template: 'length(|)', help: 'how many characters a text has', group: 'Text' },
+  { name: 'trim', template: 'trim(|)', help: 'the text without spaces at either end', group: 'Text' },
+  { name: 'left', template: 'left(|, 3)', help: 'the first characters of a text', group: 'Text' },
+  { name: 'right', template: 'right(|, 3)', help: 'the last characters of a text', group: 'Text' },
+  { name: 'replace', template: "replace(|, '', '')", help: 'a text with one piece replaced by another, everywhere', group: 'Text' },
   { name: 'year', template: 'year(|)', help: 'the year of a date, e.g. 2026', group: 'Dates' },
   { name: 'quarter', template: 'quarter(|)', help: 'the quarter of a date, 1 to 4', group: 'Dates' },
   { name: 'month', template: 'month(|)', help: 'the month of a date, 1 to 12', group: 'Dates' },

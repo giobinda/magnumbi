@@ -376,12 +376,15 @@ mod tests {
         std::fs::write(root.join("secret.csv"), "a\n1\n").unwrap();
     }
 
-    /// The date functions (formula.rs) give the same answers here as on the other engines, in the
+    /// The date and text functions (formula.rs) give the same answers here as on the other engines, in the
     /// sandbox as queries run (no extensions: no ICU).
     #[tokio::test]
-    async fn date_functions_run_in_the_sandbox() {
+    async fn date_and_text_functions_run_in_the_sandbox() {
         let (c, base) = sandbox(json!({}), None);
-        for (sql, expr, want) in crate::formula::tests::date_queries(crate::compiler::Dialect::DuckDb) {
+        let duck = crate::compiler::Dialect::DuckDb;
+        for (sql, expr, want) in
+            crate::formula::tests::date_queries(duck).into_iter().chain(crate::formula::tests::text_queries(duck))
+        {
             let r = c.run(&sql, &[]).await.unwrap_or_else(|e| panic!("{expr}: {sql}: {e:?}"));
             assert_eq!(r.rows[0][0], json!(want), "{expr}: {sql}");
         }

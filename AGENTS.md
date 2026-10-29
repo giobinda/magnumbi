@@ -87,7 +87,8 @@ deploy/helm/magnum-bi/        the Helm chart (bundled or external ScramDB; check
 make db-up                      # dev ScramDB (Podman/Docker) on 127.0.0.1:55432
 make dev-backend                # API on :8000 (loads .env.local); make dev-frontend: UI on :5173
 make test                       # backend unit tests + frontend typecheck and Vitest
-make test-db                    # also the tests that need ScramDB / DuckDB extensions (seeds sample_sales)
+make test-db                    # also the tests that need ScramDB / DuckDB extensions, on a fresh
+                                # ScramDB kept in memory (port 55439, removed after; seeds sample_sales)
 make check                      # validate project YAML (models, blends, dashboards)
 make demo [ORG=x] [MONTHS=13]   # the NYC taxi x weather demo (downloads; backend/src/demo.rs)
 make lint                       # cargo clippy --all-targets + oxlint
@@ -100,9 +101,11 @@ helm lint deploy/helm/magnum-bi --set production=false          # after chart ch
 ```
 
 Tests that need services are skipped unless their variable is set (and the ScramDB ones expect
-the `sample_sales` table: `make seed`):
+the `sample_sales` table, which `make test-db` seeds):
 
-- `MAGNUM_TEST_DATABASE_URL=postgresql://scramdb@127.0.0.1:55432/scramdb` for ScramDB;
+- `MAGNUM_TEST_DATABASE_URL` for ScramDB: `make test-db` sets it to its own instance in memory
+  (`devtools/scramdb.sh up test`). Don't point it at the dev database: tests leave rows and tables
+  behind, and a dev database grown to tens of GB is read from disk by every query of the run;
 - `MAGNUM_TEST_POSTGRES_URL` for a real PostgreSQL;
 - `MAGNUM_TEST_DUCKDB_EXTENSIONS=$PWD/data/duckdb/_extensions` for DuckDB extensions;
 - `MAGNUM_TEST_LITE_DATABASE=1` for lite's own PostgreSQL (downloaded).

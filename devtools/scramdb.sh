@@ -3,7 +3,8 @@
 #
 #   devtools/scramdb.sh up|down|reset|status|url|psql [instance] [port]
 #
-# `instance` is "primary" (the default: Magnum BI's primary database, port 55432) or an
+# `instance` is "primary" (the default: Magnum BI's primary database, port 55432), "test" (the
+# tests' own, port 55439, kept in memory: nothing written to disk, gone when reset) or an
 # organisation id: each organisation gets its own instance, e.g. `devtools/scramdb.sh up acme 55433`.
 # ScramDB listens on 127.0.0.1:<port> (PostgreSQL wire protocol), user and database `scramdb`,
 # no password (the image's default: local development only).
@@ -13,6 +14,8 @@ INSTANCE="${2:-primary}"
 IMAGE="${MAGNUM_SCRAMDB_IMAGE:-docker.io/scramdb/scramdb:latest}"
 if [ "$INSTANCE" = primary ]; then
   NAME=magnum-scramdb; VOLUME=magnum-scramdb-data; DEFAULT_PORT="${MAGNUM_DEV_DB_PORT:-55432}"
+elif [ "$INSTANCE" = test ]; then
+  NAME=magnum-scramdb-test; VOLUME=""; DEFAULT_PORT=55439
 else
   NAME="magnum-scramdb-$INSTANCE"; VOLUME="magnum-scramdb-$INSTANCE-data"; DEFAULT_PORT=""
 fi
@@ -48,7 +51,11 @@ case "$CMD" in
     e=$(engine)
     if ! exists "$e"; then
       p=$(port "$@")
-      "$e" run -d --name "$NAME" -p "127.0.0.1:${p}:5432" -v "$VOLUME:/var/lib/scramdb" "$IMAGE" >/dev/null
+      # the test instance keeps its data in memory (MAGNUM_TEST_DB_SIZE at most): tests read and
+      # write a lot, and none of it needs to outlive the run
+      if [ -z "$VOLUME" ]; then data=(--tmpfs "/var/lib/scramdb:rw,mode=1777,size=${MAGNUM_TEST_DB_SIZE:-8g}")
+      else data=(-v "$VOLUME:/var/lib/scramdb"); fi
+      "$e" run -d --name "$NAME" -p "127.0.0.1:${p}:5432" "${data[@]}" "$IMAGE" >/dev/null
     else
       "$e" start "$NAME" >/dev/null
     fi
@@ -58,10 +65,11 @@ case "$CMD" in
     e=$(engine); "$e" stop "$NAME" >/dev/null 2>&1 || true
     echo "ScramDB $INSTANCE stopped (data kept; '$0 reset $INSTANCE' deletes it)" ;;
   reset)
-    e=$(engine); "$e" rm -f "$NAME" >/dev/null 2>&1 || true; "$e" volume rm "$VOLUME" >/dev/null 2>&1 || true
+    e=$(engine); "$e" rm -f "$NAME" >/dev/null 2>&1 || true
+    [ -z "$VOLUME" ] || "$e" volume rm "$VOLUME" >/dev/null 2>&1 || true
     echo "ScramDB $INSTANCE container and data deleted" ;;
   url) echo "postgresql://scramdb@127.0.0.1:$(port "$@")/scramdb" ;;
   psql) e=$(engine); exec "$e" exec -it "$NAME" psql -h 127.0.0.1 -U scramdb scramdb ;;
   status) e=$(engine); "$e" ps -a --filter "name=magnum-scramdb" ;;
-  *) echo "usage: $0 up|down|reset|status|url|psql [primary|<org id>] [port]" >&2; exit 2 ;;
+  *) echo "usage: $0 up|down|reset|status|url|psql [primary|test|<org id>] [port]" >&2; exit 2 ;;
 esac

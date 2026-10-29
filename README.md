@@ -651,8 +651,11 @@ Formulas are calculations written like a spreadsheet, of three kinds:
 - **The language:** on totals, measures and formulas by name, and columns through `sum`, `avg`,
   `min`, `max`, `count`, `count_distinct`; per row, the row's columns by name, dates included.
   `+ - * /` (dividing by zero gives an empty value), comparisons, `and`/`or`/`not`; `if`,
-  `coalesce`, `round(x, places)`, `abs`, `least`, `greatest`; text in single quotes with `lower`,
-  `upper`, `concat`; `true`, `false`, `null`.
+  `coalesce`, `round(x, places)`, `abs`, `least`, `greatest`; `in(region, 'EMEA', 'APAC')` (one
+  of those) and, under Advanced, `case(region, 'EMEA', 'Europe', 'APAC', 'Asia', 'Other')` (an answer
+  per value, then one for the rest); text in single quotes with `lower`, `upper`, `concat`,
+  `contains`, `starts_with`, `ends_with` (capitals aside, no wildcards), `length`, `trim`,
+  `left(t, 3)`, `right(t, 3)`, `replace(t, 'a', 'b')`; `true`, `false`, `null`.
 - **Dates** (per row): `year`, `quarter`, `month`, `week` (ISO, from Monday), `day`, `weekday`
   (1 for Monday to 7), `hour`, `today()` (UTC, written into the query, so a cached result is never
   yesterday's), `days_between(from, to)`; and, under Advanced, `date_trunc(d, 'month')` (hour, day,

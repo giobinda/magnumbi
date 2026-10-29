@@ -14,6 +14,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Text and choices in formulas**: `contains`, `starts_with`, `ends_with` (capitals aside),
+  `length`, `trim`, `left`, `right`, `replace`, and `in(region, 'EMEA', 'APAC')`; under Advanced,
+  `case(region, 'EMEA', 'Europe', …, 'Other')`.
+
 - **Dates in formulas** (per row): `year`, `quarter`, `month`, `week`, `day`, `weekday`, `hour`,
   `today()`, `days_between`; under Advanced, `date_trunc`, `date_add` and `date_diff`. A formula
   giving a date is a date field, with grains. The same answers on ScramDB, PostgreSQL, DuckDB and
