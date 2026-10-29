@@ -102,6 +102,7 @@ export const RESULT_FUNCTIONS: FormulaFunction[] = [
   { name: 'difference', template: 'difference(|)', help: 'the change from the row before, along the first date', group: 'Compared with other rows' },
   { name: 'percent_change', template: 'percent_change(|)', help: 'the change from the row before, as a percentage', group: 'Compared with other rows' },
   { name: 'dense_rank', template: 'dense_rank(|)', help: 'like rank, without gaps after ties (1, 1, 2)', group: 'Compared with other rows', advanced: true },
+  { name: 'total', template: 'total(|)', help: 'the total next to each row: total(revenue, within(region)) for each region\'s, within() for the whole chart\'s', group: 'Compared with other rows' },
   { name: 'first', template: 'first(|)', help: 'the value on the first row, along the first date', group: 'Compared with other rows' },
   { name: 'last', template: 'last(|)', help: 'the value on the last row, along the first date', group: 'Compared with other rows' },
   { name: 'ntile', template: 'ntile(|, 4)', help: 'which of N equal groups, largest first: ntile(revenue, 4) gives quartiles', group: 'Compared with other rows', advanced: true },

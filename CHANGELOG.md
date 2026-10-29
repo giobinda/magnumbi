@@ -14,6 +14,9 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **`total(x)`** on a chart's results: the total next to each row, at the level asked
+  (`within(region)`: each region's; `within()`: the whole chart's).
+
 - **More on blends**: aggregations of a model's column (`sum(taxi.fare)`), totals with a condition
   (`sum_if`, `avg_if`, `count_if`, `min_if`, `max_if`), each added up on its model's engine and
   again after the join; shared formulas on a blend. The attack suite covers them.

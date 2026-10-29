@@ -32,9 +32,9 @@ pub const OVER_ROWS: [&str; 8] =
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
 /// Calculations on a chart's results (window functions, run on ScramDB: results.rs).
 #[rustfmt::skip]
-pub const RESULT_FUNCTIONS: [&str; 13] = [
+pub const RESULT_FUNCTIONS: [&str; 14] = [
     "running_sum", "moving_avg", "previous", "rank", "percent_of_total",
-    "running_avg", "next", "difference", "percent_change", "dense_rank", "first", "last", "ntile",
+    "running_avg", "next", "difference", "percent_change", "dense_rank", "first", "last", "ntile", "total",
 ];
 /// Aggregations of a column, as in Explore's Σ: `sum(amount)`.
 pub const AGGREGATIONS: [&str; 6] = ["sum", "avg", "min", "max", "count", "count_distinct"];
@@ -852,7 +852,7 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         self.inside = true;
         let x = self.number(&args[0], at)?;
         self.inside = false;
-        let ranks = matches!(name, "rank" | "dense_rank" | "percent_of_total" | "ntile");
+        let ranks = matches!(name, "rank" | "dense_rank" | "percent_of_total" | "ntile" | "total");
         if ranks && along_given.is_some() {
             return fail(
                 at,
@@ -896,6 +896,8 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 format!("DENSE_RANK() OVER ({})", [across.clone(), format!("ORDER BY {x} DESC")].join(" ").trim())
             }
             "ntile" => format!("NTILE({n}) OVER ({})", [across.clone(), format!("ORDER BY {x} DESC")].join(" ").trim()),
+            // the total next to each row: the one percent_of_total divides by, unless told within what
+            "total" => format!("SUM({x}) OVER ({across})"),
             "first" | "last" => {
                 let whole = [along.join(" "), "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING".into()];
                 format!("{}_VALUE({x}) OVER ({})", name.to_uppercase(), whole.join(" ").trim())
@@ -1694,6 +1696,9 @@ pub(crate) mod tests {
         assert_eq!(sql("previous(units, within())").unwrap(), "LAG(\"c2\") OVER (ORDER BY \"c0\")");
         // ranks and shares: within what's given
         assert_eq!(sql("rank(revenue, within())").unwrap(), "RANK() OVER (ORDER BY \"c1\" DESC)");
+        // totals at the level asked: each region's, the whole chart's
+        assert_eq!(sql("total(revenue, within(region))").unwrap(), "SUM(\"c1\") OVER (PARTITION BY \"c3\")");
+        assert_eq!(sql("total(revenue, within())").unwrap(), "SUM(\"c1\") OVER ()");
         assert_eq!(
             sql("dense_rank(revenue, within(region, store))").unwrap(),
             "DENSE_RANK() OVER (PARTITION BY \"c3\", \"c4\" ORDER BY \"c1\" DESC)"
@@ -1777,6 +1782,9 @@ pub(crate) mod tests {
             on_results("ntile(revenue, 4)").unwrap(),
             "NTILE(4) OVER (PARTITION BY \"c0\" ORDER BY \"c1\" DESC)"
         );
+        // the total next to each row: by default the one percent_of_total divides by
+        assert_eq!(on_results("total(revenue)").unwrap(), "SUM(\"c1\") OVER (PARTITION BY \"c0\")");
+        assert!(on_results("total(revenue, along(sold_at))").unwrap_err().message.contains("doesn't go along"));
         assert!(on_results("ntile(revenue)").unwrap_err().message.contains("ntile(…) takes"));
         assert!(on_results("ntile(revenue, 0)").unwrap_err().message.contains("1 to 1000"));
         // one dimension: nothing to partition by

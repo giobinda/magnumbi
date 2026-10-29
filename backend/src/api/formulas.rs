@@ -686,6 +686,21 @@ mod tests {
             let total: f64 = rows.iter().filter(|r| r[0] == json!(region)).map(|r| num(&r[4]).unwrap()).sum();
             assert!(close(total, 1.0), "{region}'s shares add up to {total}");
         }
+        // the total next to each row: the region's, the whole chart's, and the share's own
+        let totals = json!([{"name": "of_region", "expr": "total(revenue, within(region))"},
+            {"name": "all", "expr": "total(revenue, within())"},
+            {"name": "share", "expr": "revenue / total(revenue)"}, {"name": "pct", "expr": "percent_of_total(revenue)"}]);
+        let body = run(json!({"model": "sales", "dimensions": ["region", "sold_at:quarter"],
+            "measures": ["revenue", "of_region", "all", "share", "pct"], "formulas": totals}))
+        .await;
+        let rows = body["rows"].as_array().unwrap();
+        let grand: f64 = rows.iter().map(|r| num(&r[2]).unwrap()).sum();
+        for r in rows {
+            let region: f64 = rows.iter().filter(|x| x[0] == r[0]).map(|x| num(&x[2]).unwrap()).sum();
+            assert!(close(num(&r[3]).unwrap(), region), "the region's total: {r}");
+            assert!(close(num(&r[4]).unwrap(), grand), "the chart's: {r}");
+            assert!(close(num(&r[5]).unwrap(), num(&r[6]).unwrap()), "revenue / total(revenue) is the share: {r}");
+        }
         clean_up(&state, &org).await;
     }
 
