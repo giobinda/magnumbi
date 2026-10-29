@@ -14,6 +14,9 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Totals with a condition**: `sum_if(amount, region = 'EMEA')`, `avg_if`, `count_if`, on
+  totals; the same as filtering, period comparisons included.
+
 - **Text and choices in formulas**: `contains`, `starts_with`, `ends_with` (capitals aside),
   `length`, `trim`, `left`, `right`, `replace`, and `in(region, 'EMEA', 'APAC')`; under Advanced,
   `case(region, 'EMEA', 'Europe', …, 'Other')`.

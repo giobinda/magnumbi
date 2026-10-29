@@ -71,7 +71,8 @@ fn query_schema() -> Value {
         "formulas": {"type": "array", "description": "calculations on the model's measures, each a column: \
 [{name, expr, label?, format?}]; expr like \"(revenue - cost) / revenue\" or \"sum(amount) / count_distinct(store)\"; \
 + - * / (x / 0 is empty), comparisons, and/or/not, if(cond, a, b), coalesce, round(x, places), abs, least, greatest, \
-in(x, a, b, …), case(x, when, then, …, else). \
+in(x, a, b, …), case(x, when, then, …, else); on totals, sum_if(column, condition), avg_if(…), count_if(condition), \
+over the rows meeting it (e.g. \"sum_if(amount, region = 'EMEA') / revenue\"). \
 per_row: true makes a field of each row from the model's columns (e.g. \"amount * qty\", \"if(region = 'EMEA', 'home', 'away')\", \
 with 'text', lower, upper, concat, contains / starts_with / ends_with (capitals aside), length, trim, left(t, n), right(t, n), \
 replace(t, from, to); dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \

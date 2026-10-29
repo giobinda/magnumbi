@@ -16,11 +16,12 @@ const MAX_LENGTH: usize = 1000;
 const MAX_DEPTH: usize = 32;
 /// The functions a formula may call, besides aggregations.
 #[rustfmt::skip]
-pub const FUNCTIONS: [&str; 31] = [
+pub const FUNCTIONS: [&str; 34] = [
     "if", "coalesce", "round", "abs", "least", "greatest", "in", "case", // numbers, logic
     "lower", "upper", "concat", "contains", "starts_with", "ends_with", "length", "trim", "left", "right", "replace",
     "year", "quarter", "month", "week", "day", "weekday", "hour", "today", "days_between", // dates
     "date_trunc", "date_add", "date_diff",
+    "sum_if", "avg_if", "count_if", // on totals, over the rows
 ];
 /// The parts of a date the functions of that name give, as numbers.
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
@@ -416,7 +417,8 @@ pub fn compile_on_results(
     resolve: &mut impl FnMut(&str) -> Result<(String, Type), String>,
 ) -> Result<(String, Type), FormulaError> {
     let node = parse(expr)?;
-    let mut c = Compiler { dl: Dialect::Postgres, resolve, window: Some(window), inside: false };
+    let mut c =
+        Compiler { dl: Dialect::Postgres, resolve, window: Some(window), inside: false, rows: None, in_row: false };
     let (sql, kind) = c.node(&node)?;
     match kind {
         Kind::Number | Kind::Any => Ok((sql, Type::Number)),
@@ -437,6 +439,44 @@ pub enum Type {
     DateTime,
 }
 
+/// An aggregation of each row's value (sum_if and the like), which the caller writes as it writes
+/// a measure's: so a period, and everything else a measure is computed with, applies the same.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum Aggregate {
+    Sum,
+    Avg,
+    Count,
+}
+
+type Resolve<'a> = &'a mut dyn FnMut(&str) -> Result<(String, Type), String>;
+type Aggregator<'a> = &'a mut dyn FnMut(Aggregate, &str) -> Result<String, String>;
+
+/// A formula on totals that may also add up rows with a condition (sum_if and the like): `row`
+/// resolves the columns of each row inside those, `aggregate` writes their aggregation.
+pub fn compile_totals(
+    expr: &str,
+    dl: Dialect,
+    resolve: &mut impl FnMut(&str) -> Result<(String, Type), String>,
+    row: &mut impl FnMut(&str) -> Result<(String, Type), String>,
+    aggregate: &mut impl FnMut(Aggregate, &str) -> Result<String, String>,
+) -> Result<(String, Type), FormulaError> {
+    let node = parse(expr)?;
+    let mut c = Compiler { dl, resolve, window: None, inside: false, rows: Some((row, aggregate)), in_row: false };
+    let (sql, kind) = c.node(&node)?;
+    Ok((sql, kind_type(kind)))
+}
+
+fn kind_type(kind: Kind) -> Type {
+    match kind {
+        Kind::Text => Type::Text,
+        Kind::Condition => Type::Condition,
+        Kind::Date => Type::Date,
+        Kind::Time => Type::Time,
+        Kind::DateTime => Type::DateTime,
+        Kind::Number | Kind::Any => Type::Number,
+    }
+}
+
 /// The SQL of a formula, and what it gives. `resolve` gives the SQL of a field or aggregation and
 /// its type, or why there's no such thing (it decides which fields a formula may use: measures
 /// for a formula on totals, columns for one per row).
@@ -446,17 +486,9 @@ pub fn compile(
     resolve: &mut impl FnMut(&str) -> Result<(String, Type), String>,
 ) -> Result<(String, Type), FormulaError> {
     let node = parse(expr)?;
-    let mut c = Compiler { dl, resolve, window: None, inside: false };
+    let mut c = Compiler { dl, resolve, window: None, inside: false, rows: None, in_row: false };
     let (sql, kind) = c.node(&node)?;
-    let t = match kind {
-        Kind::Text => Type::Text,
-        Kind::Condition => Type::Condition,
-        Kind::Date => Type::Date,
-        Kind::Time => Type::Time,
-        Kind::DateTime => Type::DateTime,
-        Kind::Number | Kind::Any => Type::Number,
-    };
-    Ok((sql, t))
+    Ok((sql, kind_type(kind)))
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -506,6 +538,10 @@ struct Compiler<'a, F> {
     window: Option<&'a Window>,
     /// inside a calculation on results (they don't nest)
     inside: bool,
+    /// on totals: the row's columns, and how to aggregate them (sum_if and the like)
+    rows: Option<(Resolve<'a>, Aggregator<'a>)>,
+    /// inside sum_if and the like: names are the row's columns
+    in_row: bool,
 }
 
 impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
@@ -585,7 +621,10 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             },
             Node::Bool(b) => ((if *b { "TRUE" } else { "FALSE" }).to_string(), Kind::Condition),
             Node::Null => ("NULL".to_string(), Kind::Any),
-            Node::Field { name, at } => match (self.resolve)(name) {
+            Node::Field { name, at } => match match (self.in_row, self.rows.as_mut()) {
+                (true, Some((row, _))) => row(name),
+                _ => (self.resolve)(name),
+            } {
                 Ok((sql, t)) => (sql, t.into()),
                 Err(why) => return fail(*at, why),
             },
@@ -663,6 +702,44 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
         Ok((sql, Kind::Number))
     }
 
+    /// An aggregation of the rows' values (sum_if and the like): their parts are the row's columns.
+    fn over_rows(&mut self, name: &str, args: &[Node], at: usize) -> Result<(String, Kind), FormulaError> {
+        if self.in_row {
+            return fail(at, format!("{name}(…) can't be used inside another that adds up rows"));
+        }
+        if self.rows.is_none() {
+            return fail(at, format!("{name}(…) adds up rows: it works in a formula on totals"));
+        }
+        self.in_row = true;
+        let each = self.each_row(name, args, at);
+        self.in_row = false;
+        let (agg, sql) = each?;
+        let (_, aggregate) = self.rows.as_mut().expect("checked above");
+        match aggregate(agg, &sql) {
+            Ok(sql) => Ok((sql, Kind::Number)),
+            Err(why) => fail(at, why),
+        }
+    }
+
+    /// What sum_if and the like aggregate: each row's value, or nothing where the condition fails.
+    fn each_row(&mut self, name: &str, args: &[Node], at: usize) -> Result<(Aggregate, String), FormulaError> {
+        let count = |ok: bool, how: &str| if ok { Ok(()) } else { fail(at, format!("{name}(…) takes {how}")) };
+        match name {
+            "sum_if" | "avg_if" => {
+                count(args.len() == 2, &format!("a number and a condition: {name}(amount, region = 'EMEA')"))?;
+                let x = self.number(&args[0], at)?;
+                let when = self.condition(&args[1], at, &format!("{name}(…)'s second part"))?;
+                let agg = if name == "sum_if" { Aggregate::Sum } else { Aggregate::Avg };
+                Ok((agg, format!("CASE WHEN {when} THEN {x} END")))
+            }
+            _ => {
+                count(args.len() == 1, "a condition: count_if(region = 'EMEA')")?;
+                let when = self.condition(&args[0], at, "count_if(…)'s condition")?;
+                Ok((Aggregate::Count, format!("CASE WHEN {when} THEN 1 END")))
+            }
+        }
+    }
+
     fn call(&mut self, name: &str, args: &[Node], at: usize) -> Result<(String, Kind), FormulaError> {
         if RESULT_FUNCTIONS.contains(&name) {
             return self.on_results(name, args, at);
@@ -714,6 +791,7 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                 }
                 Ok((format!("CONCAT({})", parts.join(", ")), Kind::Text))
             }
+            "sum_if" | "avg_if" | "count_if" => self.over_rows(name, args, at),
             "contains" | "starts_with" | "ends_with" => {
                 count(args.len() == 2, &format!("a text and the text to look for: {name}(store, 'milano')"))?;
                 let (t, x) = (self.text(&args[0], at)?, self.text(&args[1], at)?);
@@ -947,9 +1025,18 @@ pub(crate) mod tests {
         Ok((sql.into(), Type::Number))
     }
 
+    /// Aggregations of each row's values, spelled out.
+    fn aggregate(a: Aggregate, x: &str) -> Result<String, String> {
+        Ok(match a {
+            Aggregate::Sum => format!("SUM({x})"),
+            Aggregate::Avg => format!("AVG({x})"),
+            Aggregate::Count => format!("COUNT({x})"),
+        })
+    }
+
     /// A formula on totals: a number.
     fn sql(expr: &str) -> Result<String, FormulaError> {
-        match compile(expr, Dialect::Postgres, &mut resolve)? {
+        match compile_totals(expr, Dialect::Postgres, &mut resolve, &mut row, &mut aggregate)? {
             (sql, Type::Number) => Ok(sql),
             (_, t) => Err(FormulaError { at: 0, message: format!("gives {t:?}") }),
         }
@@ -1393,5 +1480,40 @@ pub(crate) mod tests {
             "CASE SUM(qty) WHEN 0 THEN NULL ELSE (CAST(SUM(amount) AS DOUBLE PRECISION) / NULLIF(SUM(qty), 0)) END"
         );
         assert!(compile("in(units, 1, 2)", Dialect::Postgres, &mut resolve).is_ok());
+    }
+
+    #[test]
+    fn totals_with_a_condition() {
+        assert_eq!(
+            sql("sum_if(amount, region = 'EMEA')").unwrap(),
+            "SUM(CASE WHEN (\"region\" = 'EMEA') THEN \"amount\" END)"
+        );
+        assert_eq!(sql("count_if(returned)").unwrap(), "COUNT(CASE WHEN \"returned\" THEN 1 END)");
+        assert_eq!(
+            sql("avg_if(amount * qty, qty > 1)").unwrap(),
+            "AVG(CASE WHEN (\"qty\" > 1) THEN (\"amount\" * \"qty\") END)"
+        );
+        // with the measures around them
+        assert_eq!(
+            sql("sum_if(amount, region = 'EMEA') / revenue").unwrap(),
+            "(CAST(SUM(CASE WHEN (\"region\" = 'EMEA') THEN \"amount\" END) AS DOUBLE PRECISION) / NULLIF(SUM(amount), 0))"
+        );
+        // dates in the condition: the row's columns, as per row
+        assert!(sql("count_if(year(sold_at) = 2026)").unwrap().contains("EXTRACT(YEAR FROM \"sold_at\")"));
+    }
+
+    #[test]
+    fn totals_with_a_condition_mistakes() {
+        let e = |x| sql(x).unwrap_err().message;
+        assert!(e("sum_if(region, returned)").contains("number"));
+        assert!(e("sum_if(amount, qty)").contains("condition"));
+        assert!(e("sum_if(amount)").contains("sum_if(…) takes"));
+        // inside, the row's columns: not measures
+        assert!(e("sum_if(revenue, returned)").contains("unknown column"), "{}", e("sum_if(revenue, returned)"));
+        assert!(e("sum_if(sum_if(amount, returned), returned)").contains("inside"));
+        // they add up rows: not per row, nor on a chart's results
+        let row = per_row("sum_if(amount, returned)", Dialect::Postgres).unwrap_err().message;
+        assert!(row.contains("on totals"), "{row}");
+        assert!(on_results("running_sum(count_if(returned))").unwrap_err().message.contains("on totals"));
     }
 }

@@ -512,6 +512,45 @@ mod tests {
         clean_up(&state, &org).await;
     }
 
+    /// Totals with a condition, on ScramDB: the same as filtering, period included.
+    #[tokio::test]
+    async fn totals_with_a_condition() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap();
+        let run = |q: serde_json::Value| {
+            let (app, org) = (&app, &org);
+            async move {
+                let (s, body, _) = send(app, c, org, "POST", "/api/query", Some(q), None).await;
+                assert_eq!(s, StatusCode::OK, "{body}");
+                body["rows"].as_array().unwrap().clone()
+            }
+        };
+        let close = |a: f64, b: f64| (a - b).abs() <= 1e-6 * b.abs().max(1.0);
+        let emea = [json!({"field": "region", "op": "equals", "values": ["EMEA"]})];
+        let filtered =
+            run(json!({"model": "sales", "measures": ["revenue", "transactions", "avg_ticket"], "filters": emea}))
+                .await;
+        let ifs = run(json!({"model": "sales", "measures": ["s", "n", "a"], "formulas": [
+            {"name": "s", "expr": "sum_if(amount, region = 'EMEA')"},
+            {"name": "n", "expr": "count_if(region = 'EMEA')"},
+            {"name": "a", "expr": "avg_if(amount, region = 'EMEA')"}]}))
+        .await;
+        for i in 0..3 {
+            assert!(close(num(&ifs[0][i]), num(&filtered[0][i])), "{ifs:?} {filtered:?}");
+        }
+        // with the previous period: the same as the filtered measure's, both periods
+        let period = json!({"field": "sold_at", "current": {"last_n_days": 90}, "compare": "previous_period"});
+        let by_filter =
+            run(json!({"model": "sales", "measures": ["revenue"], "filters": emea, "period": period})).await;
+        let by_if = run(json!({"model": "sales", "measures": ["s"], "period": period,
+            "formulas": [{"name": "s", "expr": "sum_if(amount, region = 'EMEA')"}]}))
+        .await;
+        assert!(close(num(&by_if[0][0]), num(&by_filter[0][0])), "{by_if:?} {by_filter:?}");
+        assert!(close(num(&by_if[0][1]), num(&by_filter[0][1])), "previous: {by_if:?} {by_filter:?}");
+        clean_up(&state, &org).await;
+    }
+
     #[tokio::test]
     async fn the_editor_checks_formulas_as_they_are_typed() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };

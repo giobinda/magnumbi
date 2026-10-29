@@ -656,6 +656,10 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   per value, then one for the rest); text in single quotes with `lower`, `upper`, `concat`,
   `contains`, `starts_with`, `ends_with` (capitals aside, no wildcards), `length`, `trim`,
   `left(t, 3)`, `right(t, 3)`, `replace(t, 'a', 'b')`; `true`, `false`, `null`.
+- **Totals with a condition** (on totals): `sum_if(amount, region = 'EMEA')`, `avg_if(…)` and
+  `count_if(region = 'EMEA')` add up only the rows that meet the condition, whose parts are each
+  row's columns (as per row): `sum_if(amount, region = 'EMEA') / revenue` is EMEA's share. The same
+  as filtering, period comparisons included.
 - **Dates** (per row): `year`, `quarter`, `month`, `week` (ISO, from Monday), `day`, `weekday`
   (1 for Monday to 7), `hour`, `today()` (UTC, written into the query, so a cached result is never
   yesterday's), `days_between(from, to)`; and, under Advanced, `date_trunc(d, 'month')` (hour, day,
