@@ -172,6 +172,8 @@ await shot('formula-results', '/explore', {
     await page.selectOption('.formula-editor select', 'currency')
     await page.fill('.formula-editor textarea', 'running_sum(revenue)')
     await page.waitForSelector('.formula-check.fine')
+    // the functions on the chart's results come last in the list
+    await page.locator('.formula-editor .field-group', { hasText: 'Compared with other rows' }).scrollIntoViewIfNeeded()
   },
 })
 await shot('explore-results', null, {
