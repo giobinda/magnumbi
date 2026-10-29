@@ -778,6 +778,17 @@ impl Dashboard {
             return Err("tab names must be unique and not empty".into());
         }
         for t in &self.tiles {
+            // the dashboard filters a tile doesn't follow: its own ones only
+            if let Some(ignored) = t.options.get("ignore_filters") {
+                let keys = ignored.as_array().filter(|a| a.iter().all(Value::is_string)).ok_or_else(|| {
+                    format!("tile {}: ignore_filters is a list of the dashboard's filters (model.field)", t.id)
+                })?;
+                for k in keys.iter().filter_map(Value::as_str) {
+                    if !self.filters.iter().any(|f| format!("{}.{}", f.model, f.field) == k) {
+                        return Err(format!("tile {}: ignore_filters: {k} isn't one of the dashboard's filters", t.id));
+                    }
+                }
+            }
             if !CHART_TYPES.contains(&t.kind.as_str()) {
                 return Err(format!("tile {}: unknown chart type {:?}", t.id, t.kind));
             }
@@ -879,5 +890,20 @@ mod tests {
     fn single_filter_value_becomes_a_list() {
         let f: Filter = serde_json::from_str(r#"{"field": "region", "values": "EMEA"}"#).unwrap();
         assert_eq!(f.values, vec![Value::String("EMEA".into())]);
+    }
+
+    #[test]
+    fn a_tile_ignores_only_the_dashboards_own_filters() {
+        let d = |ignore: &str| {
+            let yaml = format!(
+                "title: t\nfilters: [{{model: sales, field: region}}]\ntiles:\n  - {{id: a, type: bar, query: {{model: sales, measures: [revenue]}}, options: {{ignore_filters: {ignore}}}}}\n"
+            );
+            serde_yaml::from_str::<Dashboard>(&yaml).unwrap().validate()
+        };
+        assert!(d("[sales.region]").is_ok());
+        assert!(d("[]").is_ok());
+        let e = d("[sales.store]").unwrap_err();
+        assert!(e.contains("sales.store") && e.contains("filters"), "{e}");
+        assert!(d("sales.region").unwrap_err().contains("list"));
     }
 }

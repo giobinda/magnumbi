@@ -20,6 +20,7 @@ import type { OrgRef } from '../api'
 import { periodFromUrl } from '../period'
 import { initialFilterValues, useDashboardInputs } from '../dashboardInputs'
 import TileView from '../components/TileView'
+import { followed, scopeNote } from '../tileScope'
 import TextTile, { TextEditor } from '../components/TextTile'
 import Tabs, { MoveTab } from '../components/Tabs'
 import { onTab, pickTab } from '../tabs'
@@ -267,7 +268,8 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
               return (
                 <div key={t.id} data-tour={i === firstChart ? 'tiles' : undefined}>
                   {isChart(t)
-                    ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={filtersByModel[t.query.model]}
+                    ? <TileView tile={t} model={models.find(m => m.name === t.query.model)} extraFilters={followed(filtersByModel[t.query.model], t.query.model, t.options)}
+                        scope={scopeNote(dash, t, models.find(m => m.name === t.query.model))}
                         period={period && period.model === t.query.model ? tilePeriod : null}
                         source={{ dashboard: id, request: tileRequest }}
                         editing={editing} onEdit={() => setEditTile(t)} onDelete={remove} actions={move}
@@ -284,7 +286,7 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
         <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setEditTile(null) }}>
           <div className="modal wide">
             <h2>{editTile === 'new' ? 'Add tile' : 'Edit tile'}</h2>
-            <Explorer models={models} onModelsChanged={reloadModels} initial={editTile === 'new' ? undefined : editTile}
+            <Explorer models={models} onModelsChanged={reloadModels} initial={editTile === 'new' ? undefined : editTile} dashboard={dash}
               submitLabel={editTile === 'new' ? 'Add to dashboard' : quick ? 'Save' : 'Apply'}
               onSubmit={t => (quick && editTile !== 'new' ? saveTile(t) : upsertTile(editTile === 'new' ? t : { ...t, tab: editTile.tab }, editTile === 'new'))}
               onCancel={() => { setEditTile(null); setQuick(false) }} />

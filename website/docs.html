@@ -533,6 +533,7 @@ measures:
             <li><strong>Discover › Explore</strong> (Power users and up): pick a model, then double-click or drag dimensions and measures onto the shelves. Magnum BI suggests a chart; pick another from the list. <strong>Add to dashboard</strong> when it's right.</li>
             <li>One tile only: its <strong>✎</strong>, on the dashboard as it is (for those who may edit), opens the tile editor; <strong>Save</strong> saves the dashboard with it.</li>
             <li>On a dashboard, <strong>Edit</strong>: drag tiles by their title and resize them from the corner, add charts (<em>+ Add tile</em>), notes (<em>+ Add text</em>) and pages (<em>+ Tab</em>; ⇄ moves a tile to another tab), then <strong>Save</strong>. Every saved version is kept.</li>
+            <li>A tile can keep its own context: in its editor, untick a filter or the period under <strong>Follows the dashboard's</strong>, for a chart that should always show, say, every region or the whole year. On the dashboard, a tile that ignores some of them, or has filters of its own, carries a badge (<em>Ignores Region</em>, <em>Own filters</em>) that says how.</li>
             <li>Everyone uses the period and filters at the top, clicks a bar or a row to drill down, and downloads a tile's data or picture from its ⤓ menu, or the whole dashboard with <strong>Download</strong>.</li>
           </ol>
           <figure class="shot"><a href="assets/screens/explore.jpg"><img src="assets/screens/explore.jpg" alt="Explore: fields on the left, Region and Revenue on the shelves, a bar chart of revenue by region" width="1280" height="820" loading="lazy"></a><figcaption>Explore: Region and Revenue on the shelves, drawn as a bar chart.</figcaption></figure>
@@ -562,6 +563,11 @@ tiles:
     type: line
     query: {model: sales, dimensions: ["sold_at:day"], measures: [revenue]}
     layout: {x: 0, y: 2, w: 8, h: 5}
+  - id: all_categories
+    type: bar
+    query: {model: sales, dimensions: [category], measures: [revenue]}
+    options: {ignore_filters: [sales.category], period: false}   <span class="c"># keeps its own context</span>
+    layout: {x: 8, y: 2, w: 4, h: 5}
   - {id: how_to_read, type: text, tab: Detail, text: "## How to read this\n\nRevenue is **net of returns**."}</code></pre>
       </div>
           <p>A dashboard's <strong>YAML</strong> view (Power users and up) shows this same file: edit and apply it there, or download it to keep in git. Through the API: <code>GET</code>/<code>PUT /api/dashboards/{id}/yaml</code> (with <code>?dry_run=1</code> and <code>If-Match</code>), <code>GET …/history</code>; downloads are <code>POST …/tiles/{tile}/export</code> (CSV) and <code>POST …/export</code> (zip).</p>

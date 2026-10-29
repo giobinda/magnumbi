@@ -4,10 +4,11 @@ import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'rea
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
+import { dashboardInputs, ignoredOf, withIgnored } from '../tileScope'
 import { calcsInChart, type quickCalcs, usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
 import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
-import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
+import type { Aggregation, ChartType, Dashboard, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
 import ChartPicker from './ChartPicker'
 import FieldHelp from './FieldHelp'
 import FormulaEditor from './FormulaEditor'
@@ -44,6 +45,8 @@ type Props = {
   onCancel?: () => void
   /** a formula was shared: the models changed */
   onModelsChanged?: () => void
+  /** editing a dashboard's tile: which of its filters (and period) the tile follows */
+  dashboard?: Dashboard
 }
 
 /** Charts whose series have a legend (buildOption): its place is a tile option. */
@@ -51,7 +54,8 @@ const LEGENDED: string[] = ['bar', 'hbar', 'line', 'area', 'combo']
 /** Charts that split one measure into a series per value of a second dimension (Split by). */
 const SPLITTABLE: string[] = ['bar', 'hbar', 'line', 'area']
 
-export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel, onModelsChanged }: Props) {
+export default function Explorer({ models, initial, submitLabel, onSubmit, onCancel, onModelsChanged, dashboard }: Props) {
+  const [ignored, setIgnored] = useState<string[]>(() => ignoredOf(initial?.options))
   const [modelName, setModelName] = useState(initial?.query.model ?? models[0]?.name ?? '')
   const [dims, setDims] = useState<string[]>(initial?.query.dimensions ?? [])
   const [measures, setMeasures] = useState<string[]>(initial?.query.measures ?? [])
@@ -194,12 +198,13 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
       type,
       drill: drill || null,
       layout: initial?.layout ?? { x: 0, y: 0, w: 6, h: 5 },
-      options: {
+      // what it ignores of the dashboard kept, whatever else changes
+      options: withIgnored({
         ...(stack !== 'none' && ['bar', 'area', 'line'].includes(type) ? { stacked: true } : {}),
         ...(stack === 'percent' && ['bar', 'area'].includes(type) ? { percent: true } : {}),
         ...(type === 'gauge' && target !== '' ? { target } : {}),
         ...(LEGENDED.includes(type) && legend !== 'bottom' ? { legend } : {}),
-      },
+      }, ignored),
       query: {
         model: model.name, dimensions: dims, measures,
         filters: usable, sort: validSort.length ? validSort : undefined, limit,
@@ -208,7 +213,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         ...(formulas.length ? { formulas } : {}),
       },
     }
-  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, legend, target, period, initial, validTop, formulas])
+  }, [model, dims, measures, filters, sort, limit, type, title, drill, stack, legend, target, period, initial, validTop, formulas, ignored])
+  const inputs = dashboard && tile ? dashboardInputs(dashboard, tile, model) : []
 
 
   return (
@@ -397,6 +403,20 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
         </div>
 
         <PeriodControl model={model} period={period} onChange={setPeriod} editableField />
+
+        {inputs.length > 0 && (
+          <div className="tile-scope" role="group" aria-label="Follows the dashboard's">
+            <span className="muted small">Follows the dashboard's</span>
+            {inputs.map(i => (
+              <label key={i.key} className="check">
+                <input type="checkbox" checked={!ignored.includes(i.key)}
+                  onChange={e => setIgnored(xs => (e.target.checked ? xs.filter(x => x !== i.key) : [...xs, i.key]))} />
+                {i.label}
+              </label>
+            ))}
+            {ignored.some(k => inputs.some(i => i.key === k)) && <span className="muted small">Unticked: this tile keeps its own context, and says so.</span>}
+          </div>
+        )}
 
         <div className="preview">
           {tile ? <TileView key={JSON.stringify(tile.query) + tile.drill} tile={tile} model={model} />

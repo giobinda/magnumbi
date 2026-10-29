@@ -14,6 +14,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **A tile can ignore the dashboard's filters or period** (`options.ignore_filters`, `period:
+  false`; in the tile editor, *Follows the dashboard's*), and a tile filtered differently from the
+  rest says so with a badge. Data restrictions and guest links' filters always apply.
+
 - **Formulas on blends**: on totals across the blend's models (`taxi.trips / weather.hours`), after
   the join; fields of each row on one model's fields, computed on that model's engine before it
   aggregates; checked as they're typed. The attack suite covers them.
