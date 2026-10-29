@@ -16,13 +16,13 @@ const MAX_LENGTH: usize = 1000;
 const MAX_DEPTH: usize = 32;
 /// The functions a formula may call, besides aggregations.
 #[rustfmt::skip]
-pub const FUNCTIONS: [&str; 54] = [
+pub const FUNCTIONS: [&str; 57] = [
     "if", "coalesce", "round", "abs", "least", "greatest", "in", "case", // numbers, logic
     "floor", "ceil", "mod", "power", "sqrt", "ln", "log10", "exp",
     "lower", "upper", "concat", "contains", "starts_with", "ends_with", "length", "trim", "left", "right", "replace",
     "substring", "position", "split_part", "to_number", "to_text",
     "year", "quarter", "month", "week", "day", "weekday", "hour", "today", "days_between", // dates
-    "date_trunc", "date_add", "date_diff", "hours_between", "minutes_between",
+    "date_trunc", "date_add", "date_diff", "hours_between", "minutes_between", "format_date", "fiscal_year", "fiscal_quarter",
     "sum_if", "avg_if", "count_if", "min_if", "max_if", "count_distinct_if", "stddev", "variance", // over the rows
 ];
 /// On totals, the functions that add up rows (each row's columns inside them).
@@ -32,9 +32,9 @@ pub const OVER_ROWS: [&str; 8] =
 const DATE_PARTS: [&str; 7] = ["year", "quarter", "month", "week", "day", "weekday", "hour"];
 /// Calculations on a chart's results (window functions, run on ScramDB: results.rs).
 #[rustfmt::skip]
-pub const RESULT_FUNCTIONS: [&str; 10] = [
+pub const RESULT_FUNCTIONS: [&str; 13] = [
     "running_sum", "moving_avg", "previous", "rank", "percent_of_total",
-    "running_avg", "next", "difference", "percent_change", "dense_rank",
+    "running_avg", "next", "difference", "percent_change", "dense_rank", "first", "last", "ntile",
 ];
 /// Aggregations of a column, as in Explore's Σ: `sum(amount)`.
 pub const AGGREGATIONS: [&str; 6] = ["sum", "avg", "min", "max", "count", "count_distinct"];
@@ -814,13 +814,18 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             ("moving_avg", _) => {
                 return fail(at, "moving_avg(…) takes a number and how many rows: moving_avg(revenue, 3)");
             }
+            ("ntile", [_, Node::Number(n)]) => match n.parse::<u32>() {
+                Ok(n) if (1..=1000).contains(&n) => n,
+                _ => return fail(at, "ntile(…)'s number of groups must be a whole number from 1 to 1000"),
+            },
+            ("ntile", _) => return fail(at, "ntile(…) takes a number and how many groups: ntile(revenue, 4)"),
             (_, [_]) => 0,
             _ => return fail(at, format!("{name}(…) takes one number")),
         };
         self.inside = true;
         let x = self.number(&args[0], at)?;
         self.inside = false;
-        let ranks = matches!(name, "rank" | "dense_rank" | "percent_of_total");
+        let ranks = matches!(name, "rank" | "dense_rank" | "percent_of_total" | "ntile");
         if ranks && along_given.is_some() {
             return fail(
                 at,
@@ -862,6 +867,11 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
             }
             "dense_rank" => {
                 format!("DENSE_RANK() OVER ({})", [across.clone(), format!("ORDER BY {x} DESC")].join(" ").trim())
+            }
+            "ntile" => format!("NTILE({n}) OVER ({})", [across.clone(), format!("ORDER BY {x} DESC")].join(" ").trim()),
+            "first" | "last" => {
+                let whole = [along.join(" "), "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING".into()];
+                format!("{}_VALUE({x}) OVER ({})", name.to_uppercase(), whole.join(" ").trim())
             }
             "moving_avg" => format!("AVG({x}) OVER ({})", frame(&format!("{} PRECEDING", n - 1))),
             "previous" => format!("LAG({x}) OVER ({})", along.join(" ")),
@@ -1087,6 +1097,72 @@ impl<F: FnMut(&str) -> Result<(String, Type), String>> Compiler<'_, F> {
                     (sql, _) => Ok((format!("CAST({sql} AS {})", self.dl.text()), Kind::Text)),
                 }
             }
+            "format_date" => {
+                count(args.len() == 2, "a date and a pattern: format_date(sold_on, 'YYYY-MM')")?;
+                let (x, k) = self.date(&args[0], at)?;
+                let Node::Text(pattern) = &args[1] else {
+                    return fail(at, "format_date(…)'s pattern goes in quotes, such as 'YYYY-MM'");
+                };
+                let parts = date_pattern(pattern).map_err(|e| FormulaError { at, message: e })?;
+                if k == Kind::Date && parts.iter().any(|p| matches!(*p, "HH" | "MI")) {
+                    return fail(at, "format_date(…)'s HH and MI needs a time; this is a date, without one");
+                }
+                let pg = |p: &str| match p {
+                    "HH" => "HH24".to_string(),
+                    other => other.to_string(),
+                };
+                let strf = |p: &str| match p {
+                    "YYYY" => "%Y".to_string(),
+                    "MM" => "%m".into(),
+                    "DD" => "%d".into(),
+                    "HH" => "%H".into(),
+                    "MI" => "%M".into(),
+                    "Mon" => "%b".into(),
+                    "Dy" => "%a".into(),
+                    other => other.to_string(),
+                };
+                let quote = |p: String| self.dl.quote(&p).map_err(|e| FormulaError { at, message: e.0 });
+                Ok((
+                    match (self.dl, k) {
+                        (Dialect::Postgres, _) => {
+                            format!("TO_CHAR({x}, {})", quote(parts.iter().map(|p| pg(p)).collect())?)
+                        }
+                        (Dialect::DuckDb, _) => {
+                            format!("STRFTIME({x}, {})", quote(parts.iter().map(|p| strf(p)).collect())?)
+                        }
+                        (Dialect::BigQuery, kind) => {
+                            let f = quote(parts.iter().map(|p| strf(p)).collect())?;
+                            match kind {
+                                Kind::Date => format!("FORMAT_DATE({f}, {x})"),
+                                Kind::Time => format!("FORMAT_TIMESTAMP({f}, {x}, 'UTC')"),
+                                _ => format!("FORMAT_DATETIME({f}, {x})"),
+                            }
+                        }
+                    },
+                    Kind::Text,
+                ))
+            }
+            "fiscal_year" | "fiscal_quarter" => {
+                count(args.len() == 2, &format!("a date and the month its year starts: {name}(sold_on, 4)"))?;
+                let (x, k) = self.date(&args[0], at)?;
+                let Some(m) = whole(&args[1]).filter(|m| (1..=12).contains(m)) else {
+                    return fail(at, format!("{name}(…)'s month the year starts is 1 to 12 (4: April)"));
+                };
+                Ok((
+                    match name {
+                        // named after the year it ends in: from April, 2026-04-01 is in 2027's
+                        "fiscal_year" => match (13 - m) % 12 {
+                            0 => date_part(self.dl, "year", &x),
+                            shift => date_part(self.dl, "year", &date_add(self.dl, &x, k, shift, "month")),
+                        },
+                        _ => match m - 1 {
+                            0 => date_part(self.dl, "quarter", &x),
+                            back => date_part(self.dl, "quarter", &date_add(self.dl, &x, k, -back, "month")),
+                        },
+                    },
+                    Kind::Number,
+                ))
+            }
             "hours_between" | "minutes_between" => {
                 count(args.len() == 2, &format!("two dates or times: {name}(started_at, ended_at)"))?;
                 let (from, to) = (self.date(&args[0], at)?, self.date(&args[1], at)?);
@@ -1273,6 +1349,28 @@ fn days_between(dl: Dialect, from: (String, Kind), to: (String, Kind)) -> String
         Dialect::DuckDb => format!("DATE_DIFF('day', {a}, {b})"),
         Dialect::Postgres => format!("({b} - {a})"),
     }
+}
+
+/// format_date's pattern, in parts: YYYY, MM, DD, HH, MI, Mon, Dy, and separators (the same on
+/// every engine: letters mean different things to each, so no others).
+fn date_pattern(t: &str) -> Result<Vec<&'static str>, String> {
+    const PARTS: [&str; 7] = ["YYYY", "Mon", "MM", "MI", "DD", "HH", "Dy"];
+    const SEPARATORS: [&str; 8] = [" ", "-", "/", ".", ":", ",", "(", ")"];
+    let mut out = vec![];
+    let mut rest = t;
+    while !rest.is_empty() {
+        let Some(p) = PARTS.iter().chain(&SEPARATORS).find(|p| rest.starts_with(**p)) else {
+            return Err(format!(
+                "format_date(…) understands YYYY, MM, DD, HH, MI, Mon (Mar), Dy (Sun) and - / . : , spaces; not {rest:?}"
+            ));
+        };
+        out.push(*p);
+        rest = &rest[p.len()..];
+    }
+    if out.len() > 40 {
+        return Err("format_date(…)'s pattern is at most 40 parts".into());
+    }
+    Ok(out)
 }
 
 /// The seconds from one date or time to another, as a number.
@@ -1644,6 +1742,16 @@ pub(crate) mod tests {
             on_results("dense_rank(revenue)").unwrap(),
             "DENSE_RANK() OVER (PARTITION BY \"c0\" ORDER BY \"c1\" DESC)"
         );
+        // the first and last values along, and quartiles across
+        let whole = "ROWS BETWEEN UNBOUNDED PRECEDING AND UNBOUNDED FOLLOWING";
+        assert_eq!(on_results("first(units)").unwrap(), format!("FIRST_VALUE(\"c2\") OVER ({along} {whole})"));
+        assert_eq!(on_results("last(units)").unwrap(), format!("LAST_VALUE(\"c2\") OVER ({along} {whole})"));
+        assert_eq!(
+            on_results("ntile(revenue, 4)").unwrap(),
+            "NTILE(4) OVER (PARTITION BY \"c0\" ORDER BY \"c1\" DESC)"
+        );
+        assert!(on_results("ntile(revenue)").unwrap_err().message.contains("ntile(…) takes"));
+        assert!(on_results("ntile(revenue, 0)").unwrap_err().message.contains("1 to 1000"));
         // one dimension: nothing to partition by
         let w = Window { along: "\"c0\"".into(), across: vec![], dims: vec![] };
         assert_eq!(compile_on_results("rank(units)", &w, &mut result).unwrap().0, "RANK() OVER (ORDER BY \"c2\" DESC)");
@@ -1713,6 +1821,17 @@ pub(crate) mod tests {
         ("hours_between(sold_on, sold_at)", "13.75"),
         ("minutes_between(sold_at, date_add(sold_at, 2, 'hour'))", "120"),
         ("minutes_between(naive, sold_at)", "0"),
+        // dates as text, in a pattern of our own (the same on every engine)
+        ("format_date(sold_at, 'YYYY-MM-DD HH:MI')", "2026-03-15 13:45"),
+        ("format_date(sold_on, 'Mon YYYY')", "Mar 2026"),
+        ("format_date(naive, 'Dy DD/MM')", "Sun 15/03"),
+        // fiscal years, named after the year they end in
+        ("fiscal_year(sold_on, 4)", "2026"),
+        ("fiscal_year(date_add(sold_on, 1, 'month'), 4)", "2027"),
+        ("fiscal_year(sold_at, 1)", "2026"),
+        ("fiscal_quarter(sold_on, 4)", "4"),
+        ("fiscal_quarter(sold_on, 1)", "1"),
+        ("fiscal_quarter(ordered_on, 10)", "1"),
     ];
 
     /// The dates of [`DATES`] as each engine writes them.
@@ -2086,5 +2205,33 @@ pub(crate) mod tests {
         // a distinct count of text, a minimum of dates
         assert!(sql("count_distinct_if(store, returned)").is_ok());
         assert!(per_row("stddev(amount)", Dialect::Postgres).unwrap_err().message.contains("on totals"));
+    }
+
+    #[test]
+    fn dates_as_text_and_fiscal_years() {
+        let bq = |e| per_row(e, Dialect::BigQuery).unwrap().0;
+        assert_eq!(bq("format_date(sold_on, 'YYYY-MM')"), "FORMAT_DATE('%Y-%m', \"sold_on\")");
+        assert_eq!(bq("format_date(sold_at, 'Dy HH:MI')"), "FORMAT_TIMESTAMP('%a %H:%M', \"sold_at\", 'UTC')");
+        assert_eq!(bq("format_date(naive, 'DD Mon')"), "FORMAT_DATETIME('%d %b', \"naive\")");
+        assert_eq!(
+            per_row("format_date(sold_on, 'YYYY-MM')", Dialect::DuckDb).unwrap().0,
+            "STRFTIME(\"sold_on\", '%Y-%m')"
+        );
+        assert_eq!(
+            per_row("format_date(sold_on, 'YYYY-MM')", Dialect::Postgres).unwrap().0,
+            "TO_CHAR(\"sold_on\", 'YYYY-MM')"
+        );
+        let pg = |e| per_row(e, Dialect::Postgres).unwrap_err().message;
+        assert!(
+            pg("format_date(sold_on, 'YYYY Q')").contains("YYYY, MM, DD"),
+            "{}",
+            pg("format_date(sold_on, 'YYYY Q')")
+        );
+        assert!(pg("format_date(sold_on, store)").contains("in quotes"));
+        assert!(pg("format_date(sold_on, 'DD HH')").contains("needs a time"));
+        assert!(pg("fiscal_year(sold_on, 13)").contains("1 to 12"));
+        assert!(pg("fiscal_quarter(sold_on)").contains("fiscal_quarter(…) takes"));
+        assert_eq!(per_row("format_date(sold_on, 'Mon')", Dialect::Postgres).unwrap().1, Type::Text);
+        assert_eq!(per_row("fiscal_year(sold_on, 7)", Dialect::Postgres).unwrap().1, Type::Number);
     }
 }

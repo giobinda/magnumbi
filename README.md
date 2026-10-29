@@ -636,8 +636,10 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   filter on it, or add it up (`sum(line_total)`). In YAML a dimension with `formula:` (its `type`
   is what it gives), or a query formula with `per_row: true`.
 - **On a chart's results** (`results.rs`): `running_sum(x)`, `running_avg(x)`, `moving_avg(x, rows)`,
-  `previous(x)`, `next(x)`, `difference(x)`, `percent_change(x)`, `rank(x)`, `percent_of_total(x)`
-  and, under Advanced, `dense_rank(x)`, mixed with the rest (`revenue / previous(revenue)`). The chart's
+  `previous(x)`, `next(x)`, `difference(x)`, `percent_change(x)`, `first(x)`, `last(x)`, `rank(x)`,
+  `percent_of_total(x)` and, under Advanced, `dense_rank(x)` and `ntile(x, 4)`. They may use one
+  another (`so_far = running_sum(revenue)`, then `rank(so_far)` or `revenue / so_far`): they run in
+  layers, each after those it uses. Mixed with the rest (`revenue / previous(revenue)`). The chart's
   query runs (or comes from the cache) without them; its result is copied to the organisation's
   ScramDB and they run there as window functions. Running, moving and previous go along the first
   date dimension (else the first), per value of the others; rank and % of total go across the
@@ -670,6 +672,10 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   can't be computed (√ of a negative, a logarithm of 0, `mod(x, 0)`) is empty, as dividing by zero.
 - **More text**: `substring(t, 1, 3)`, `to_number(t)` (empty when it isn't a number), `to_text(x)`;
   under Advanced `position(t, 'x')` and `split_part(t, '-', 2)`.
+- **Dates as text and fiscal years**: `format_date(sold_on, 'Mon YYYY')` in a pattern of our own,
+  the same on every engine (`YYYY`, `MM`, `DD`, `HH`, `MI`, `Mon`, `Dy` and separators); under
+  Advanced `fiscal_year(d, 4)` and `fiscal_quarter(d, 4)` for a year starting in April, named after
+  the year it ends in.
 - **Written dates**: `sold_on >= '2026-01-01'`, `sold_at < '2026-03-15 13:00'` (times in UTC), in
   `in(…)` and the date functions too; `hours_between` and `minutes_between` (1.5: an hour and a half).
 - **Totals with a condition** (on totals): `sum_if(amount, region = 'EMEA')`, `avg_if(…)`,

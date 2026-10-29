@@ -73,6 +73,9 @@ export const ROW_FUNCTIONS: FormulaFunction[] = [
   { name: 'date_diff', template: "date_diff(|, today(), 'month')", help: 'calendar days, months or years from one date to another', group: 'Dates', advanced: true },
   { name: 'hours_between', template: 'hours_between(|, )', help: 'the hours from one time to another (1.5: an hour and a half)', group: 'Dates' },
   { name: 'minutes_between', template: 'minutes_between(|, )', help: 'the minutes from one time to another', group: 'Dates' },
+  { name: 'format_date', template: "format_date(|, 'YYYY-MM')", help: 'a date as text: YYYY, MM, DD, HH, MI, Mon (Mar), Dy (Sun)', group: 'Dates' },
+  { name: 'fiscal_year', template: 'fiscal_year(|, 4)', help: 'the fiscal year, starting in the month given, named after the year it ends in', group: 'Dates', advanced: true },
+  { name: 'fiscal_quarter', template: 'fiscal_quarter(|, 4)', help: 'the quarter of the fiscal year starting in the month given', group: 'Dates', advanced: true },
 ]
 
 /** What a per-row formula gives (its type, as the server says), in words. */
@@ -99,6 +102,9 @@ export const RESULT_FUNCTIONS: FormulaFunction[] = [
   { name: 'difference', template: 'difference(|)', help: 'the change from the row before, along the first date', group: 'Compared with other rows' },
   { name: 'percent_change', template: 'percent_change(|)', help: 'the change from the row before, as a percentage', group: 'Compared with other rows' },
   { name: 'dense_rank', template: 'dense_rank(|)', help: 'like rank, without gaps after ties (1, 1, 2)', group: 'Compared with other rows', advanced: true },
+  { name: 'first', template: 'first(|)', help: 'the value on the first row, along the first date', group: 'Compared with other rows' },
+  { name: 'last', template: 'last(|)', help: 'the value on the last row, along the first date', group: 'Compared with other rows' },
+  { name: 'ntile', template: 'ntile(|, 4)', help: 'which of N equal groups, largest first: ntile(revenue, 4) gives quartiles', group: 'Compared with other rows', advanced: true },
   { name: 'along', template: ', along(|)', help: 'after the value: the dimension to go along, e.g. running_sum(revenue, along(sold_at))', group: 'Compared with other rows', advanced: true },
   { name: 'within', template: ', within(|)', help: 'after the value: the dimensions to start again for, e.g. within(region); within() for the whole chart', group: 'Compared with other rows', advanced: true },
 ]
@@ -173,17 +179,16 @@ type Chart = {
   label: (ref: string) => string
 }
 
-/** A chart measure's quick calculations: on measures and the chart's formulas, never on a
- *  calculation on results (they can't use one another); comparing rows needs a dimension. */
+/** A chart measure's quick calculations: on measures and the chart's formulas, calculations on
+ *  results included (they may use one another); comparing rows needs a dimension. */
 export function calcsInChart(ref: string, chart: Chart): { menu: string; formula: Formula }[] {
   const own = (r: string) => chart.formulas.find(f => f.name === r)
-  const calculable = (r: string) => !usesResults(own(r)?.expr ?? '')
-  if (!calculable(ref)) return []
   const format = own(ref)?.format ?? chart.model.measures.find(m => m.name === ref)?.format ?? undefined
-  const others = chart.measures.filter(o => o !== ref && calculable(o)).map(o => ({ ref: o, label: chart.label(o) }))
+  // calculations on results too: they're calculated before the ones using them
+  const others = chart.measures.filter(o => o !== ref).map(o => ({ ref: o, label: chart.label(o) }))
   const taken = [...chart.model.dimensions, ...chart.model.measures, ...chart.formulas].map(x => x.name)
   return quickCalcs({ ref, label: chart.label(ref), format }, others, taken)
-    .filter(c => chart.dimensions > 0 || !usesResults(c.formula.expr))
+    .filter(c => chart.dimensions > 0 || !usesResults(c.formula.expr, calculationNames(chart.formulas)))
 }
 
 type Store = { getItem(key: string): string | null; setItem(key: string, value: string): void }
@@ -199,8 +204,25 @@ export function rememberAdvanced(storage: Store, open: boolean) {
 }
 
 /** Whether a formula calculates on the chart's results (so it can't be shared, nor be a model's). */
-export function usesResults(expr: string): boolean {
+export function usesResults(expr: string, calcs: string[] = []): boolean {
   return RESULT_FUNCTIONS.some(f => new RegExp(`\\b${f.name}\\s*\\(`, 'i').test(expr))
+    // or uses one of the chart's calculations on results, calculated before it
+    || calcs.some(c => new RegExp(`(^|[^\\w.])${c.replace(/[.]/g, '\\.')}($|[^\\w.(])`).test(expr))
+}
+
+/** The chart's formulas that calculate on its results: calling a function on results, or using
+ *  one that does (as results.rs's `calculations`). */
+export function calculationNames(formulas: Pick<Formula, 'name' | 'expr' | 'per_row'>[]): string[] {
+  const names: string[] = []
+  for (let grew = true; grew;) {
+    grew = false
+    for (const f of formulas) {
+      if (f.per_row || names.includes(f.name) || !usesResults(f.expr, names)) continue
+      names.push(f.name)
+      grew = true
+    }
+  }
+  return names
 }
 
 export const OPERATORS = ['+', '-', '*', '/', '(', ')', '>', '<', '=', 'and', 'or']

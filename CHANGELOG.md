@@ -14,6 +14,10 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Round 2 of functions**: `format_date(d, 'Mon YYYY')` (one pattern for every engine),
+  `fiscal_year` and `fiscal_quarter`; on results `first`, `last`, `ntile`; calculations on results
+  may use one another (`rank(so_far)`), run in layers; quick calculations on them too.
+
 - **More functions**: written dates (`sold_on >= '2026-01-01'`); `floor`, `ceil`, `mod`, `power`,
   `sqrt`, `ln`, `log10`, `exp`; `substring`, `position`, `split_part`, `to_number`, `to_text`;
   `hours_between`, `minutes_between`; on totals `min_if`, `max_if`, `count_distinct_if`, `stddev`,
