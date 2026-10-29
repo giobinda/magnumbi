@@ -146,7 +146,14 @@ pub fn build(
     if !unknown.is_empty() {
         return invalid(format!("not a filter of this dashboard: {unknown:?}"));
     }
+    // those the tile ignores (its author's choice: dashboard filters only, never restrictions)
+    let ignored = |key: &str| {
+        tile.options.get("ignore_filters").and_then(Value::as_array).is_some_and(|a| a.iter().any(|k| k == key))
+    };
     for (key, f) in &declared {
+        if ignored(key) {
+            continue;
+        }
         let Some(field) = tile_field(&q.model, model, &f.model, &f.field) else { continue };
         let values = req.filters.get(key).unwrap_or(&f.default);
         if values.len() > MAX_VALUES {
@@ -285,5 +292,27 @@ tiles:
         assert!(matches!(build(&d, &d.tiles[0], &m, &req, true), Err(TileRequestError::Invalid(_))));
         let req: TileRequest = serde_json::from_value(json!({"drill": [{"field": "store", "value": "x"}]})).unwrap();
         assert!(build(&d, &d.tiles[0], &m, &req, true).is_err(), "only fields shown in the tile");
+    }
+
+    #[test]
+    fn a_tile_may_ignore_dashboard_filters() {
+        let (mut d, m) = fixtures();
+        d.filters.push(serde_yaml::from_str("{model: sales, field: region}").unwrap());
+        d.tiles[0].options.insert("ignore_filters".into(), json!(["sales.category"]));
+        let req = TileRequest {
+            filters: BTreeMap::from([
+                ("sales.category".into(), vec![json!("Bags")]),
+                ("sales.region".into(), vec![json!("EMEA")]),
+            ]),
+            ..Default::default()
+        };
+        // the tile that ignores the category: the region only, the viewer's category or not
+        let q = build(&d, &d.tiles[0], &m, &req, true).unwrap();
+        assert_eq!(q.filters.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(), ["region"]);
+        let q = build(&d, &d.tiles[0], &m, &TileRequest::default(), true).unwrap();
+        assert!(q.filters.is_empty(), "nor the category's default: {:?}", q.filters);
+        // the others follow every filter
+        let q = build(&d, &d.tiles[1], &m, &req, true).unwrap();
+        assert_eq!(q.filters.iter().map(|f| f.field.as_str()).collect::<Vec<_>>(), ["category", "region"]);
     }
 }

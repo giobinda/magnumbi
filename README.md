@@ -618,6 +618,12 @@ column (`sum(amount)`, `count_distinct(store)`), filters, Top/Bottom N and sorti
 Viewers never send queries: they ask for a saved tile with values for the dashboard's own
 filters, a period window and drill clicks, and the server rebuilds the query from the saved tile.
 
+A tile may keep its own context: `options: {ignore_filters: [sales.category], period: false}`
+(in its editor, *Follows the dashboard's*), for a chart that should always show every category or
+its own dates. Only the dashboard's filters can be ignored: data restrictions and a guest link's
+filters always apply. On the dashboard, such a tile (or one with filters of its own) carries a
+badge saying how it differs.
+
 ### Formulas
 
 Formulas are calculations written like a spreadsheet, of three kinds:

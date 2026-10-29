@@ -387,4 +387,28 @@ mod agent_tests {
         assert!(body["detail"].as_str().unwrap().contains("text"), "{body}");
         call(&app, &cookie, "DELETE", &format!("/api/dashboards/{id}"), None).await;
     }
+
+    #[tokio::test]
+    async fn a_tile_may_ignore_a_dashboard_filter() {
+        let Some((app, _, cookie)) = app().await else { return };
+        let id = format!("scope_{}", &uuid::Uuid::new_v4().simple().to_string()[..10]);
+        let yaml = "title: Scope\nfilters: [{model: sales, field: region}]\ntiles:\n  - {id: all, type: kpi, query: {model: sales, measures: [transactions]}, options: {ignore_filters: [sales.region]}}\n  - {id: picked, type: kpi, query: {model: sales, measures: [transactions]}}\n";
+        let (s, body) = put_yaml(&app, &cookie, &format!("/api/dashboards/{id}/yaml"), yaml, None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let ask = json!({"filters": {"sales.region": ["EMEA"]}});
+        let tile = |t: &str| format!("/api/dashboards/{id}/tiles/{t}/query");
+        let (_, all) = call(&app, &cookie, "POST", &tile("all"), Some(ask.clone())).await;
+        let (_, picked) = call(&app, &cookie, "POST", &tile("picked"), Some(ask)).await;
+        let (_, everything) =
+            call(&app, &cookie, "POST", "/api/query", Some(json!({"model": "sales", "measures": ["transactions"]})))
+                .await;
+        let n = |b: &Value| b["rows"][0][0].as_f64().unwrap_or_else(|| panic!("{b}"));
+        assert_eq!(n(&all), n(&everything), "the tile that ignores the region");
+        assert!(n(&picked) < n(&everything), "the one that follows it");
+        // only the dashboard's own filters may be ignored
+        let bad = yaml.replace("[sales.region]}}", "[sales.store]}}");
+        let (s, body) = put_yaml(&app, &cookie, &format!("/api/dashboards/{id}/yaml"), &bad, None).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{body}");
+        call(&app, &cookie, "DELETE", &format!("/api/dashboards/{id}"), None).await;
+    }
 }

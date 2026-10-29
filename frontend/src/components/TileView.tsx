@@ -30,6 +30,8 @@ type Props = {
   onQuickEdit?: () => void
   /** more buttons while editing (move to another tab) */
   actions?: ReactNode
+  /** filtered differently from the rest of its dashboard (tileScope): its badge */
+  scope?: { short: string; detail: string } | null
 }
 
 export function tileTitle(tile: ChartTile, model?: ModelInfo, columns?: Column[]) {
@@ -47,7 +49,7 @@ export function tileTitle(tile: ChartTile, model?: ModelInfo, columns?: Column[]
   return say((tile.query.measures ?? []).map(x => fieldLabel(model, x)), (tile.query.dimensions ?? []).map(x => fieldLabel(model, x))) || tile.id
 }
 
-export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onQuickEdit, onDelete, actions }: Props) {
+export default function TileView({ tile, model, extraFilters, period, source, editing, onEdit, onQuickEdit, onDelete, actions, scope }: Props) {
   const can = useCan()
   const [steps, setSteps] = useState<DrillStep[]>([])
   const [showSql, setShowSql] = useState(false)
@@ -97,6 +99,7 @@ export default function TileView({ tile, model, extraFilters, period, source, ed
       <div className="tile-head">
         <div className="tile-title" title={[tileTitle(tile, model, data?.columns), data && !editing ? tileStats(data) : ''].filter(Boolean).join('\n')}>
           {tileTitle(tile, model, data?.columns)}
+          {scope && <span className="tile-scope-badge" title={scope.detail}>{scope.short}</span>}
           {steps.length > 0 && (
             <span className="crumbs">
               <button className="link" onClick={() => setSteps([])}>All</button>
