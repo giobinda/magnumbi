@@ -519,6 +519,14 @@ label.check.inline { align-items: center; gap: 4px; }
 .field-group .new-formula { font-size: 12px; text-transform: none; letter-spacing: 0; font-weight: 600; }
 .chip.formula { font-style: italic; }
 .chip > button.edit { font-style: normal; font-weight: 700; }
+.calc-menu { position: relative; display: inline-flex; }
+.calc-menu > button { border: 0; background: none; min-height: 0; padding: 0 5px; color: inherit; font-size: 15px; font-weight: 700; font-style: normal; }
+.calc-list { position: absolute; top: calc(100% + 6px); left: -8px; z-index: 40; display: flex; flex-direction: column; min-width: 210px; padding: 6px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 12px 36px rgba(16, 24, 40, .16); font-style: normal; }
+.calc-list button { border: 0; background: none; text-align: left; padding: 6px 10px; min-height: 0; color: var(--text); font-weight: 400; border-radius: 6px; }
+.calc-list button:hover, .calc-list button:focus-visible { background: var(--surface-2); }
+.calc-head { padding: 4px 10px; font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.advanced-toggle { margin-top: 10px; font-size: 13px; }
 .formula-editor { display: flex; flex-direction: column; gap: 10px; width: min(760px, 100%); }
 .formula-editor label { display: flex; flex-direction: column; gap: 4px; }
 .formula-editor label.check { flex-direction: row; align-items: center; gap: 8px; }
@@ -529,6 +537,8 @@ label.check.inline { align-items: center; gap: 4px; }
 .formula-check .where { white-space: pre-wrap; word-break: break-all; color: var(--text); }
 .formula-check mark { background: var(--danger-soft); color: var(--danger); border-bottom: 2px solid var(--danger); }
 .formula-editor .palette { display: flex; flex-direction: column; gap: 4px; max-height: 40vh; overflow: auto; }
+.formula-editor .palette > * { flex-shrink: 0; }
+.formula-editor .palette > .advanced-toggle { align-self: flex-start; }
 .formula-editor .palette .row { gap: 6px; margin-top: 4px; justify-content: flex-start; }
 .formula-editor .palette .chip { border: 0; cursor: pointer; padding: 3px 10px; min-height: 0; }
 .chip.fn { background: var(--surface-2); color: var(--text); }

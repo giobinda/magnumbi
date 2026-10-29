@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -65,5 +65,71 @@ describe('formulas', () => {
     expect(usesResults('revenue / units')).toBe(false)
     // a field named like one isn't a call
     expect(usesResults('rank_score * 2')).toBe(false)
+  })
+
+  it('offers quick calculations on a measure, in plain words', () => {
+    const calcs = quickCalcs({ ref: 'revenue', label: 'Revenue', format: 'currency' }, [{ ref: 'sum(qty)', label: 'Units' }], ['revenue'])
+    expect(calcs.map(c => c.menu)).toEqual(['Share of total', 'Change from previous', '% change from previous',
+      'Running total', 'Average of last 3', 'Rank', 'Divided by Units'])
+    const by = (menu: string) => calcs.find(c => c.menu === menu)!.formula
+    expect(by('Share of total')).toEqual({ name: 'revenue_share_of_total', label: 'Revenue, share of total', expr: 'percent_of_total(revenue)', format: 'percent' })
+    // each its own name, as code would call it
+    expect(calcs.map(c => c.formula.name)).toEqual(['revenue_share_of_total', 'revenue_change', 'revenue_pct_change',
+      'revenue_running_total', 'revenue_avg_last_3', 'revenue_rank', 'revenue_per_units'])
+    expect(by('% change from previous')).toMatchObject({ expr: '(revenue - previous(revenue)) / previous(revenue)', format: 'percent' })
+    // amounts keep the measure's format
+    expect(by('Running total')).toMatchObject({ expr: 'running_sum(revenue)', format: 'currency' })
+    expect(by('Rank')).toMatchObject({ expr: 'rank(revenue)', format: 'number' })
+    expect(by('Divided by Units')).toEqual({ name: 'revenue_per_units', label: 'Revenue per Units', expr: 'revenue / sum(qty)', format: 'number' })
+    // a name already taken isn't reused
+    expect(quickCalcs({ ref: 'revenue', label: 'Revenue' }, [], ['revenue_rank'])
+      .find(c => c.menu === 'Rank')!.formula.name).toBe('revenue_rank_2')
+  })
+
+  it('groups the functions by what they do, the harder ones under Advanced', () => {
+    const groups = functionGroups(ROW_FUNCTIONS, false)
+    expect(groups.map(g => g.group)).toEqual(['Numbers', 'Logic', 'Text'])
+    expect(groups.flatMap(g => g.functions.map(f => f.name))).not.toContain('coalesce')
+    const all = functionGroups(ROW_FUNCTIONS, true).flatMap(g => g.functions.map(f => f.name))
+    expect(all).toContain('coalesce')
+    expect(all.length).toBe(ROW_FUNCTIONS.length)
+    // on totals: no text functions
+    expect(functionGroups(FUNCTIONS, true).map(g => g.group)).toEqual(['Numbers', 'Logic'])
+  })
+
+  it('offers quick calculations on the chart\'s measures, not on calculations on results', () => {
+    const model = { measures: [{ name: 'revenue', format: 'currency' as const }, { name: 'trips', format: 'number' as const }], dimensions: [{ name: 'day' }] }
+    const formulas = [{ name: 'share', label: 'Share', expr: 'percent_of_total(revenue)', format: 'percent' as const },
+      { name: 'per_trip', label: 'Per trip', expr: 'revenue / trips', format: 'currency' as const }]
+    const chart = { model, measures: ['revenue', 'trips', 'share', 'per_trip'], formulas, dimensions: 1, label: (r: string) => r }
+    const menus = (ref: string) => calcsInChart(ref, chart).map(c => c.menu)
+    // another measure to divide by, but never a calculation on results
+    expect(menus('revenue')).toContain('Divided by trips')
+    expect(menus('revenue')).toContain('Divided by per_trip')
+    expect(menus('revenue')).not.toContain('Divided by share')
+    // nothing on a calculation on results
+    expect(menus('share')).toEqual([])
+    // the measure's format carries over; a chart formula's too
+    expect(calcsInChart('revenue', chart).find(c => c.menu === 'Running total')!.formula.format).toBe('currency')
+    expect(calcsInChart('per_trip', chart).find(c => c.menu === 'Running total')!.formula.format).toBe('currency')
+    // names already used by the model or the chart aren't taken again
+    expect(calcsInChart('revenue', { ...chart, formulas: [...formulas, { name: 'revenue_rank', expr: 'rank(revenue)' }] })
+      .find(c => c.menu === 'Rank')!.formula.name).toBe('revenue_rank_2')
+    // with no dimension there's one row: nothing to compare it with, only dividing
+    expect(calcsInChart('revenue', { ...chart, dimensions: 0 }).map(c => c.menu)).toEqual(['Divided by trips', 'Divided by per_trip'])
+  })
+
+  it('remembers whether Advanced is open, closed until opened, and works without storage', () => {
+    const store = new Map<string, string>()
+    const storage = { getItem: (k: string) => store.get(k) ?? null, setItem: (k: string, v: string) => { store.set(k, v) } }
+    expect(advancedOpen(storage)).toBe(false)
+    rememberAdvanced(storage, true)
+    expect(advancedOpen(storage)).toBe(true)
+    rememberAdvanced(storage, false)
+    expect(advancedOpen(storage)).toBe(false)
+    // a private window may throw: closed, and nothing breaks
+    const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
+    expect(advancedOpen(broken)).toBe(false)
+    expect(() => rememberAdvanced(broken, true)).not.toThrow()
   })
 })

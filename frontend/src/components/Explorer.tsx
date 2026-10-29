@@ -1,10 +1,10 @@
 import { fieldGroups } from '../fieldGroups'
 import { splitBy, splitNote, splitOf } from '../splitBy'
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { DragEvent, ReactNode } from 'react'
 import { AGG_LABELS, api, fieldGrain, fieldLabel, fieldName, isTemporal, parseAdhoc } from '../api'
 import { useCan } from '../auth'
-import { usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
+import { calcsInChart, type quickCalcs, usesResults, withFormula, withRowFields, withoutFormula } from '../formula'
 import { fieldMatches, fieldTitle, modelOption, sensitive } from '../governance'
 import { suggestChart } from '../suggest'
 import type { Aggregation, ChartType, DimType, Dimension, Filter, FilterOp, Formula, GlossaryTerm, ModelInfo, Period, ChartTile, TopN, Value } from '../api'
@@ -135,6 +135,13 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
     const q = withoutFormula({ model: modelName, dimensions: dims, measures, filters, formulas }, name)
     setDims(q.dimensions ?? []); setMeasures(q.measures ?? []); setFilters(q.filters ?? []); setFormulas(q.formulas ?? [])
   }
+  /** A quick calculation on a measure: one of the chart's own formulas, open to change. */
+  const calculate = (f: Formula) => {
+    const q = withFormula({ model: modelName, measures, formulas }, f)
+    setFormulas(q.formulas ?? []); setMeasures(q.measures ?? [])
+  }
+  const calcsFor = (m: string) =>
+    model ? calcsInChart(m, { model, measures, formulas, dimensions: dims.length, label }) : []
   const asFormula = (f: { name: string; label?: string | null; formula?: string | null; description?: string | null }, perRow: boolean, format?: Formula['format']) =>
     ({ name: f.name, label: f.label, expr: f.formula ?? '', description: f.description, ...(perRow ? { per_row: true } : { format }) })
 
@@ -301,6 +308,7 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
                 <Chip key={m} kind={own ? 'measure formula' : 'measure'} label={adhoc ? fieldLabel(model, adhoc.field) : label(m)}
                   onRemove={() => (own ? remove(m) : setMeasures(measures.filter(x => x !== m)))}>
                   {own && <button className="edit" title={`${own.expr} (edit)`} onClick={() => setEditing(own)}>ƒ</button>}
+                  <CalcMenu calcs={calcsFor(m)} onPick={calculate} />
                   {adhoc && (
                     <select title="Aggregation" value={adhoc.agg} onChange={e => {
                       const next = `${e.target.value}(${adhoc.field})`
@@ -479,6 +487,33 @@ function Shelf({ label, drop, empty, children }: { label: string; drop: object; 
       <div className="shelf-label">{label}</div>
       <div {...drop}>{has ? children : <span className="placeholder">{empty}</span>}</div>
     </div>
+  )
+}
+
+/** A measure's quick calculations, in plain words. */
+function CalcMenu({ calcs, onPick }: { calcs: ReturnType<typeof quickCalcs>; onPick: (f: Formula) => void }) {
+  const [open, setOpen] = useState(false)
+  const box = useRef<HTMLSpanElement>(null)
+  useEffect(() => {
+    if (!open) return
+    const away = (e: MouseEvent) => { if (!box.current?.contains(e.target as Node)) setOpen(false) }
+    const esc = (e: KeyboardEvent) => { if (e.key === 'Escape') setOpen(false) }
+    document.addEventListener('mousedown', away); document.addEventListener('keydown', esc)
+    return () => { document.removeEventListener('mousedown', away); document.removeEventListener('keydown', esc) }
+  }, [open])
+  if (!calcs.length) return null
+  return (
+    <span className="calc-menu" ref={box}>
+      <button className="edit" title="Calculate…" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen(!open)}>+</button>
+      {open && (
+        <span className="calc-list" role="menu">
+          <span className="calc-head">Calculate</span>
+          {calcs.map(c => (
+            <button key={c.menu} role="menuitem" title={c.formula.expr} onClick={() => { onPick(c.formula); setOpen(false) }}>{c.menu}</button>
+          ))}
+        </span>
+      )}
+    </span>
   )
 }
 

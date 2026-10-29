@@ -334,6 +334,74 @@ mod tests {
         clean_up(&state, &org).await;
     }
 
+    /// What Explore's "Calculate…" menu writes (frontend/src/formula.ts, quickCalcs), on a model's
+    /// measure, on a column's total and on the chart's own formula: each runs, and is right.
+    #[tokio::test]
+    async fn the_quick_calculations_run() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok()));
+        let calcs = |x: &str, n: &str| {
+            vec![
+                json!({"name": format!("{n}_share"), "expr": format!("percent_of_total({x})"), "format": "percent"}),
+                json!({"name": format!("{n}_change"), "expr": format!("{x} - previous({x})")}),
+                json!({"name": format!("{n}_pct"), "expr": format!("({x} - previous({x})) / previous({x})"), "format": "percent"}),
+                json!({"name": format!("{n}_running"), "expr": format!("running_sum({x})")}),
+                json!({"name": format!("{n}_avg3"), "expr": format!("moving_avg({x}, 3)")}),
+                json!({"name": format!("{n}_rank"), "expr": format!("rank({x})")}),
+            ]
+        };
+        let mut formulas = vec![json!({"name": "per_unit", "expr": "revenue / sum(qty)"})];
+        formulas.extend(calcs("revenue", "r"));
+        formulas.extend(calcs("sum(qty)", "q"));
+        formulas.extend(calcs("per_unit", "p"));
+        // divided by another measure: a column's total, and the chart's own formula
+        formulas.push(json!({"name": "r_per_q", "expr": "revenue / sum(qty)"}));
+        formulas.push(json!({"name": "r_per_p", "expr": "revenue / per_unit"}));
+        let names: Vec<String> = formulas.iter().map(|f| f["name"].as_str().unwrap().to_string()).collect();
+        let mut measures = vec!["revenue".to_string(), "sum(qty)".to_string()];
+        measures.extend(names.iter().cloned());
+        let q = json!({"model": "sales", "dimensions": ["sold_at:month"], "measures": measures,
+            "sort": ["sold_at:month"], "formulas": formulas});
+        let (s, body, _) = send(&app, c, &org, "POST", "/api/query", Some(q), None).await;
+        assert_eq!(s, StatusCode::OK, "{body}");
+        let at =
+            |name: &str| body["columns"].as_array().unwrap().iter().position(|c| c["name"] == json!(name)).unwrap();
+        let rows = body["rows"].as_array().unwrap();
+        assert!(rows.len() > 3, "{body}");
+        let close = |a: f64, b: f64| (a - b).abs() <= 0.01 * b.abs().max(1.0);
+        for (base, n) in [("revenue", "r"), ("sum__qty", "q"), ("per_unit", "p")] {
+            let x: Vec<f64> = rows.iter().map(|r| num(&r[at(base)]).unwrap()).collect();
+            let total: f64 = x.iter().sum();
+            for (i, r) in rows.iter().enumerate() {
+                let v = |c: &str| num(&r[at(&format!("{n}_{c}"))]);
+                assert!(close(v("share").unwrap(), x[i] / total), "{n} share, row {i}: {r}");
+                assert!(close(v("running").unwrap(), x[..=i].iter().sum()), "{n} running, row {i}: {r}");
+                let last3 = &x[i.saturating_sub(2)..=i];
+                assert!(
+                    close(v("avg3").unwrap(), last3.iter().sum::<f64>() / last3.len() as f64),
+                    "{n} avg3, row {i}: {r}"
+                );
+                let place = 1 + x.iter().filter(|&&y| y > x[i]).count();
+                assert_eq!(v("rank").unwrap() as usize, place, "{n} rank, row {i}: {r}");
+                if i == 0 {
+                    assert!(v("change").is_none() && v("pct").is_none(), "nothing before the first month: {r}");
+                } else {
+                    assert!(close(v("change").unwrap(), x[i] - x[i - 1]), "{n} change, row {i}: {r}");
+                    assert!(close(v("pct").unwrap(), (x[i] - x[i - 1]) / x[i - 1]), "{n} % change, row {i}: {r}");
+                }
+            }
+        }
+        for r in rows {
+            let (rev, qty, per) =
+                (num(&r[at("revenue")]).unwrap(), num(&r[at("sum__qty")]).unwrap(), num(&r[at("per_unit")]).unwrap());
+            assert!(close(num(&r[at("r_per_q")]).unwrap(), rev / qty), "{r}");
+            assert!(close(num(&r[at("r_per_p")]).unwrap(), rev / per), "{r}");
+        }
+        assert_eq!(body["columns"][at("r_pct")]["format"], json!("percent"));
+        clean_up(&state, &org).await;
+    }
+
     #[tokio::test]
     async fn the_editor_checks_formulas_as_they_are_typed() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };

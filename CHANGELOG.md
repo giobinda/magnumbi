@@ -14,6 +14,12 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Quick calculations** in Explore: **+** on a measure offers share of total, change and % change
+  from previous, running total, average of last 3, rank, and divided by another measure, in plain
+  words. Each adds an ordinary formula to open and change.
+- **The formula editor groups its functions** by what they do; the harder ones are under
+  **Advanced ▸**, closed until opened and remembered for each person.
+
 - **Search the catalog from the top bar**, on every page (`/` or Ctrl+K): models, fields,
   glossary terms and dashboards, each with what the catalog says about it, right in the list;
   picking one opens it (a dashboard; a field in its model's list in the Catalog, picked out; a

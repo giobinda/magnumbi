@@ -1,8 +1,8 @@
-import { useEffect, useRef, useState } from 'react'
+import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
 import { isTemporal } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { FUNCTIONS, OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, insertAt, nameFor, usesResults } from '../formula'
+import { FUNCTIONS, OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, functionGroups, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -25,6 +25,9 @@ type Props = {
   onCancel: () => void
 }
 
+/** localStorage, or nothing (a private window may refuse it) */
+const storage = () => { try { return localStorage } catch { return { getItem: () => null, setItem: () => {} } } }
+
 const numberColumns = (m: ModelInfo) => m.dimensions.filter(d => d.type === 'number' || d.type === 'string' || d.aggregation)
 const aggOf = (d: ModelInfo['dimensions'][number]) => d.aggregation ?? (d.type === 'number' ? 'sum' : 'count_distinct')
 
@@ -41,6 +44,11 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
   const [error, setError] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const box = useRef<HTMLTextAreaElement>(null)
+  const [advanced, setAdvanced] = useState(() => advancedOpen(storage()))
+  const toggleAdvanced = () => {
+    setAdvanced(!advanced)
+    rememberAdvanced(storage(), !advanced)
+  }
 
   // checked by the server (the same rules as the query), a moment after typing stops
   useEffect(() => {
@@ -138,18 +146,22 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
               ))}
             </div>
           </>}
-          <div className="field-group">Functions</div>
+          {functionGroups([...(perRow ? ROW_FUNCTIONS : FUNCTIONS), ...(inChart && !perRow ? RESULT_FUNCTIONS : [])], advanced).map(g => (
+            <Fragment key={g.group}>
+              <div className="field-group">{g.group}</div>
+              <div className="row wrap">
+                {g.functions.map(f => <button key={f.name} className="chip fn mono" title={f.help} onClick={() => insert(f.template)}>{f.name}</button>)}
+              </div>
+            </Fragment>
+          ))}
+          <div className="field-group">Operators</div>
           <div className="row wrap">
-            {(perRow ? ROW_FUNCTIONS : FUNCTIONS).map(f => <button key={f.name} className="chip fn mono" title={f.help} onClick={() => insert(f.template)}>{f.name}</button>)}
             {OPERATORS.map(o => <button key={o} className="chip fn mono" onClick={() => insert(/\w/.test(o) ? ` ${o} ` : o)}>{o}</button>)}
             {perRow && <button className="chip fn mono" title="Text, in single quotes" onClick={() => insert("'|'")}>'text'</button>}
           </div>
-          {inChart && !perRow && <>
-            <div className="field-group">On the chart's results</div>
-            <div className="row wrap">
-              {RESULT_FUNCTIONS.map(f => <button key={f.name} className="chip fn mono" title={f.help} onClick={() => insert(f.template)}>{f.name}</button>)}
-            </div>
-          </>}
+          <button type="button" className="link advanced-toggle" aria-expanded={advanced} onClick={toggleAdvanced}>
+            {advanced ? 'Fewer functions ▴' : 'Advanced ▸'}
+          </button>
         </div>
 
         {canShare && !shared && !onResults && (
