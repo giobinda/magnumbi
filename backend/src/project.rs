@@ -26,7 +26,7 @@ use serde_json::Value;
 use crate::blend::{Blend, MAX_SOURCE_ROWS, Plan, plan};
 use crate::compiler::{Dialect, compile_query, compile_query_up_to, expand};
 use crate::period::now_rounded;
-use crate::schema::{Dashboard, Drill, Formula, Model, Query, is_temporal};
+use crate::schema::{Dashboard, Dimension, Drill, Formula, Model, Query, is_temporal};
 use crate::themes::{Theme, builtin};
 
 pub const MAX_YAML_BYTES: usize = 512 * 1024;
@@ -172,7 +172,8 @@ impl ProjectState {
     /// that no longer fits, e.g. after its model changed, is left out and reported).
     pub fn with_formulas(&self, formulas: &[(String, Formula)]) -> ProjectState {
         let mut p = self.clone();
-        for (model, f) in formulas {
+        // a blend's: once the organisation's blends are in (with_blend_formulas)
+        for (model, f) in formulas.iter().filter(|(m, _)| self.models.contains_key(m) && !self.blends.contains_key(m)) {
             match p.formula_fits(model, f) {
                 Ok(m) => {
                     p.models.insert(model.clone(), m);
@@ -186,12 +187,48 @@ impl ProjectState {
         p
     }
 
+    /// This snapshot plus the organisation's shared formulas on blends (its own blends included).
+    pub fn with_blend_formulas(&self, formulas: &[(String, Formula)]) -> ProjectState {
+        let mut p = self.clone();
+        for (model, f) in formulas.iter().filter(|(m, _)| self.blends.contains_key(m) || !self.models.contains_key(m)) {
+            match p.formula_fits(model, f) {
+                Ok(m) => {
+                    p.models.insert(model.clone(), m);
+                    let b = p.blends.get_mut(model).expect("fits: a blend");
+                    b.shared.retain(|x| x.name != f.name);
+                    b.shared.push(f.clone());
+                    p.formulas.insert((model.clone(), f.name.clone()));
+                }
+                Err(e) => {
+                    p.errors.insert(format!("formula {model}.{}", f.name), e);
+                }
+            }
+        }
+        p
+    }
+
     /// The model with the formula added (or replacing the shared formula of that name), if it fits.
+    /// On a blend, as a query using it would be (blend::check_formula).
     pub fn formula_fits(&self, model: &str, f: &Formula) -> Result<Model, String> {
         f.check()?;
         let mut m = match self.models.get(model) {
-            Some(_) if self.blends.contains_key(model) => {
-                return Err(format!("{model} is a blend: formulas go on models"));
+            Some(m) if self.blends.contains_key(model) => {
+                let b = &self.blends[model];
+                let mut m = m.clone();
+                let replacing = b.shared.iter().any(|x| x.name == f.name);
+                if replacing {
+                    m.measures.retain(|x| x.name != f.name);
+                    m.dimensions.retain(|x| x.name != f.name);
+                } else if m.dimension(&f.name).is_some() || m.measure(&f.name).is_some() {
+                    return Err(format!("{model} already has a field named {:?}", f.name));
+                }
+                let given = crate::blend::check_formula(b, &self.models, &b.shared, f).map_err(|e| e.0)?;
+                if f.per_row {
+                    m.dimensions.push(Dimension { kind: given.unwrap_or_default(), ..f.as_dimension() });
+                } else {
+                    m.measures.push(f.as_measure());
+                }
+                return Ok(m);
             }
             Some(m) => m.clone(),
             None => return Err(format!("no model named {model:?}")),
@@ -579,6 +616,8 @@ fn extend(models: &BTreeMap<String, Model>, ext: &Model) -> Result<Model, String
 #[cfg(test)]
 mod tests {
     use super::*;
+    use chrono::Utc;
+    use serde_json::json;
 
     #[test]
     fn deeply_nested_yaml_is_refused_before_parsing() {
@@ -696,6 +735,47 @@ mod tests {
         let w = s.validate_dashboard(&d, &all, &only_db);
         assert!(w.iter().any(|w| w.starts_with("tile ok:") && w.contains("\"other\"")), "{w:?}");
         assert!(!w.iter().any(|w| w.starts_with("tile one:")), "one model: the other connection isn't needed");
+        std::fs::remove_dir_all(dir).ok();
+    }
+
+    #[test]
+    fn blends_have_shared_formulas_too() {
+        let a = "name: a\nconnection: db\ntable: t\ndimensions: [{name: k}, {name: x, type: number}]\nmeasures: [{name: n, type: count}]\n";
+        let b = "name: b\nconnection: other\ntable: u\ndimensions: [{name: k}, {name: y}]\nmeasures: [{name: m, type: count}]\n";
+        let dir = tmp_project(&[
+            ("models/a.yaml", a),
+            ("models/b.yaml", b),
+            ("blends/ab.yaml", "name: ab\nbase: a\njoins: [{model: b, on: [k = k]}]\n"),
+        ]);
+        let s = Project::new(&dir).current();
+        let f = |name: &str, expr: &str, per_row: bool| {
+            serde_json::from_value::<Formula>(json!({"name": name, "expr": expr, "per_row": per_row})).unwrap()
+        };
+        let shared = vec![
+            ("a".to_string(), f("double", "n * 2", false)),
+            ("ab".to_string(), f("per_m", "a.n / b.m", false)),
+            ("ab".to_string(), f("big", "a.x > 10", true)),
+            ("ab".to_string(), f("spread", "stddev(a.x)", false)),
+        ];
+        let p = s.with_formulas(&shared).with_blend_formulas(&shared);
+        // on the blend: listed with its fields, carried by the blend for its queries
+        assert!(p.models["ab"].measure("per_m").is_some_and(|m| m.formula.as_deref() == Some("a.n / b.m")));
+        assert_eq!(p.models["ab"].dimension("big").map(|d| d.kind.as_str()), Some("boolean"));
+        assert_eq!(p.blends["ab"].shared.iter().map(|f| f.name.as_str()).collect::<Vec<_>>(), ["per_m", "big"]);
+        // what doesn't fit a blend is reported, as for a model
+        assert!(p.errors["formula ab.spread"].contains("added up again"), "{:?}", p.errors);
+        // a model's own stay its own
+        assert!(p.models["a"].measure("double").is_some());
+        assert!(!p.errors.keys().any(|k| k.starts_with("formula a.")), "{:?}", p.errors);
+        // a query on the blend uses them by name
+        let q: Query =
+            serde_json::from_value(json!({"model": "ab", "dimensions": ["big"], "measures": ["per_m"]})).unwrap();
+        let crate::blend::Plan::Joined(j) = crate::blend::plan(&p.blends["ab"], &p.models, &q, Utc::now()).unwrap()
+        else {
+            panic!("both models")
+        };
+        assert_eq!(j.query.measures, ["per_m"]);
+        assert!(j.sides[0].source.dimension("big").is_some(), "the field of each row is on its model");
         std::fs::remove_dir_all(dir).ok();
     }
 }

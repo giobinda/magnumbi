@@ -196,8 +196,9 @@ describe('formulas', () => {
     expect(names({ perRow: false, inChart: false, blend: false })).not.toContain('running_sum')
     expect(names({ perRow: true, inChart: true, blend: false })).toContain('weekday')
     expect(names({ perRow: true, inChart: true, blend: false })).not.toContain('running_sum')
-    // on a blend, totals are added up per model before the join: no sum_if after it
-    expect(names({ perRow: false, inChart: true, blend: true })).not.toContain('sum_if')
+    // on a blend, totals are added up per model before the join: what adds up again only
+    expect(names({ perRow: false, inChart: true, blend: true })).toContain('sum_if')
+    for (const f of ['count_distinct_if', 'stddev', 'variance']) expect(names({ perRow: false, inChart: true, blend: true })).not.toContain(f)
     expect(names({ perRow: false, inChart: true, blend: true })).toContain('running_sum')
     expect(names({ perRow: true, inChart: true, blend: true })).toContain('contains')
   })

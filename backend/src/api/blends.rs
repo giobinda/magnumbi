@@ -110,7 +110,9 @@ async fn compile(
     for side in &j.sides {
         let (dialect, connector) = connection_for(state, caller, &side.source).await?;
         let mandatory = row_filters_for(&caller.scope, &caller.project, &side.model)?;
-        let compiled = compile_query_up_to(&side.source, &side.query, dialect, now, &mandatory, MAX_SOURCE_ROWS)?;
+        // aggregations of its columns (`sum(fare)`), and the fields behind sum_if and the like
+        let (source, query) = crate::compiler::expand(&side.source, &side.query, dialect)?;
+        let compiled = compile_query_up_to(&source, &query, dialect, now, &mandatory, MAX_SOURCE_ROWS)?;
         parts.push((dialect, connector, compiled));
     }
     let placeholders: Vec<String> = (0..j.sides.len()).map(|i| format!("source_{i}")).collect();
@@ -448,19 +450,72 @@ mod tests {
         let total = |b: &Value, i: usize| column(b, i).iter().map(|v| v.as_f64().unwrap()).sum::<f64>();
         assert!((total(&by_big, 2) - total(&raw, 1)).abs() < 0.01, "{by_big} vs {raw}");
 
+        // aggregations of a model's column, and totals with a condition, on a blend
+        let (s, agg) = call(&app, &cookie, "POST", "/api/query", Some(json!({"model": "sales_targets",
+            "dimensions": ["sales.region"], "measures": ["sum(sales.amount)", "big_share", "big_n"], "sort": ["sales.region"],
+            "formulas": [{"name": "big_share", "expr": "sum_if(sales.amount, sales.amount > 100) / targets.target"},
+                         {"name": "big_n", "expr": "count_if(sales.amount > 100)"}]}))).await;
+        assert_eq!(s, StatusCode::OK, "{agg}");
+        for (a, b) in column(&agg, 1).iter().zip(column(&direct, 1)) {
+            assert!((a.as_f64().unwrap() - b.as_f64().unwrap()).abs() < 0.01, "sum(sales.amount) {a} vs revenue {b}");
+        }
+        let (_, big) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales", "dimensions": ["region"],
+            "measures": ["revenue", "transactions"], "sort": ["region"],
+            "filters": [{"field": "amount", "op": "gt", "values": [100]}]})),
+        )
+        .await;
+        for (i, r) in agg["rows"].as_array().unwrap().iter().enumerate() {
+            let want = &big["rows"][i];
+            assert!((r[2].as_f64().unwrap() - want[1].as_f64().unwrap() / 1000.0).abs() < 1e-6, "{r} vs {want}");
+            assert_eq!(r[3].as_f64(), want[2].as_f64(), "{r} vs {want}");
+        }
+
+        // a shared formula on the blend: for everyone, used by name
+        let shared = json!({"name": "per_target", "label": "Of target", "expr": "sales.revenue / targets.target"});
+        let (s, b) = call(&app, &cookie, "PUT", "/api/formulas/sales_targets/per_target", Some(shared)).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (_, models) = call(&app, &cookie, "GET", "/api/models", None).await;
+        let listed = models.to_string();
+        assert!(listed.contains("per_target") && listed.contains("Of target"), "listed with the blend's fields");
+        let (s, by_name) = call(
+            &app,
+            &cookie,
+            "POST",
+            "/api/query",
+            Some(json!({"model": "sales_targets",
+            "dimensions": ["sales.region"], "measures": ["per_target"], "sort": ["sales.region"]})),
+        )
+        .await;
+        assert_eq!(s, StatusCode::OK, "{by_name}");
+        for (a, b) in column(&by_name, 1).iter().zip(column(&direct, 1)) {
+            assert!((a.as_f64().unwrap() - b.as_f64().unwrap() / 1000.0).abs() < 1e-6, "{a} vs {b} / 1000");
+        }
+        // one that can't be added up after the join isn't saved
+        let spread = json!({"name": "spread", "expr": "stddev(sales.amount)"});
+        let (s, b) = call(&app, &cookie, "PUT", "/api/formulas/sales_targets/spread", Some(spread)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "{b}");
+        let (s, _) = call(&app, &cookie, "DELETE", "/api/formulas/sales_targets/per_target", None).await;
+        assert_eq!(s, StatusCode::OK);
+
         // the editor checks them as they're typed, as a query on the blend would
         let check = |expr: &str, per_row: bool| json!({"model": "sales_targets", "expr": expr, "per_row": per_row});
         for (expr, per_row, want) in [
             ("sales.revenue / targets.target", false, json!({"ok": true})),
             ("sales.amount > 100", true, json!({"ok": true, "type": "boolean"})),
             ("concat(sales.region, '-', sales.store)", true, json!({"ok": true, "type": "string"})),
+            ("sum_if(sales.amount, sales.amount > 1) / targets.target", false, json!({"ok": true})),
         ] {
             let (s, b) = call(&app, &cookie, "POST", "/api/formulas/check", Some(check(expr, per_row))).await;
             assert_eq!((s, &b), (StatusCode::OK, &want), "{expr}");
         }
         for (expr, per_row, why) in [
             ("sales.revenue / targets.nope", false, "nope"),
-            ("sum_if(sales.amount, sales.amount > 1)", false, "sum_if"),
+            ("stddev(sales.amount)", false, "added up again"),
             ("sales.revenue + 'x'", false, "number"),
             ("concat(sales.region, targets.region)", true, "one model's fields"),
         ] {

@@ -698,8 +698,11 @@ Formulas are calculations written like a spreadsheet, of three kinds:
   engine as always, and the formula runs after the join, on ScramDB. A field of each row uses one
   model's fields (`taxi.fare > 20`) and is computed in that model's own query, on its engine,
   before it aggregates. Calculations on results work as on a model (`along(taxi.pickup_at)`).
-  Not on blends: `sum_if` and the like (after the join the rows are totals already) and sharing a
-  formula (it's saved on a model).
+  Aggregations of a model's column (`sum(taxi.fare)`) and totals with a condition
+  (`sum_if(taxi.fare, taxi.distance_mi > 5)`) are added up on their model's engine, then again
+  after the join (a hidden field of each row behind the second). What can't be added up again is
+  refused: `count_distinct`, `count_distinct_if`, `stddev`, `variance`. Org admins share formulas
+  on a blend as on a model (stored apart, checked as a query using them would be).
 
 ### Chart types
 
