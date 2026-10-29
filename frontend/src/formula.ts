@@ -23,7 +23,31 @@ export const ROW_FUNCTIONS: FormulaFunction[] = [
   { name: 'lower', template: 'lower(|)', help: 'the text in small letters', group: 'Text' },
   { name: 'upper', template: 'upper(|)', help: 'the text in capitals', group: 'Text' },
   { name: 'concat', template: "concat(|, ' ', )", help: 'texts (and numbers) joined', group: 'Text' },
+  { name: 'year', template: 'year(|)', help: 'the year of a date, e.g. 2026', group: 'Dates' },
+  { name: 'quarter', template: 'quarter(|)', help: 'the quarter of a date, 1 to 4', group: 'Dates' },
+  { name: 'month', template: 'month(|)', help: 'the month of a date, 1 to 12', group: 'Dates' },
+  { name: 'week', template: 'week(|)', help: 'the week of the year (weeks start on Monday)', group: 'Dates' },
+  { name: 'day', template: 'day(|)', help: 'the day of the month, 1 to 31', group: 'Dates' },
+  { name: 'weekday', template: 'weekday(|)', help: 'the day of the week: 1 for Monday to 7 for Sunday', group: 'Dates' },
+  { name: 'hour', template: 'hour(|)', help: 'the hour of a time, 0 to 23', group: 'Dates' },
+  { name: 'today', template: 'today()|', help: "today's date", group: 'Dates' },
+  { name: 'days_between', template: 'days_between(|, today())', help: 'the days from one date to another', group: 'Dates' },
+  { name: 'date_trunc', template: "date_trunc(|, 'month')", help: "the start of its hour, day, week, month, quarter or year", group: 'Dates', advanced: true },
+  { name: 'date_add', template: "date_add(|, 30, 'day')", help: 'a date moved by a number of hours, days, weeks, months or years (minus: back)', group: 'Dates', advanced: true },
+  { name: 'date_diff', template: "date_diff(|, today(), 'month')", help: 'calendar days, months or years from one date to another', group: 'Dates', advanced: true },
 ]
+
+/** What a per-row formula gives (its type, as the server says), in words. */
+export function gives(type: DimType | string | undefined): string {
+  switch (type) {
+    case 'number': return 'a number'
+    case 'string': return 'text'
+    case 'boolean': return 'yes or no'
+    case 'date': return 'a date'
+    case 'time': case 'datetime': return 'a date and time'
+    default: return ''
+  }
+}
 
 /** Calculations on a chart's results (run after the query, on ScramDB): only in a chart. */
 export const RESULT_FUNCTIONS: FormulaFunction[] = [

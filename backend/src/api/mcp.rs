@@ -72,7 +72,9 @@ fn query_schema() -> Value {
 [{name, expr, label?, format?}]; expr like \"(revenue - cost) / revenue\" or \"sum(amount) / count_distinct(store)\"; \
 + - * / (x / 0 is empty), comparisons, and/or/not, if(cond, a, b), coalesce, round(x, places), abs, least, greatest. \
 per_row: true makes a field of each row from the model's columns (e.g. \"amount * qty\", \"if(region = 'EMEA', 'home', 'away')\", \
-with 'text', lower, upper, concat): group by it, filter on it, or sum(it). \
+with 'text', lower, upper, concat; dates: year, quarter, month, week (ISO), day, weekday (1 Monday to 7), hour, \
+today(), days_between(from, to), date_trunc(d, 'month'), date_add(d, 30, 'day'), date_diff(from, to, 'month')): \
+group by it, filter on it, or sum(it). \
 Calculations on the results (computed after the query, on its rows): running_sum(x), moving_avg(x, n), previous(x), \
 rank(x), percent_of_total(x): along the first date dimension (else the first dimension), for each value of the others",
             "items": {"type": "object", "properties": {"name": {"type": "string"}, "expr": {"type": "string"},

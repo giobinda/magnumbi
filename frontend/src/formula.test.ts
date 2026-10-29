@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
+import { FUNCTIONS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, calcsInChart, functionGroups, gives, quickCalcs, rememberAdvanced, usesResults, insertAt, nameFor, withFormula, withRowFields, withoutFormula } from './formula'
 import type { ModelInfo } from './api'
 
 describe('formulas', () => {
@@ -23,7 +23,8 @@ describe('formulas', () => {
 
   it('knows the functions the server allows', () => {
     expect(FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest'])
-    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'lower', 'upper', 'concat'])
+    expect(ROW_FUNCTIONS.map(f => f.name)).toEqual(['if', 'round', 'coalesce', 'abs', 'least', 'greatest', 'lower', 'upper', 'concat',
+      'year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between', 'date_trunc', 'date_add', 'date_diff'])
   })
 
   it('adds a formula to a query as a measure, and takes it away', () => {
@@ -88,7 +89,12 @@ describe('formulas', () => {
 
   it('groups the functions by what they do, the harder ones under Advanced', () => {
     const groups = functionGroups(ROW_FUNCTIONS, false)
-    expect(groups.map(g => g.group)).toEqual(['Numbers', 'Logic', 'Text'])
+    expect(groups.map(g => g.group)).toEqual(['Numbers', 'Logic', 'Text', 'Dates'])
+    // the easy dates first; truncating, moving and counting in units under Advanced
+    expect(groups.find(g => g.group === 'Dates')!.functions.map(f => f.name))
+      .toEqual(['year', 'quarter', 'month', 'week', 'day', 'weekday', 'hour', 'today', 'days_between'])
+    expect(functionGroups(ROW_FUNCTIONS, true).find(g => g.group === 'Dates')!.functions.map(f => f.name))
+      .toContain('date_add')
     expect(groups.flatMap(g => g.functions.map(f => f.name))).not.toContain('coalesce')
     const all = functionGroups(ROW_FUNCTIONS, true).flatMap(g => g.functions.map(f => f.name))
     expect(all).toContain('coalesce')
@@ -131,5 +137,15 @@ describe('formulas', () => {
     const broken = { getItem: () => { throw new Error('denied') }, setItem: () => { throw new Error('denied') } }
     expect(advancedOpen(broken)).toBe(false)
     expect(() => rememberAdvanced(broken, true)).not.toThrow()
+  })
+
+  it('says what a formula gives, in words', () => {
+    expect(gives('number')).toBe('a number')
+    expect(gives('string')).toBe('text')
+    expect(gives('boolean')).toBe('yes or no')
+    expect(gives('date')).toBe('a date')
+    expect(gives('time')).toBe('a date and time')
+    expect(gives('datetime')).toBe('a date and time')
+    expect(gives(undefined)).toBe('')
   })
 })

@@ -1,8 +1,7 @@
 import { Fragment, useEffect, useRef, useState } from 'react'
 import { AGG_LABELS, api } from '../api'
-import { isTemporal } from '../api'
 import type { DimType, Format, Formula, FormulaCheck, ModelInfo } from '../api'
-import { FUNCTIONS, OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, functionGroups, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
+import { FUNCTIONS, OPERATORS, RESULT_FUNCTIONS, ROW_FUNCTIONS, advancedOpen, functionGroups, gives, insertAt, rememberAdvanced, nameFor, usesResults } from '../formula'
 
 type Props = {
   model: ModelInfo
@@ -86,7 +85,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
     ...model.measures.map(m => ({ name: m.name, label: m.label, formula: m.formula })),
     ...others.filter(f => !f.per_row).map(f => ({ name: f.name, label: f.label, formula: f.expr })),
   ].filter(m => m.name !== initial?.name)
-  const columns = model.dimensions.filter(d => d.name !== initial?.name && !isTemporal(d.type))
+  const columns = model.dimensions.filter(d => d.name !== initial?.name)
 
   return (
     <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) onCancel() }}>
@@ -113,7 +112,7 @@ export default function FormulaEditor({ model, initial, others = [], startPerRow
         </label>
         <div className={`formula-check ${check ? (check.ok ? 'fine' : 'bad') : ''}`} aria-live="polite">
           {!check ? <span className="muted">Click the fields and functions below, or type.</span>
-            : check.ok ? `✓ Looks right${check.type ? ` (gives ${check.type === 'string' ? 'text' : check.type === 'boolean' ? 'yes or no' : 'a number'})` : ''}`
+            : check.ok ? `✓ Looks right${check.type ? ` (gives ${gives(check.type)})` : ''}`
             : <>
                 <span>{check.error}</span>
                 {/* where the problem is */}

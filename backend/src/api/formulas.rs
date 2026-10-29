@@ -402,6 +402,74 @@ mod tests {
         clean_up(&state, &org).await;
     }
 
+    /// Dates in fields of each row (formula.rs's date functions), on ScramDB: they group, take a
+    /// grain, filter, and the editor says what they give.
+    #[tokio::test]
+    async fn dates_in_fields_of_each_row() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let num = |v: &serde_json::Value| v.as_f64().or_else(|| v.as_str().and_then(|s| s.parse().ok())).unwrap();
+        let run = |q: serde_json::Value| {
+            let (app, org) = (&app, &org);
+            async move {
+                let (s, body, _) = send(app, c, org, "POST", "/api/query", Some(q), None).await;
+                assert_eq!(s, StatusCode::OK, "{body}");
+                body["rows"].as_array().unwrap().clone()
+            }
+        };
+        // year and month of each sale: the same counts as grouping by the month
+        let by_month = run(json!({"model": "sales", "dimensions": ["sold_at:month"], "measures": ["transactions"],
+            "sort": ["sold_at:month"]}))
+        .await;
+        let parts =
+            run(json!({"model": "sales", "dimensions": ["y", "m"], "measures": ["transactions"], "sort": ["y", "m"],
+            "formulas": [{"name": "y", "expr": "year(sold_at)", "per_row": true},
+                         {"name": "m", "expr": "month(sold_at)", "per_row": true}]}))
+            .await;
+        assert_eq!(by_month.len(), parts.len());
+        for (a, b) in by_month.iter().zip(&parts) {
+            let month = a[0].as_str().unwrap();
+            assert_eq!(format!("{}-{:02}", num(&b[0]), num(&b[1]) as u32), month[..7], "{a} {b}");
+            assert_eq!(num(&a[1]), num(&b[2]), "{a} {b}");
+        }
+        // a date moved a year on is a date: it takes a grain
+        let years = run(json!({"model": "sales", "dimensions": ["sold_at:year"], "measures": ["transactions"],
+            "sort": ["sold_at:year"]}))
+        .await;
+        let later = run(json!({"model": "sales", "dimensions": ["later:year"], "measures": ["transactions"],
+            "sort": ["later:year"], "formulas": [{"name": "later", "expr": "date_add(sold_at, 1, 'year')", "per_row": true}]}))
+        .await;
+        assert_eq!(years.len(), later.len());
+        for (a, b) in years.iter().zip(&later) {
+            let year = |v: &serde_json::Value| v.as_str().unwrap()[..4].parse::<i32>().unwrap();
+            assert_eq!((year(&a[0]) + 1, num(&a[1])), (year(&b[0]), num(&b[1])), "{a} {b}");
+        }
+        // weekdays from 1 (Monday) to 7, and filtered on
+        let weekdays = [json!({"name": "wd", "expr": "weekday(sold_at)", "per_row": true})];
+        let all =
+            run(json!({"model": "sales", "dimensions": ["wd"], "measures": ["transactions"], "formulas": weekdays}))
+                .await;
+        assert!(all.iter().all(|r| (1.0..=7.0).contains(&num(&r[0]))), "{all:?}");
+        let weekend = run(json!({"model": "sales", "measures": ["transactions"], "formulas": weekdays,
+            "filters": [{"field": "wd", "op": "gte", "values": [6]}]}))
+        .await;
+        let counted: f64 = all.iter().filter(|r| num(&r[0]) >= 6.0).map(|r| num(&r[1])).sum();
+        assert_eq!(num(&weekend[0][0]), counted);
+        // a condition on dates: nothing was sold in the future
+        let future = run(json!({"model": "sales", "dimensions": ["ahead"], "measures": ["transactions"],
+            "formulas": [{"name": "ahead", "expr": "days_between(today(), sold_at) > 0", "per_row": true}]}))
+        .await;
+        assert!(future.iter().all(|r| r[0] == json!(false)), "{future:?}");
+        // the editor says what each gives
+        for (expr, given) in [("date_trunc(sold_at, 'week')", "time"), ("year(sold_at)", "number"), ("today()", "date")]
+        {
+            let check = json!({"model": "sales", "expr": expr, "per_row": true});
+            let (s, b, _) = send(&app, c, &org, "POST", "/api/formulas/check", Some(check), None).await;
+            assert_eq!((s, &b), (StatusCode::OK, &json!({"ok": true, "type": given})), "{expr}");
+        }
+        clean_up(&state, &org).await;
+    }
+
     #[tokio::test]
     async fn the_editor_checks_formulas_as_they_are_typed() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };

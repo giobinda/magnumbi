@@ -14,6 +14,11 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Added
 
+- **Dates in formulas** (per row): `year`, `quarter`, `month`, `week`, `day`, `weekday`, `hour`,
+  `today()`, `days_between`; under Advanced, `date_trunc`, `date_add` and `date_diff`. A formula
+  giving a date is a date field, with grains. The same answers on ScramDB, PostgreSQL, DuckDB and
+  BigQuery.
+
 - **Quick calculations** in Explore: **+** on a measure offers share of total, change and % change
   from previous, running total, average of last 3, rank, and divided by another measure, in plain
   words. Each adds an ordinary formula to open and change.
