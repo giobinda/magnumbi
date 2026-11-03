@@ -1,3 +1,5 @@
+import { matches } from '../search'
+import ListSearch from '../components/ListSearch'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -13,6 +15,8 @@ export default function Home() {
   const { models, modelErrors } = useModels()
   const navigate = useNavigate()
   const can = useCan()
+  const [search, setSearch] = useState('')
+  const [modelSearch, setModelSearch] = useState('')
 
   useEffect(() => { api.dashboards().then(r => setList(r.dashboards), e => setError(e.message)) }, [])
 
@@ -28,6 +32,9 @@ export default function Home() {
     } catch (e) { void ask.alert((e as Error).message) }
   }
 
+  const shown = (list ?? []).filter(d => matches(search, d.title, d.description, d.id))
+  const shownModels = models.filter(m => matches(modelSearch, m.label, m.name, m.description))
+
   return (
     <div className="page">
       <div className="dash-head">
@@ -39,8 +46,9 @@ export default function Home() {
       <GetStarted />
       {error && <div className="error">{error}</div>}
       {Object.entries(modelErrors).map(([f, e]) => <div key={f} className="warn">⚠ {f}: {e}</div>)}
+      <ListSearch total={list?.length ?? 0} shown={shown.length} value={search} onChange={setSearch} what="dashboards" />
       <div className="cards">
-        {list?.map(d => (
+        {shown.map(d => (
           <Link key={d.id} to={`/dashboards/${d.id}`} className="card">
             <div className="card-title">{d.title}</div>
             {d.error ? <div className="error small">{d.error}</div> : <div className="muted small">{d.description || `${d.tiles} tiles`}</div>}
@@ -50,8 +58,9 @@ export default function Home() {
         {list?.length === 0 && <div className="empty">No dashboards yet.</div>}
       </div>
       {can('explore') && <h2 className="section">Models</h2>}
+      {can('explore') && <ListSearch total={models.length} shown={shownModels.length} value={modelSearch} onChange={setModelSearch} what="models" />}
       <div className="cards">
-        {can('explore') && models.map(m => (
+        {can('explore') && shownModels.map(m => (
           <Link key={m.name} to={`/explore?model=${m.name}`} className="card">
             <div className="card-title">{m.label}</div>
             <div className="muted small">{m.description}</div>

@@ -1,3 +1,6 @@
+import { matches } from '../search'
+import ListSearch from '../components/ListSearch'
+import Picker from '../components/Picker'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
@@ -20,6 +23,7 @@ export default function ModelsPage() {
   const [editing, setEditing] = useState<ModelDef | 'new' | null>(null)
   const [deleting, setDeleting] = useState<ModelDef | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const { models } = useModels()
   const navigate = useNavigate()
   const { auth } = useAuth()
@@ -44,7 +48,9 @@ export default function ModelsPage() {
     return <ModelWizard initial={editing === 'new' ? null : editing} taken={models.map(m => m.name)}
       onDone={() => { setEditing(null); forgetModels(); load() }} onCancel={() => setEditing(null)} />
   }
-  const platform = models.filter(m => !m.own && !m.blend && !own.some(o => o.model.name === m.name))
+  const platformAll = models.filter(m => !m.own && !m.blend && !own.some(o => o.model.name === m.name))
+  const platform = platformAll.filter(m => matches(search, m.label, m.name, m.connection))
+  const shownOwn = own.filter(({ model: m }) => matches(search, m.label, m.name, m.connection, m.table))
   return (
     <div className="page narrow">
       {deleting && <DeleteDataset kind="model" name={deleting.name} label={deleting.label ?? deleting.name} models={models}
@@ -58,9 +64,10 @@ export default function ModelsPage() {
       {error && <div className="error">{error}</div>}
       <div className="row"><button className="primary" data-tour="new-model" onClick={() => setEditing('new')}>+ New model</button></div>
 
+      <ListSearch total={own.length + platformAll.length} shown={shownOwn.length + platform.length} value={search} onChange={setSearch} what="models" />
       <h2 className="section">{inPlatform ? "The platform's models, made here" : "Your organisation's models"}</h2>
       {own.length === 0 && <p className="muted small">None yet: start with <b>New model</b>.</p>}
-      {own.map(({ model: m, updated_at, updated_by }) => (
+      {shownOwn.map(({ model: m, updated_at, updated_by }) => (
         <div key={m.name} className="card person row wrap">
           <b>{m.label ?? m.name}</b>
           <span className="muted small mono">{m.name} · {m.connection} · {m.table} · {m.dimensions.length} dimensions · {m.measures.length} measures</span>
@@ -102,6 +109,8 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
   const [rows, setRows] = useState<FieldRow[] | null>(null)
   const [count, setCount] = useState<MeasureDef>({ name: 'count', label: 'Count', type: 'count' })
   const [skipped, setSkipped] = useState<string[]>([])
+  const [tableSearch, setTableSearch] = useState('')
+  const [columnSearch, setColumnSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -142,16 +151,15 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
       {!rows && <>
         <div className="steps"><b>1. Where's the data?</b></div>
         <label className="small">Connection
-          <select value={connection} onChange={e => pickConnection(e.target.value)}>
-            <option value="">Choose a connection…</option>
-            {connections.map(c => <option key={c.name} value={c.name}>{c.name} ({c.type})</option>)}
-          </select>
+          <Picker value={connection} onChange={pickConnection} empty="Choose a connection…" label="Connection"
+            options={connections.map(c => ({ value: c.name, label: `${c.name} (${c.type})` }))} />
         </label>
         {connections.length === 0 && <p className="muted small">No connections yet: add one on <Link to="/connections">Connections</Link>.</p>}
         {connection && <>
           <div className="steps"><b>2. Which table?</b> <span className="muted small">{tables ? `${tables.length} found` : 'listing…'}</span></div>
+          <ListSearch total={tables?.length ?? 0} shown={(tables ?? []).filter(t => matches(tableSearch, t)).length} value={tableSearch} onChange={setTableSearch} what="tables" />
           <div className="table-pick">
-            {(tables ?? []).map(t => <button key={t} className="link" disabled={busy} onClick={() => review(t)}>{t}</button>)}
+            {[...(tables ?? [])].sort().filter(t => matches(tableSearch, t)).map(t => <button key={t} className="link" disabled={busy} onClick={() => review(t)}>{t}</button>)}
           </div>
         </>}
         <div className="row"><button onClick={onCancel}>Cancel</button></div>
@@ -161,16 +169,17 @@ function ModelWizard({ initial, taken, onDone, onCancel }: { initial: ModelDef |
         <div className="steps"><b>3. What's in it?</b> <span className="muted small">{connection} · {table}</span></div>
         <div className="row wrap">
           <label className="small grow">Name<input value={label} onChange={e => setLabel(e.target.value)} /></label>
-          <label className="small">Id <span className="muted">(permanent)</span>
+          <label className="small model-id">Id <span className="muted">(permanent)</span>
             <input className="mono" value={name} disabled={!!initial} onChange={e => setName(slug(e.target.value))} /></label>
         </div>
         {nameTaken && <div className="error small">The id {name} is taken.</div>}
         <p className="muted small"><b>Dimensions</b> are what people group and filter by (region, day); <b>measures</b> are the numbers
           they add up (revenue). A count of rows is always there.</p>
+        <ListSearch total={rows.length} shown={rows.filter(r => matches(columnSearch, r.column, r.label)).length} value={columnSearch} onChange={setColumnSearch} what="columns" />
         <table className="fields-table">
           <thead><tr><th /><th>Column</th><th>Name shown</th><th>Use as</th><th>Type</th></tr></thead>
           <tbody>
-            {rows.map((r, i) => (
+            {rows.map((r, i) => matches(columnSearch, r.column, r.label) && (
               <tr key={r.column} className={r.include ? '' : 'off'}>
                 <td><input type="checkbox" checked={r.include} onChange={e => set(i, { include: e.target.checked })} /></td>
                 <td className="mono small">{r.column}</td>
@@ -211,6 +220,7 @@ function SharedFormulas() {
   const [list, setList] = useState<SharedFormula[]>([])
   const [editing, setEditing] = useState<{ model: string; formula: Formula | null } | null>(null)
   const [pick, setPick] = useState('')
+  const [search, setSearch] = useState('')
   const [error, setError] = useState<string | null>(null)
   const { models, reload } = useModels()
   const load = () => api.formulas().then(r => setList(r.formulas), e => setError(e.message))
@@ -226,6 +236,7 @@ function SharedFormulas() {
     if (!(await ask.confirm(`Delete the formula "${s.formula.label ?? s.formula.name}"? Dashboards using it stop working.`, { danger: true, ok: 'Delete' }))) return
     try { await api.deleteFormula(s.model, s.formula.name); forgetModels(); reload(); load() } catch (e) { setError((e as Error).message) }
   }
+  const shownList = list.filter(s => matches(search, s.formula.label, s.formula.name, s.formula.expr, s.model))
   return <>
     <h2 className="section">Shared formulas</h2>
     <p className="muted small">Calculations on a model's measures, such as <span className="mono">revenue / transactions</span>, or
@@ -233,13 +244,12 @@ function SharedFormulas() {
       model's fields. Anyone who explores can also add a formula to their own chart.</p>
     {error && <div className="error">{error}</div>}
     <div className="row">
-      <select value={pick} onChange={e => setPick(e.target.value)} aria-label="Model">
-        <option value="">Choose a model…</option>
-        {usable.map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
-      </select>
+      <Picker value={pick} onChange={setPick} empty="Choose a model…" label="Model"
+        options={usable.map(m => ({ value: m.name, label: m.label }))} />
       <button disabled={!pick} onClick={() => setEditing({ model: pick, formula: null })}>ƒ New formula</button>
     </div>
-    {list.map(s => (
+    <ListSearch total={list.length} shown={shownList.length} value={search} onChange={setSearch} what="shared formulas" />
+    {shownList.map(s => (
       <div key={`${s.model}.${s.formula.name}`} className="card person row wrap">
         <b>{s.formula.label ?? s.formula.name}</b>
         <span className="muted small mono">{models.find(m => m.name === s.model)?.label ?? s.model} · {s.formula.per_row ? 'per row' : 'on totals'} · {s.formula.expr}</span>
@@ -287,10 +297,9 @@ function DrillPaths({ paths, onChange, dims }: {
             </span>
           ))}
         </span>
-        <select value="" aria-label="Next step" onChange={e => e.target.value && put(i, h, [...steps, e.target.value])}>
-          <option value="">{steps.length ? '+ next step' : '+ first step'}</option>
-          {dims.filter(d => !steps.includes(d.name)).map(d => <option key={d.name} value={d.name}>{d.label}</option>)}
-        </select>
+        <Picker value="" label="Next step" empty={steps.length ? '+ next step' : '+ first step'}
+          onChange={v => { if (v) put(i, h, [...steps, v]) }}
+          options={dims.filter(d => !steps.includes(d.name)).map(d => ({ value: d.name, label: d.label ?? d.name }))} />
         {steps.length < 2 && <span className="muted small">two steps or more</span>}
         <button className="link danger" onClick={() => onChange(Object.fromEntries(entries.filter((_, j) => j !== i)))}>Remove</button>
       </div>
@@ -349,14 +358,12 @@ function Lookups({ connection, table, mine, lookups, onChange }: {
         {l.on.map((pair, k) => (
           <div key={k} className="row key">
             <span className="small">{table}</span>
-            <select value={pair[0]} onChange={e => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [e.target.value, p[1]] : p)) })}>
-              <option value="">column…</option>{mine.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
+            <Picker value={pair[0]} empty="column…" label={`${table} column`} options={mine.map(c => ({ value: c, label: c }))}
+              onChange={v => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [v, p[1]] : p)) })} />
             <span>=</span>
             <span className="small">{l.table}</span>
-            <select value={pair[1]} onChange={e => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [p[0], e.target.value] : p)) })}>
-              <option value="">column…</option>{(columns[l.table] ?? []).map(c => <option key={c.column} value={c.column}>{c.column}</option>)}
-            </select>
+            <Picker value={pair[1]} empty="column…" label={`${l.table} column`} options={(columns[l.table] ?? []).map(c => ({ value: c.column, label: c.column }))}
+              onChange={v => put(i, { ...l, on: l.on.map((p, n) => (n === k ? [p[0], v] : p)) })} />
             {l.on.length > 1 && <button className="link danger" onClick={() => put(i, { ...l, on: l.on.filter((_, n) => n !== k) })}>×</button>}
           </div>
         ))}
@@ -378,10 +385,8 @@ function Lookups({ connection, table, mine, lookups, onChange }: {
     <div className="row lookup-add">
       {tables === null
         ? <button onClick={() => api.tables(connection).then(r => setTables(r.tables.filter(t => t !== table)), e => setError(e.message))}>+ Add a lookup</button>
-        : <select value="" onChange={e => e.target.value && add(e.target.value)}>
-            <option value="">Look up which table?</option>
-            {tables.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>}
+        : <Picker value="" empty="Look up which table?" label="Lookup table" options={tables.map(t => ({ value: t, label: t }))}
+            onChange={v => { if (v) add(v) }} />}
     </div>
   </>
 }

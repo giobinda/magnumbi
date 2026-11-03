@@ -1,3 +1,4 @@
+import Picker from '../components/Picker'
 import { useEffect, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -32,9 +33,7 @@ export default function ExplorePage() {
         <div className="modal-bg" onMouseDown={e => { if (e.target === e.currentTarget) setPending(null) }}>
           <div className="modal">
             <h2>Add to dashboard</h2>
-            <select value={target} onChange={e => setTarget(e.target.value)}>
-              {dashboards.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
-            </select>
+            <Picker value={target} onChange={setTarget} label="Dashboard" options={dashboards.map(d => ({ value: d.id, label: d.title }))} />
             <div className="row"><button onClick={() => setPending(null)}>Cancel</button><button className="primary" disabled={!target} onClick={addTo}>Add</button></div>
           </div>
         </div>

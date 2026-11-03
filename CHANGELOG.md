@@ -7,6 +7,14 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ### Changed
 
+- **Search on long lists**: past 8 entries, a choice among models, tables, connections, fields,
+  columns, dashboards or organisations gets a search box, as do the lists of dashboards, models,
+  blends, connections, people, organisations, reports, shared formulas, a table's columns and the
+  catalog's fields. The search finds every word typed, capitals and accents aside.
+- **Bigger text boxes**: the catalog's documentation gives each field a full-width description;
+  filter values, drill path names and a model's id are wider. A new model's tables are one per
+  line, in order.
+
 - **Deleting a connection or a model says what uses it**: its models, blends and dashboards, each
   with a box to delete it too. Nothing else goes unless ticked: what's left works again once a new
   one of the same name is back.

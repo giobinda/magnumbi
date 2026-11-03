@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import { useEffect, useState } from 'react'
 import { api, setOrg } from '../api'
 import { forgetModels } from '../hooks'
@@ -37,10 +38,8 @@ export default function DemoCard({ orgs = [], databases = {}, months: first = 13
         two DuckDB connections, and the dashboards <b>NYC taxi overview</b> and <b>NYC taxi × weather</b>, joined with the blend
         taxi_weather. About 60 MB of downloads a month; months already there are skipped.</p>
       <div className="row wrap">
-        {orgs.length > 0 && <select value={org} onChange={e => setOrgChoice(e.target.value)} disabled={status?.running}>
-          <option value="">Platform workspace</option>
-          {orgs.map(o => <option key={o.id} value={o.id} disabled={!databases[o.id]}>{o.name}{databases[o.id] ? '' : ' (no database yet)'}</option>)}
-        </select>}
+        {orgs.length > 0 && <Picker value={org} onChange={setOrgChoice} disabled={status?.running} empty="Platform workspace" label="Organisation"
+          options={orgs.map(o => ({ value: o.id, label: `${o.name}${databases[o.id] ? '' : ' (no database yet)'}`, disabled: !databases[o.id] }))} />}
         <select value={months} onChange={e => setMonths(Number(e.target.value))} disabled={status?.running}>
           {MONTHS.map(([n, l]) => <option key={n} value={n}>{l} · ~{Math.round(n * 0.06 * 10) / 10} GB</option>)}
         </select>

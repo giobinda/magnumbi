@@ -82,9 +82,15 @@ the sample data (New York taxi trips with the weather), one click away in *Get s
 | Linux: Debian, Ubuntu | [magnum-bi-linux-amd64.deb](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-amd64.deb) |
 | Linux: Fedora, openSUSE | [magnum-bi-linux-x86_64.rpm](https://github.com/giobinda/magnumbi/releases/latest/download/magnum-bi-linux-x86_64.rpm) |
 
-Each [release](https://github.com/giobinda/magnumbi/releases) also lists their `SHA256SUMS`. The
-apps aren't signed, so macOS and Windows ask the first time you open one: on macOS, *System
-Settings › Privacy & Security › Open Anyway*; on Windows, *More info › Run anyway*
+> **On a Mac, run this before opening it.** The app isn't signed, so macOS blocks it until you
+> clear its quarantine. Drag *Magnum BI* to Applications, then run this in Terminal:
+>
+> ```bash
+> xattr -d com.apple.quarantine "/Applications/Magnum BI.app"
+> ```
+
+Each [release](https://github.com/giobinda/magnumbi/releases) also lists their `SHA256SUMS`. On
+Windows, the app isn't signed either: the first time you open it, choose *More info › Run anyway*
 ([details](https://giobinda.github.io/magnumbi/docs.html#desktop-app)). Everything it keeps is in
 `~/.magnum-bi`. Lite has no organisations, members or sign-in (an optional PIN locks it), and no
 public or guest links: for a team, run the server.

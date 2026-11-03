@@ -1,3 +1,6 @@
+import { matches } from '../search'
+import ListSearch from '../components/ListSearch'
+import Picker from '../components/Picker'
 import { ask } from '../dialogs'
 import { blendName, matchSentence, suggestKeys } from '../blendForm'
 import type { Key } from '../blendForm'
@@ -33,6 +36,7 @@ export default function BlendsPage() {
   const [list, setList] = useState<Blend[] | null>(null)
   const [editing, setEditing] = useState<Blend | 'new' | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const load = () => api.blends().then(r => setList(r.blends), e => setError(e.message))
   useEffect(() => { load() }, [])
   const models = all.filter(m => !m.blend)
@@ -52,8 +56,9 @@ export default function BlendsPage() {
       {error && <div className="error">{error}</div>}
       {list && (
         <table className="data">
+          <caption><ListSearch total={list.length} shown={list.filter(b => matches(search, b.label, b.name, b.description, describe(b, all))).length} value={search} onChange={setSearch} what="blends" /></caption>
           <thead><tr><th>Blend</th><th>Joins</th><th>Defined</th><th /></tr></thead>
-          <tbody>{list.map(b => (
+          <tbody>{list.filter(b => matches(search, b.label, b.name, b.description, describe(b, all))).map(b => (
             <tr key={b.name}>
               <td><b>{b.label || b.name}</b>{b.label && <div className="muted small mono">{b.name}</div>}</td>
               <td className="small">{describe(b, all)}</td>
@@ -130,33 +135,27 @@ function BlendForm({ initial, models, onDone, onCancel }: {
         <input value={description} onChange={e => setDescription(e.target.value)} />
       </label>
       <label className="small">Start from <span className="muted">· the model whose rows the others are added to</span>
-        <select value={base} onChange={e => setBase(e.target.value)}>
-          {models.map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
-        </select>
+        <Picker value={base} onChange={setBase} label="Start from" options={models.map(m => ({ value: m.name, label: m.label }))} />
       </label>
 
       {joins.map((j, i) => (
         <fieldset key={i} className="join">
           <legend>Add the data of</legend>
           <div className="row">
-            <select value={j.model} onChange={e => pick(i, e.target.value)}>
-              <option value="">Choose a model…</option>
-              {models.filter(m => m.name !== base && (m.name === j.model || !joins.some(x => x.model === m.name)))
-                .map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
-            </select>
+            <Picker value={j.model} onChange={v => pick(i, v)} empty="Choose a model…" label="Model to add"
+              options={models.filter(m => m.name !== base && (m.name === j.model || !joins.some(x => x.model === m.name)))
+                .map(m => ({ value: m.name, label: m.label }))} />
             {joins.length > 1 && <button type="button" className="link danger" onClick={() => setJoins(joins.filter((_, k) => k !== i))}>Remove</button>}
           </div>
           {j.model && j.keys.map((k, n) => (
             <div key={n} className="row key">
-              <select value={k.base} onChange={e => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, base: e.target.value } : x)) })}>
-                <option value="">{model(base)?.label} field…</option>
-                {dims(base).map(d => <option key={d.name} value={d.name}>{d.label || d.name}</option>)}
-              </select>
+              <Picker value={k.base} empty={`${model(base)?.label} field…`} label={`${model(base)?.label} field`}
+                options={dims(base).map(d => ({ value: d.name, label: d.label || d.name }))}
+                onChange={v => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, base: v } : x)) })} />
               <span>=</span>
-              <select value={k.other} onChange={e => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, other: e.target.value } : x)) })}>
-                <option value="">{model(j.model)?.label} field…</option>
-                {dims(j.model).map(d => <option key={d.name} value={d.name}>{d.label || d.name}</option>)}
-              </select>
+              <Picker value={k.other} empty={`${model(j.model)?.label} field…`} label={`${model(j.model)?.label} field`}
+                options={dims(j.model).map(d => ({ value: d.name, label: d.label || d.name }))}
+                onChange={v => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, other: v } : x)) })} />
               {temporal(base, k.base) && temporal(j.model, k.other) && (
                 <select value={k.grain} title="Match dates and times by" onChange={e => setJoin(i, { ...j, keys: j.keys.map((x, m) => (m === n ? { ...x, grain: e.target.value } : x)) })}>
                   <option value="">the exact moment</option>

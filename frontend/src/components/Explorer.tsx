@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import { fieldGroups } from '../fieldGroups'
 import { splitBy, splitNote, splitOf } from '../splitBy'
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -220,9 +221,8 @@ export default function Explorer({ models, initial, submitLabel, onSubmit, onCan
   return (
     <div className="explorer">
       <aside className="fields">
-        <select value={modelName} onChange={e => switchModel(e.target.value)}>
-          {models.map(m => <option key={m.name} value={m.name}>{modelOption(m)}</option>)}
-        </select>
+        <Picker value={modelName} onChange={switchModel} label="Dataset"
+          options={models.map(m => ({ value: m.name, label: modelOption(m), hint: m.description, group: m.blend ? 'Blends' : 'Models' }))} />
         {model?.governance?.status === 'deprecated' && (
           <p className="warn-text small">Deprecated{model.governance.note ? `: ${model.governance.note}` : ''}</p>
         )}

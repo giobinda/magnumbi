@@ -1,3 +1,5 @@
+import { matches } from '../search'
+import ListSearch from '../components/ListSearch'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
@@ -88,6 +90,7 @@ export default function ConnectionsPage() {
   const [adding, setAdding] = useState<{ kind: 'file' | 'sheet'; name?: string } | null>(null)
   const [refreshing, setRefreshing] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const load = () => api.connections().then(r => { setList(r.connections); setKeySet(r.secret_key) }, e => setError(e.message))
   useEffect(() => { load() }, [])
 
@@ -113,8 +116,9 @@ export default function ConnectionsPage() {
 
       {list && (
         <table className="data">
+          <caption><ListSearch total={list.length} shown={list.filter(c => matches(search, c.name, kindOf(c), where(c))).length} value={search} onChange={setSearch} what="connections" /></caption>
           <thead><tr><th>Name</th><th>Type</th><th>Where</th><th>Secret</th><th>Updated</th><th /></tr></thead>
-          <tbody>{list.map(c => (
+          <tbody>{list.filter(c => matches(search, c.name, kindOf(c), where(c))).map(c => (
             <tr key={c.name}>
               <td><b>{c.name}</b></td><td>{kindOf(c)}</td>
               <td className="small mono">{where(c)}</td>

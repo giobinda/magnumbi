@@ -1,3 +1,5 @@
+import { matches, matchesOrBlank } from '../search'
+import ListSearch from '../components/ListSearch'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api, setOrg, SIGN_IN_LABELS, SIGN_IN_METHODS } from '../api'
@@ -20,6 +22,7 @@ export default function OrganisationsPage() {
   const [owners, setOwners] = useState('')
   const [platformPolicy, setPlatformPolicy] = useState<SignInPolicy | null>(null)
   const [rows, setRows] = useState<Row[]>([])
+  const [search, setSearch] = useState('')
   const [msg, setMsg] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -85,8 +88,10 @@ export default function OrganisationsPage() {
       </div>
 
       <h2 className="section">Organisations</h2>
+      <ListSearch total={rows.length} shown={rows.filter(r => matches(search, r.name, r.id)).length} value={search} onChange={setSearch} what="organisations" />
       <div className="access-rows">
         {rows.map((r, i) => {
+          if (!matchesOrBlank(search, r.name, r.id)) return null
           const set = (patch: Partial<Row>) => setRows(rows.map((x, j) => (j === i ? { ...x, ...patch } : x)))
           const all = r.models.includes('*')
           const available = all ? models : models.filter(m => r.models.includes(m.name))

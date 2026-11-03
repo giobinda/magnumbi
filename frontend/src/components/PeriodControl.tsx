@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import { useEffect, useState } from 'react'
 import { api, isTemporal } from '../api'
 import type { ModelInfo, Period, ResolvedPeriod } from '../api'
@@ -33,12 +34,9 @@ export default function PeriodControl({ model, period, onChange, editableField }
     <div className="period">
       {editableField && (
         <label title="Show a period of this date (the last 30 days, this month…) and compare it with the one before">Compare periods on
-          <select value={period?.field ?? ''} onChange={e => onChange(e.target.value
-            ? { field: e.target.value, current: period?.current ?? { last_n_days: 30 }, compare: period?.compare ?? null }
-            : null)}>
-            <option value="">— no period —</option>
-            {timeDims.map(d => <option key={d.name} value={d.name}>{d.label || d.name}</option>)}
-          </select>
+          <Picker value={period?.field ?? ''} empty="— no period —" label="Compare periods on"
+            options={timeDims.map(d => ({ value: d.name, label: d.label || d.name }))}
+            onChange={v => onChange(v ? { field: v, current: period?.current ?? { last_n_days: 30 }, compare: period?.compare ?? null } : null)} />
         </label>
       )}
       {editableField && !period && <span className="muted small period-hint">Pick a date to show a period of it, compared with the one before.</span>}

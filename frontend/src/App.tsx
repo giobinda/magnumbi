@@ -1,3 +1,4 @@
+import Picker from './components/Picker'
 import Dialogs from './components/Dialogs'
 import { useEffect, useRef, useState } from 'react'
 import { BrowserRouter, NavLink, Route, Routes, useLocation } from 'react-router-dom'
@@ -178,11 +179,8 @@ function OrgSwitcher() {
   if (!auth?.orgs) return auth?.org ? <span className="org-badge" title="Your organisation">{auth.org.name}</span> : null
   const pick = (id: string) => { setOrg(id || null); location.assign('/') }  // dashboards differ per organisation
   return (
-    <select className="org-select" title="Organisation you're working in" value={auth.org?.id ?? getOrg() ?? ''}
-      onChange={e => pick(e.target.value)}>
-      <option value="">Platform workspace</option>
-      {auth.orgs.map(o => <option key={o.id} value={o.id}>{o.name}</option>)}
-    </select>
+    <Picker className="org-select" title="Organisation you're working in" label="Organisation" value={auth.org?.id ?? getOrg() ?? ''}
+      onChange={pick} empty="Platform workspace" options={auth.orgs.map(o => ({ value: o.id, label: o.name }))} />
   )
 }
 

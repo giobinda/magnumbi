@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
@@ -107,10 +108,8 @@ export default function GuestDialog({ id, models, myRole, me, isAdmin, onClose }
           <div className="small"><b>Limit what guests see</b> <span className="muted">(optional; on top of your own restrictions)</span></div>
           {limits.map((l, i) => (
             <div key={i} className="row">
-              <select value={l.field} onChange={e => setLimits(ls => ls.map((x, j) => (j === i ? { ...x, field: e.target.value } : x)))}>
-                <option value="">Choose a field…</option>
-                {fields.map(f => <option key={f.key} value={f.key}>{f.label}</option>)}
-              </select>
+              <Picker value={l.field} empty="Choose a field…" label="Field" options={fields.map(f => ({ value: f.key, label: f.label }))}
+                onChange={v => setLimits(ls => ls.map((x, j) => (j === i ? { ...x, field: v } : x)))} />
               <span className="small muted">is one of</span>
               <input className="grow" placeholder="EMEA, APAC" value={l.values} onChange={e => setLimits(ls => ls.map((x, j) => (j === i ? { ...x, values: e.target.value } : x)))} />
               <button className="icon" title="Remove" onClick={() => setLimits(ls => ls.filter((_, j) => j !== i))}>✕</button>

@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import { useEffect, useRef, useState } from 'react'
 import { api, fieldLabel, isTemporal } from '../api'
 import type { Dashboard, DashboardFilter, FilterOp, ModelInfo, Value } from '../api'
@@ -94,19 +95,15 @@ function AddFilter({ dashboard, models, onAdd }: { dashboard: Dashboard; models:
   }
   return (
     <div className="add-filter-form" role="group" aria-label="Add a filter">
-      <select value={field} onChange={e => pick(e.target.value)} aria-label="Field">
-        <option value="">Field…</option>
-        {choices.map(c => <option key={`${c.model}.${c.field}`} value={`${c.model}.${c.field}`}>{c.label}</option>)}
-      </select>
+      <Picker value={field} onChange={pick} empty="Field…" label="Field"
+        options={choices.map(c => ({ value: `${c.model}.${c.field}`, label: c.label }))} />
       <select value={op} onChange={e => setOp(e.target.value as FilterOp)} aria-label="How it filters">
         {FILTER_OPS.map(o => <option key={o.op} value={o.op}>{o.label}</option>)}
       </select>
       {picked && linkChoices(dashboard, models, picked.model, picked.field).map(l => (
-        <select key={l.model} value={links[l.model] ?? ''} aria-label={`On ${l.label}`} title={`The same filter on ${l.label}'s tiles`}
-          onChange={e => setLinks(s => ({ ...s, [l.model]: e.target.value }))}>
-          <option value="">Not on {l.label}</option>
-          {l.options.map(o => <option key={o.field} value={o.field}>On {o.label}</option>)}
-        </select>
+        <Picker key={l.model} value={links[l.model] ?? ''} label={`On ${l.label}`} title={`The same filter on ${l.label}'s tiles`}
+          empty={`Not on ${l.label}`} options={l.options.map(o => ({ value: o.field, label: `On ${o.label}` }))}
+          onChange={v => setLinks(s => ({ ...s, [l.model]: v }))} />
       ))}
       <input value={label} placeholder="Label (optional)" onChange={e => setLabel(e.target.value)} />
       <button type="button" className="primary" disabled={!field} onClick={add}>Add</button>

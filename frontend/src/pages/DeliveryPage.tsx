@@ -1,3 +1,5 @@
+import ListSearch from '../components/ListSearch'
+import { matches } from '../search'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
@@ -60,16 +62,20 @@ export default function DeliveryPage() {
 function AllReports() {
   const [list, setList] = useState<Schedule[] | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
   const load = () => api.allSchedules().then(r => setList(r.schedules), e => setError(e.message))
   useEffect(() => { load() }, [])
   const act = async (f: () => Promise<unknown>) => { try { await f(); await load() } catch (e) { setError((e as Error).message) } }
   if (error) return <div className="error">{error}</div>
   if (!list) return null
   if (!list.length) return <p className="muted small">No scheduled reports yet: anyone from the User role up can schedule a dashboard (Schedule… on it).</p>
+  const shown = list.filter(s => matches(search, s.name, s.dashboard, s.created_by))
   return (
+    <>
+    <ListSearch total={list.length} shown={shown.length} value={search} onChange={setSearch} what="reports" />
     <div className="table-scroll"><table className="data small reports">
       <thead><tr><th>Report</th><th>Dashboard</th><th>When</th><th>To</th><th>Last run</th><th /></tr></thead>
-      <tbody>{list.map(s => (
+      <tbody>{shown.map(s => (
         <tr key={s.id} className={s.active ? '' : 'muted'}>
           <td><b>{s.name}</b><div className="muted">{s.alert ? `Alert: ${describeAlert(s.alert)} · ` : ''}by {s.created_by}</div></td>
           <td><a href={`/dashboards/${encodeURIComponent(s.dashboard)}`}>{s.dashboard}</a></td>
@@ -83,6 +89,7 @@ function AllReports() {
         </tr>
       ))}</tbody>
     </table></div>
+    </>
   )
 }
 

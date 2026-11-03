@@ -1,3 +1,5 @@
+import { matches, matchesOrBlank } from '../search'
+import ListSearch from '../components/ListSearch'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { api } from '../api'
@@ -23,6 +25,7 @@ export default function MembersPage() {
   const [data, setData] = useState<MembersResponse | null>(null)
   const [cfg, setCfg] = useState<Members | null>(null)
   const [people, setPeople] = useState<Person[]>([])
+  const [search, setSearch] = useState('')
   const [msg, setMsg] = useState<{ kind: 'error' | 'ok'; text: string } | null>(null)
   const [busy, setBusy] = useState(false)
   // one-time passwords just issued (shown once, never stored in the browser)
@@ -104,8 +107,10 @@ export default function MembersPage() {
       </table>
 
       <h2 className="section">People</h2>
+      <ListSearch total={people.length} shown={people.filter(p => matches(search, p.who)).length} value={search} onChange={setSearch} what="people" />
       <div className="access-rows">
         {people.map((p, i) => {
+          if (!matchesOrBlank(search, p.who)) return null
           const set = (patch: Partial<Person>) => setPeople(people.map((x, j) => (j === i ? { ...x, ...patch } : x)))
           const who = p.who.trim().toLowerCase()
           const saved = Boolean(data.members.users[who])

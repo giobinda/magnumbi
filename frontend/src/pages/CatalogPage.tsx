@@ -1,3 +1,5 @@
+import { matches } from '../search'
+import ListSearch from '../components/ListSearch'
 import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
@@ -211,6 +213,10 @@ function DocsForm({ model, initial, onSave, onCancel }: {
     })))
   const [error, setError] = useState<string | null>(null)
   const set = (name: string, key: keyof FieldDocs, value: string) => setFields(fs => ({ ...fs, [name]: { ...fs[name], [key]: value } }))
+  const [fieldSearch, setFieldSearch] = useState('')
+  const fieldOf = (name: string) => [...model.dimensions, ...model.measures].find(x => x.name === name)
+  // what's been written is found too; a hidden field keeps what was typed in it
+  const shownFields = Object.entries(fields).filter(([name, f]) => matches(fieldSearch, name, fieldOf(name)?.label, f.description))
   const save = async () => {
     setError(null)
     const out: Record<string, FieldDocs> = {}
@@ -228,29 +234,28 @@ function DocsForm({ model, initial, onSave, onCancel }: {
   return (
     <div className="governance-form docs-form">
       <label>Description <span className="muted small">(replaces the model's own here)</span>
-        <textarea rows={2} maxLength={2000} value={description} placeholder={model.description ?? ''} onChange={e => setDescription(e.target.value)} />
+        <textarea rows={3} maxLength={2000} value={description} placeholder={model.description ?? ''} onChange={e => setDescription(e.target.value)} />
       </label>
       <label>Tags <span className="muted small">(such as finance, pii; separated by commas)</span>
         <input value={tags} onChange={e => setTags(e.target.value)} />
       </label>
-      <table className="docs-fields">
-        <thead><tr><th>Field</th><th>Description</th><th>Also called</th><th>Examples</th><th>Tags</th><th>Glossary terms</th></tr></thead>
-        <tbody>
-          {Object.entries(fields).map(([name, f]) => {
-            const field = [...model.dimensions, ...model.measures].find(x => x.name === name)
-            return (
-              <tr key={name}>
-                <td><b>{field?.label ?? name}</b><div className="muted small mono">{name}</div></td>
-                <td><input value={f.description} placeholder={field?.description ?? ''} onChange={e => set(name, 'description', e.target.value)} /></td>
-                <td><input value={f.synonyms} onChange={e => set(name, 'synonyms', e.target.value)} /></td>
-                <td><input value={f.examples} onChange={e => set(name, 'examples', e.target.value)} /></td>
-                <td><input value={f.tags} onChange={e => set(name, 'tags', e.target.value)} /></td>
-                <td><input value={f.terms} onChange={e => set(name, 'terms', e.target.value)} /></td>
-              </tr>
-            )
-          })}
-        </tbody>
-      </table>
+      <ListSearch total={Object.keys(fields).length} shown={shownFields.length} value={fieldSearch} onChange={setFieldSearch} what="fields" />
+      <div className="docs-edit">
+        {shownFields.map(([name, f]) => {
+          const field = fieldOf(name)
+          return (
+            <div key={name} className="docs-field">
+              <div><b>{field?.label ?? name}</b> <span className="muted small mono">{name}</span></div>
+              <label className="docs-description">Description
+                <textarea rows={2} value={f.description} placeholder={field?.description ?? ''} onChange={e => set(name, 'description', e.target.value)} /></label>
+              <label>Also called<input value={f.synonyms} onChange={e => set(name, 'synonyms', e.target.value)} /></label>
+              <label>Examples<input value={f.examples} onChange={e => set(name, 'examples', e.target.value)} /></label>
+              <label>Tags<input value={f.tags} onChange={e => set(name, 'tags', e.target.value)} /></label>
+              <label>Glossary terms<input value={f.terms} onChange={e => set(name, 'terms', e.target.value)} /></label>
+            </div>
+          )
+        })}
+      </div>
       {error && <div className="error">{error}</div>}
       <div className="row"><button onClick={onCancel}>Cancel</button><button className="primary" onClick={save}>Save</button></div>
     </div>
@@ -306,7 +311,7 @@ function TermForm({ initial, onSave, onCancel }: { initial?: Term; onSave: (t: T
   return (
     <div className="governance-form">
       <label>Term <input value={name} disabled={Boolean(initial)} placeholder="e.g. Net revenue" onChange={e => setName(e.target.value)} /></label>
-      <label>Definition <textarea rows={2} maxLength={2000} value={definition} onChange={e => setDefinition(e.target.value)} /></label>
+      <label>Definition <textarea rows={3} maxLength={2000} value={definition} onChange={e => setDefinition(e.target.value)} /></label>
       <label>Also called <span className="muted small">(separated by commas)</span>
         <input value={synonyms} onChange={e => setSynonyms(e.target.value)} /></label>
       {error && <div className="error">{error}</div>}
@@ -348,7 +353,7 @@ function GovernanceForm({ initial, onSave, onCancel }: {
         </select>
       </label>
       <label>Note <span className="muted small">(why it's certified, or what to use instead)</span>
-        <textarea rows={2} maxLength={500} value={note} onChange={e => setNote(e.target.value)} />
+        <textarea rows={3} maxLength={500} value={note} onChange={e => setNote(e.target.value)} />
       </label>
       {error && <div className="error">{error}</div>}
       <div className="row"><button onClick={onCancel}>Cancel</button><button className="primary" onClick={save}>Save</button></div>

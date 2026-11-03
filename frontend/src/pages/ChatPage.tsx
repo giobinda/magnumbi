@@ -1,3 +1,4 @@
+import Picker from '../components/Picker'
 import { useEffect, useRef, useState } from 'react'
 import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
@@ -198,9 +199,7 @@ function PinDialog({ tile, onClose }: { tile: ChartTile; onClose: () => void }) 
           <p>Pinned. <Link to={`/dashboards/${encodeURIComponent(target)}`}>Open the dashboard</Link></p>
           <div className="row"><button onClick={onClose}>Close</button></div>
         </> : <>
-          <select value={target} onChange={e => setTarget(e.target.value)} aria-label="Dashboard">
-            {dashboards.map(d => <option key={d.id} value={d.id}>{d.title}</option>)}
-          </select>
+          <Picker value={target} onChange={setTarget} label="Dashboard" options={dashboards.map(d => ({ value: d.id, label: d.title }))} />
           <input className="title-input" placeholder="Tile title (optional)" value={title} onChange={e => setTitle(e.target.value)} />
           {error && <div className="error">{error}</div>}
           <div className="row"><button onClick={onClose}>Cancel</button><button className="primary" disabled={!target} onClick={pin}>Pin</button></div>

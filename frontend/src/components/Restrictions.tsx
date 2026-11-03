@@ -1,3 +1,4 @@
+import Picker from './Picker'
 import type { ModelInfo, RowRule } from '../api'
 import { MultiSelect } from './FilterBar'
 
@@ -16,15 +17,12 @@ export default function Restrictions({ rules, models, onChange, addLabel = '+ Ad
         const extended = models.filter(m => m.extends === r.model).map(m => m.label)
         return (
           <div key={i} className="rule">
-            <select value={r.model} onChange={e => update(i, { model: e.target.value, dimension: '', values: [] })}>
-              <option value="">Model…</option>
-              {choices(models).map(m => <option key={m.name} value={m.name}>{m.label}</option>)}
-            </select>
+            <Picker value={r.model} empty="Model…" label="Model" options={choices(models).map(m => ({ value: m.name, label: m.label }))}
+              onChange={v => update(i, { model: v, dimension: '', values: [] })} />
             <span className="muted">›</span>
-            <select value={r.dimension} disabled={!model} onChange={e => update(i, { dimension: e.target.value, values: [] })}>
-              <option value="">Dimension…</option>
-              {model?.dimensions.map(d => <option key={d.name} value={d.name}>{d.label || d.name}</option>)}
-            </select>
+            <Picker value={r.dimension} empty="Dimension…" label="Dimension" disabled={!model}
+              options={(model?.dimensions ?? []).map(d => ({ value: d.name, label: d.label || d.name }))}
+              onChange={v => update(i, { dimension: v, values: [] })} />
             <span className="muted">is one of</span>
             {model && r.dimension
               ? <MultiSelect key={`${r.model}.${r.dimension}`} model={r.model} field={r.dimension} values={r.values} onChange={values => update(i, { values })} />

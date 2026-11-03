@@ -1,3 +1,4 @@
+import Picker from '../components/Picker'
 import { ask } from '../dialogs'
 import { withTile } from '../tileEdit'
 import { useCallback, useEffect, useState } from 'react'
@@ -254,20 +255,17 @@ export default function DashboardPage({ embed = false }: { embed?: boolean }) {
             <div className="period-bar" data-tour="period">
               {editing && periodChoices(dash, models).length > 1 && (
                 <label className="period-field">On
-                  <select value={`${period.model}.${period.field}`} onChange={e => {
-                    const c = periodChoices(dash, models).find(x => `${x.model}.${x.field}` === e.target.value)
+                  <Picker value={`${period.model}.${period.field}`} label="The period's date" onChange={v => {
+                    const c = periodChoices(dash, models).find(x => `${x.model}.${x.field}` === v)
                     if (c) changePeriod(linkedPeriod({ ...period, model: c.model, field: c.field, fields: undefined }))
-                  }}>
-                    {periodChoices(dash, models).map(c => <option key={`${c.model}.${c.field}`} value={`${c.model}.${c.field}`}>{c.label}</option>)}
-                  </select>
+                  }} options={periodChoices(dash, models).map(c => ({ value: `${c.model}.${c.field}`, label: c.label }))} />
                 </label>
               )}
               {editing && linkChoices(dash, models, period.model, period.field).map(l => (
                 <label key={l.model} className="period-field" title={`The period on ${l.label}'s tiles`}>{l.label}
-                  <select value={period.fields?.[l.model] ?? ''} onChange={e => changePeriod(withLink(period, l.model, e.target.value))}>
-                    <option value="">— not on it —</option>
-                    {l.options.map(o => <option key={o.field} value={o.field}>{o.label.split(' · ').pop()}</option>)}
-                  </select>
+                  <Picker value={period.fields?.[l.model] ?? ''} empty="— not on it —" label={`The period on ${l.label}`}
+                    options={l.options.map(o => ({ value: o.field, label: o.label.split(' · ').pop() ?? o.field }))}
+                    onChange={v => changePeriod(withLink(period, l.model, v))} />
                 </label>
               ))}
               <PeriodControl model={models.find(m => m.name === period.model)} period={period}
