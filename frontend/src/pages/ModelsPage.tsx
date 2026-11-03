@@ -3,6 +3,7 @@ import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { api } from '../api'
 import type { ConnectionInfo, Formula, SharedFormula } from '../api'
+import DeleteDataset from '../components/DeleteDataset'
 import FormulaEditor from '../components/FormulaEditor'
 import { useAuth } from '../auth'
 import { forgetModels, useModels } from '../hooks'
@@ -17,6 +18,7 @@ const slug = (s: string) => s.toLowerCase().replace(/[^a-z0-9_]+/g, '_').replace
 export default function ModelsPage() {
   const [own, setOwn] = useState<{ model: ModelDef; updated_at: string; updated_by: string | null }[]>([])
   const [editing, setEditing] = useState<ModelDef | 'new' | null>(null)
+  const [deleting, setDeleting] = useState<ModelDef | null>(null)
   const [error, setError] = useState<string | null>(null)
   const { models } = useModels()
   const navigate = useNavigate()
@@ -38,10 +40,6 @@ export default function ModelsPage() {
   }
   useEffect(() => { load() }, [])
 
-  const remove = async (m: ModelDef) => {
-    if (!(await ask.confirm(`Delete the model "${m.label ?? m.name}"? Dashboards and blends using it stop working.`, { danger: true, ok: 'Delete' }))) return
-    try { await api.deleteOrgModel(m.name); forgetModels(); load() } catch (e) { setError((e as Error).message) }
-  }
   if (editing) {
     return <ModelWizard initial={editing === 'new' ? null : editing} taken={models.map(m => m.name)}
       onDone={() => { setEditing(null); forgetModels(); load() }} onCancel={() => setEditing(null)} />
@@ -49,6 +47,8 @@ export default function ModelsPage() {
   const platform = models.filter(m => !m.own && !m.blend && !own.some(o => o.model.name === m.name))
   return (
     <div className="page narrow">
+      {deleting && <DeleteDataset kind="model" name={deleting.name} label={deleting.label ?? deleting.name} models={models}
+        onCancel={() => setDeleting(null)} onDone={() => { setDeleting(null); forgetModels(); load() }} />}
       <h1>Models</h1>
       <p className="muted">A model says what your data means: which table, the fields people group and filter by (dimensions), and
         the numbers they add up (measures). Make one from any table of your connections; {inPlatform
@@ -69,7 +69,7 @@ export default function ModelsPage() {
           <Link className="btn" to={`/explore?model=${encodeURIComponent(m.name)}`}>Explore</Link>
           <button data-tour="starter" onClick={() => starter(m.name)}>Starter dashboard</button>
           <button onClick={() => setEditing(m)}>Edit</button>
-          <button className="danger" onClick={() => remove(m)}>Delete</button>
+          <button className="danger" onClick={() => setDeleting(m)}>Delete</button>
         </div>
       ))}
 

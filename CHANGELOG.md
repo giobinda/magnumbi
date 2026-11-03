@@ -3,6 +3,14 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Changed
+
+- **Deleting a connection or a model says what uses it**: its models, blends and dashboards, each
+  with a box to delete it too. Nothing else goes unless ticked: what's left works again once a new
+  one of the same name is back.
+
 ## 0.1.11 (2026-10-29)
 
 ### Fixed

@@ -1,10 +1,10 @@
-import { ask } from '../dialogs'
 import { useEffect, useState } from 'react'
 import type { FormEvent } from 'react'
 import { api } from '../api'
 import type { ConnectionInfo, ConnectionType } from '../api'
 import { useAuth } from '../auth'
-import { useModels } from '../hooks'
+import { forgetModels, useModels } from '../hooks'
+import DeleteDataset from '../components/DeleteDataset'
 import { Link } from 'react-router-dom'
 import { missingConnections, nameForFile, sourceOf } from '../connections'
 
@@ -92,10 +92,7 @@ export default function ConnectionsPage() {
   useEffect(() => { load() }, [])
 
   const needed = missingConnections(models, (list ?? []).map(c => c.name))
-  const remove = async (c: ConnectionInfo) => {
-    if (!(await ask.confirm(`Delete the connection "${c.name}"? Models that use it stop working here.`, { danger: true, ok: 'Delete' }))) return
-    try { await api.deleteConnection(c.name); load() } catch (e) { setError((e as Error).message) }
-  }
+  const [deleting, setDeleting] = useState<ConnectionInfo | null>(null)
   const refresh = async (c: ConnectionInfo) => {
     setRefreshing(c.name); setError(null)
     try { await api.refreshSheet(c.name); load() } catch (e) { setError((e as Error).message) } finally { setRefreshing(null) }
@@ -103,6 +100,9 @@ export default function ConnectionsPage() {
 
   return (
     <div className="page narrow">
+      {deleting && <DeleteDataset kind="connection" name={deleting.name} label={deleting.name} models={models}
+        note={sourceOf(deleting)?.kind === 'file' ? 'The uploaded copy of its file goes with it: to replace the file and keep the rest, use Replace.' : undefined}
+        onCancel={() => setDeleting(null)} onDone={() => { setDeleting(null); forgetModels(); load() }} />}
       <h1>Connections <span className="muted">· {auth?.org?.name ?? 'platform workspace'}</span></h1>
       <p className="muted">Where this organisation's data is. Models name a connection; each organisation sets up its own, with its
         own credentials. Passwords and keys are stored encrypted and never shown again.</p>
@@ -124,7 +124,7 @@ export default function ConnectionsPage() {
                 {sourceOf(c)?.kind === 'file' && <button className="link" onClick={() => setAdding({ kind: 'file', name: c.name })}>Replace</button>}
                 {sourceOf(c)?.kind === 'sheet' && <button className="link" disabled={refreshing === c.name} onClick={() => refresh(c)}>{refreshing === c.name ? 'Refreshing…' : 'Refresh'}</button>}
                 {!sourceOf(c) && <button className="link" onClick={() => setEditing(c)}>Edit</button>}
-                {' '}<button className="link danger" onClick={() => remove(c)}>Delete</button>
+                {' '}<button className="link danger" onClick={() => setDeleting(c)}>Delete</button>
               </td>
             </tr>
           ))}</tbody>

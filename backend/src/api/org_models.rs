@@ -317,6 +317,56 @@ mod tests {
         clean_up(&state, &org).await;
     }
 
+    /// What the delete dialog promises: what's left on a deleted model stops working, and works
+    /// again when a model of the same name is back.
+    #[tokio::test]
+    async fn what_uses_a_deleted_model_works_again_with_a_new_one_of_its_name() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let suffix = &uuid::Uuid::new_v4().simple().to_string()[..8];
+        let (name, blend, board) = (format!("back_{suffix}"), format!("blend_{suffix}"), format!("board_{suffix}"));
+        let model = json!({"name": name, "connection": "warehouse", "table": "sample_sales",
+            "dimensions": [{"name": "region"}], "measures": [{"name": "n", "type": "count"}]});
+        let path = format!("/api/org-models/{name}");
+        let (s, b, _) = send(&app, c, &org, "PUT", &path, Some(model.clone()), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let joined = json!({"name": blend, "base": "sales", "joins": [{"model": name, "on": ["region = region"]}]});
+        let (s, b, _) = send(&app, c, &org, "PUT", &format!("/api/blends/{blend}"), Some(joined), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let dash = json!({"title": "Stays", "filters": [], "tiles": [{"id": "t", "type": "kpi",
+            "query": {"model": name, "measures": ["n"]}, "layout": {"x": 0, "y": 0, "w": 3, "h": 2}}]});
+        let at = format!("/api/dashboards/{board}");
+        let (s, b, _) = send(&app, c, &org, "PUT", &at, Some(dash), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let tile = format!("{at}/tiles/t/query");
+        let through_blend = json!({"model": blend, "measures": [format!("{name}.n")]});
+        let (s, before, _) = send(&app, c, &org, "POST", &tile, Some(json!({})), None).await;
+        assert_eq!(s, StatusCode::OK, "{before}");
+
+        // the model goes: the dashboard stays, its tile says so; the blend isn't there to query
+        let (s, b, _) = send(&app, c, &org, "DELETE", &path, None, None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (s, kept, _) = send(&app, c, &org, "GET", &at, None, None).await;
+        assert_eq!((s, &kept["dashboard"]["title"]), (StatusCode::OK, &json!("Stays")), "{kept}");
+        let (s, gone, _) = send(&app, c, &org, "POST", &tile, Some(json!({})), None).await;
+        assert!(s.is_client_error() && gone["detail"].as_str().unwrap().contains(&name), "{s} {gone}");
+        let (s, _, _) = send(&app, c, &org, "POST", "/api/query", Some(through_blend.clone()), None).await;
+        assert!(s.is_client_error(), "{s}");
+
+        // a new one of the same name: both work again
+        let (s, b, _) = send(&app, c, &org, "PUT", &path, Some(model), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+        let (s, after, _) = send(&app, c, &org, "POST", &tile, Some(json!({})), None).await;
+        assert_eq!((s, &after["rows"]), (StatusCode::OK, &before["rows"]), "{after}");
+        let (s, b, _) = send(&app, c, &org, "POST", "/api/query", Some(through_blend), None).await;
+        assert_eq!(s, StatusCode::OK, "{b}");
+
+        send(&app, c, &org, "DELETE", &at, None, None).await;
+        send(&app, c, &org, "DELETE", &format!("/api/blends/{blend}"), None, None).await;
+        send(&app, c, &org, "DELETE", &path, None, None).await;
+        clean_up(&state, &org).await;
+    }
+
     #[tokio::test]
     async fn models_made_in_the_app_have_drill_paths() {
         let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };

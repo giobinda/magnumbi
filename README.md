@@ -820,6 +820,10 @@ Tags are information only. The **glossary** (`/api/glossary`, MCP `get_glossary`
 organisation's terms; a term belongs to whoever added it (Org admins, and model owners and
 stewards add terms).
 
+**Deleting a connection or a model** in the app says what uses it, from its lineage: models, blends
+and dashboards, each with a box to delete it too. Nothing else goes unless ticked; what's left works
+again once one of the same name is back.
+
 **Search and lineage** (`lineage.rs`): `GET /api/catalog/search?q=` (MCP `search_catalog`) finds
 models, fields, glossary terms and dashboards by names, synonyms, terms, tags and descriptions
 (keyword ranking in the server; the catalog is small). `GET /api/catalog/{model}/lineage`: what a
