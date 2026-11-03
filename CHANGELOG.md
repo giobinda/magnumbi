@@ -3,6 +3,15 @@
 What changed in each release of Magnum BI. Versions follow the Docker image and Helm chart
 (`ghcr.io/giobinda/magnum-bi`), released from tags `vX.Y.Z`.
 
+## Unreleased
+
+### Changed
+
+- **A clearer data catalog**: models and the glossary are sections of their own; each model and
+  term has a clear title, with its owner and the like labelled. A model's fields are split into
+  dimensions and measures (grouped by model on a blend), names highlighted beside their definitions,
+  with a search. Lineage is labelled rows, the fields on no dashboard folded away.
+
 ## 0.1.12 (2026-11-03)
 
 ### Changed

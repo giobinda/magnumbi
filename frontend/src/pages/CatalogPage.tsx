@@ -1,3 +1,4 @@
+import { fieldSections, labelParts } from '../catalogView'
 import { matches } from '../search'
 import ListSearch from '../components/ListSearch'
 import { ask } from '../dialogs'
@@ -44,40 +45,44 @@ export default function CatalogPage() {
   }, [wanted, list.length, models.length, fieldsOf, search])
 
   return (
-    <div className="page narrow catalog">
+    <div className="page catalog">
       <h1>Data catalog</h1>
       <p className="muted">Who answers for each model, and how far it can be trusted. A model's <b>owner</b> certifies it (or marks it
         deprecated, saying why) and names <b>stewards</b> to look after its documentation. {can('manage_members')
           ? 'As an Org admin, you choose the owners.' : 'Org admins choose the owners.'}</p>
       {error && <div className="error">{error}</div>}
       <Search onModel={name => { setTracing(name); document.getElementById(`model-${name}`)?.scrollIntoView({ behavior: 'smooth' }) }} />
+      <h2 className="catalog-part">Models</h2>
       {list.map(g => (
         <div key={g.model} id={`model-${g.model}`} className={`card governance${picked === `model-${g.model}` ? ' picked' : ''}`}>
-          <div className="row wrap">
-            <b>{label(g.model!)}</b>
-            {g.status && <span className={`status ${g.status}`}>{g.status}</span>}
-            <span className="muted small mono">{g.model}</span>
-            <span className="grow" />
-            {can('explore') && <Link className="btn" to={`/explore?model=${encodeURIComponent(g.model!)}`}>Explore</Link>}
-            <button onClick={() => setFieldsOf(fieldsOf === g.model ? null : g.model!)}>{fieldsOf === g.model ? 'Hide fields' : 'Fields'}</button>
-            <button onClick={() => setTracing(tracing === g.model ? null : g.model!)}>{tracing === g.model ? 'Hide lineage' : 'Lineage & usage'}</button>
-            {g.standing !== 'reader' && documenting !== g.model && <button onClick={() => setDocumenting(g.model!)}>Documentation</button>}
-            {mayDecide(g.standing) && editing !== g.model && <button onClick={() => setEditing(g.model!)}>Edit</button>}
+          <div className="catalog-head">
+            <div className="catalog-title">
+              <h2>{label(g.model!)}</h2>
+              {g.status && <span className={`status ${g.status}`}>{g.status}</span>}
+              <span className="muted small mono">{g.model}</span>
+            </div>
+            <div className="catalog-actions">
+              {can('explore') && <Link className="btn" to={`/explore?model=${encodeURIComponent(g.model!)}`}>Explore</Link>}
+              <button aria-pressed={fieldsOf === g.model} onClick={() => setFieldsOf(fieldsOf === g.model ? null : g.model!)}>Fields</button>
+              <button aria-pressed={tracing === g.model} onClick={() => setTracing(tracing === g.model ? null : g.model!)}>Lineage & usage</button>
+              {g.standing !== 'reader' && <button aria-pressed={documenting === g.model} onClick={() => setDocumenting(documenting === g.model ? null : g.model!)}>Documentation</button>}
+              {mayDecide(g.standing) && <button aria-pressed={editing === g.model} onClick={() => setEditing(editing === g.model ? null : g.model!)}>Edit</button>}
+            </div>
           </div>
-          {g.note && <p className="small">{g.note}</p>}
           {(() => {
             const m = models.find(x => x.name === g.model)
             return m && <>
-              {m.description && <p className="small">{m.description}</p>}
+              {m.description && <p className="catalog-description">{m.description}</p>}
               {!!m.tags?.length && <p>{m.tags.map(t => <span key={t} className="tp-badge">{t}</span>)}</p>}
             </>
           })()}
-          <p className="muted small">
-            {g.owner ? <>Owner: <b>{g.owner}</b></> : 'No owner yet'}
-            {g.stewards.length > 0 && <> · Stewards: {g.stewards.join(', ')}</>}
-            {g.updated_by && <> · changed by {g.updated_by}, {new Date(g.updated_at!).toLocaleDateString()}</>}
-            {g.standing !== 'reader' && <> · you: {g.standing === 'admin' ? 'Org admin' : g.standing}</>}
-          </p>
+          {g.note && <p className="catalog-note">{g.note}</p>}
+          <dl className="catalog-facts">
+            <div><dt>Owner</dt><dd>{g.owner ?? <span className="muted">none yet</span>}</dd></div>
+            {g.stewards.length > 0 && <div><dt>Stewards</dt><dd>{g.stewards.join(', ')}</dd></div>}
+            {g.updated_by && <div><dt>Changed by</dt><dd>{g.updated_by}, {new Date(g.updated_at!).toLocaleDateString()}</dd></div>}
+            {g.standing !== 'reader' && <div><dt>You</dt><dd>{g.standing === 'admin' ? 'Org admin' : g.standing}</dd></div>}
+          </dl>
           {fieldsOf === g.model && models.some(m => m.name === g.model) && (
             <FieldsList model={models.find(m => m.name === g.model)!} picked={picked} />
           )}
@@ -139,24 +144,40 @@ function Search({ onModel }: { onModel: (name: string) => void }) {
 
 /** A model's fields, as the catalog describes them: what each means, other names, examples, tags. */
 function FieldsList({ model, picked }: { model: ModelInfo; picked: string | null }) {
-  const fields = [
-    ...model.dimensions.map(d => ({ ...d, kind: 'Dimension' })),
-    ...model.measures.map(m => ({ ...m, kind: 'Measure' })),
-  ]
+  const [search, setSearch] = useState('')
+  const sections = fieldSections(model, search)
+  const total = model.dimensions.length + model.measures.length
+  const shown = sections.flatMap(x => x.groups.flatMap(g => g.items)).length
   return (
     <div className="catalog-fields">
-      {fields.map(f => {
-        const id = `field-${model.name}-${f.name}`
-        return (
-          <div key={f.name} id={id} className={`catalog-field${picked === id ? ' picked' : ''}`}>
-            <div><b>{f.label ?? f.name}</b> <span className="muted small">{f.kind} · <span className="mono">{f.name}</span></span>
-              {(f.tags ?? []).map(t => <span key={t} className="tp-badge">{t}</span>)}</div>
-            {f.description ? <div className="small">{f.description}</div> : <div className="muted small">No description yet.</div>}
-            {!!f.synonyms?.length && <div className="muted small">Also called: {f.synonyms.join(', ')}</div>}
-            {!!f.examples?.length && <div className="muted small">For example: {f.examples.join('; ')}</div>}
-          </div>
-        )
-      })}
+      <ListSearch total={total} shown={shown} value={search} onChange={setSearch} what="fields" />
+      {sections.map(section => (
+        <section key={section.kind} className={`catalog-section ${section.kind}`}>
+          <h3>{section.title} <span className="catalog-count">{section.total}</span></h3>
+          {section.groups.map(g => (
+            <div key={g.group ?? ''}>
+              {g.group && <h4>{g.group}</h4>}
+              {g.items.map(({ field: f, label }) => {
+                const id = `field-${model.name}-${f.name}`
+                return (
+                  <div key={f.name} id={id} className={`catalog-field${picked === id ? ' picked' : ''}`}>
+                    <div className="catalog-field-name">
+                      <b>{label}</b>
+                      <span className="mono">{f.name}</span>
+                      {!!f.tags?.length && <span>{f.tags.map(t => <span key={t} className="tp-badge">{t}</span>)}</span>}
+                    </div>
+                    <div className="catalog-field-about">
+                      {f.description ? <p>{f.description}</p> : <p className="catalog-none">No description yet</p>}
+                      {!!f.synonyms?.length && <p className="small"><b>Also called</b> {f.synonyms.join(', ')}</p>}
+                      {!!f.examples?.length && <p className="small"><b>For example</b> {f.examples.join('; ')}</p>}
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          ))}
+        </section>
+      ))}
     </div>
   )
 }
@@ -173,25 +194,36 @@ function LineagePanel({ model, info }: { model: string; info?: ModelInfo }) {
   const unused = all.filter(f => !l?.fields[f.name]).map(f => f.label ?? f.name)
   return (
     <div className="lineage">
-      <p className="small"><b>Reads</b> the connection <span className="mono">{l.reads.connection}</span>
-        {l.reads.table && <> (table <span className="mono">{l.reads.table}</span>)</>}
-        {l.reads.sql && <> (its own SQL)</>}
-        {l.reads.extends && <>, extending <span className="mono">{l.reads.extends}</span></>}.</p>
-      <p className="small"><b>Usage:</b> {describeUsage(l.usage)}{l.usage.last && `; last ${new Date(l.usage.last).toLocaleDateString()}`}.</p>
-      <p className="small"><b>Used in</b>{' '}
-        {l.dashboards.length ? l.dashboards.map((d, i) => <span key={d.id}>{i > 0 && ', '}<Link to={`/dashboards/${encodeURIComponent(d.id)}`}>{d.title}</Link>
-          {' '}<span className="muted">({d.tiles.length} {d.tiles.length === 1 ? 'tile' : 'tiles'})</span></span>) : 'no dashboard'}
-        {l.reports > 0 && <>; {l.reports} scheduled {l.reports === 1 ? 'report' : 'reports'}</>}
-        {l.blends.length > 0 && <>; blends: <span className="mono">{l.blends.join(', ')}</span></>}
-        {l.formulas.length > 0 && <>; shared formulas: <span className="mono">{l.formulas.join(', ')}</span></>}.</p>
-      {unused.length > 0 && <p className="small muted"><b>On no dashboard:</b> {unused.join(', ')}.</p>}
+      <h3>Lineage & usage</h3>
+      <dl className="catalog-rows">
+        <dt>Reads</dt>
+        <dd>{l.reads.connection ? <>the connection <span className="mono">{l.reads.connection}</span></> : 'its models, joined'}
+          {l.reads.table && <>, table <span className="mono">{l.reads.table}</span></>}
+          {l.reads.sql && <> (its own SQL)</>}
+          {l.reads.extends && <>, extending <span className="mono">{l.reads.extends}</span></>}</dd>
+        <dt>Usage</dt>
+        <dd>{describeUsage(l.usage)}{l.usage.last && `; last ${new Date(l.usage.last).toLocaleDateString()}`}</dd>
+        <dt>Dashboards</dt>
+        <dd>{l.dashboards.length ? l.dashboards.map((d, i) => <span key={d.id}>{i > 0 && ', '}<Link to={`/dashboards/${encodeURIComponent(d.id)}`}>{d.title}</Link>
+          {' '}<span className="muted">({d.tiles.length} {d.tiles.length === 1 ? 'tile' : 'tiles'})</span></span>) : <span className="muted">none</span>}</dd>
+        {l.reports > 0 && <><dt>Reports</dt><dd>{l.reports} scheduled</dd></>}
+        {l.blends.length > 0 && <><dt>Blends</dt><dd className="mono">{l.blends.join(', ')}</dd></>}
+        {l.formulas.length > 0 && <><dt>Shared formulas</dt><dd className="mono">{l.formulas.join(', ')}</dd></>}
+      </dl>
+      {unused.length > 0 && (
+        <details className="catalog-unused">
+          <summary>{unused.length} {unused.length === 1 ? 'field' : 'fields'} on no dashboard</summary>
+          <p className="small">{unused.join(', ')}</p>
+        </details>
+      )}
       {Object.keys(l.fields).length > 0 && (
-        <table className="docs-fields">
+        <table className="docs-fields catalog-uses">
           <thead><tr><th>Field</th><th>Used in</th></tr></thead>
           <tbody>
-            {Object.entries(l.fields).map(([f, places]) => (
-              <tr key={f}><td>{label(f)}</td><td className="small">{places.join(', ')}</td></tr>
-            ))}
+            {Object.entries(l.fields).map(([f, places]) => {
+              const [group, name] = labelParts(label(f))
+              return <tr key={f}><td><b>{name}</b>{group && <div className="muted small">{group}</div>}</td><td className="small">{places.join(', ')}</td></tr>
+            })}
           </tbody>
         </table>
       )}
@@ -275,8 +307,8 @@ function Glossary({ picked }: { picked: string | null }) {
     try { await api.deleteTerm(t.name); load() } catch (e) { setError((e as Error).message) }
   }
   return <section className="glossary" id="glossary">
-    <h2 className="section">Glossary</h2>
-    <p className="muted small">The organisation's business terms, and the fields that implement each (linked from a model's documentation).
+    <h2 className="catalog-part">Glossary</h2>
+    <p className="muted">The organisation's business terms, and the fields that implement each (linked from a model's documentation).
       Agents read them too.</p>
     {error && <div className="error">{error}</div>}
     {mayAdd && editing !== 'new' && <div className="row"><button onClick={() => setEditing('new')}>+ New term</button></div>}
@@ -284,15 +316,16 @@ function Glossary({ picked }: { picked: string | null }) {
     {terms.length === 0 && <p className="muted small">No terms yet.</p>}
     {terms.map(t => (
       <div key={t.name} id={`term-${t.name}`} className={`card governance${picked === `term-${t.name}` ? ' picked' : ''}`}>
-        <div className="row wrap">
-          <b>{t.name}</b>
-          {!!t.synonyms?.length && <span className="muted small">also: {t.synonyms.join(', ')}</span>}
-          <span className="grow" />
-          {t.may_edit && editing !== t && <><button onClick={() => setEditing(t)}>Edit</button><button className="danger" onClick={() => remove(t)}>Delete</button></>}
+        <div className="catalog-head">
+          <div className="catalog-title"><h3>{t.name}</h3></div>
+          {t.may_edit && editing !== t && <div className="catalog-actions"><button onClick={() => setEditing(t)}>Edit</button><button className="danger" onClick={() => remove(t)}>Delete</button></div>}
         </div>
-        <p className="small">{t.definition}</p>
-        <p className="muted small">{t.fields.length ? <>Fields: <span className="mono">{t.fields.join(', ')}</span> · </> : ''}
-          {t.owner ? `Owner: ${t.owner}` : ''}</p>
+        <p className="catalog-description">{t.definition}</p>
+        <dl className="catalog-facts">
+          {!!t.synonyms?.length && <div><dt>Also called</dt><dd>{t.synonyms.join(', ')}</dd></div>}
+          {t.fields.length > 0 && <div><dt>Fields</dt><dd className="mono">{t.fields.join(', ')}</dd></div>}
+          {t.owner && <div><dt>Owner</dt><dd>{t.owner}</dd></div>}
+        </dl>
         {editing === t && <TermForm initial={t} onCancel={() => setEditing(null)} onSave={async x => { await api.saveTerm(x); setEditing(null); load() }} />}
       </div>
     ))}

@@ -71,8 +71,6 @@ input:focus, select:focus, button:focus-visible { outline: 2px solid var(--accen
 /* what a link points at, in the catalog: picked out a moment */
 .picked { animation: picked 2.4s ease-out; }
 @keyframes picked { 0%, 40% { box-shadow: 0 0 0 3px var(--accent); } 100% { box-shadow: 0 0 0 0 transparent; } }
-.catalog-fields { display: flex; flex-direction: column; gap: 2px; margin-top: 6px; }
-.catalog-field { padding: 6px 8px; border-radius: 6px; border-top: 1px solid var(--border); }
 .catalog-find input { width: 100%; height: 34px; padding: 4px 12px; border-radius: 8px; }
 .catalog-find-results { position: absolute; top: calc(100% + 6px); left: 0; width: max(100%, 440px); max-width: calc(100vw - 24px); z-index: 30;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); box-shadow: 0 8px 30px rgba(16, 24, 40, .12);
@@ -594,6 +592,51 @@ label.check.inline { align-items: center; gap: 4px; }
 .formula-editor .palette .chip { border: 0; cursor: pointer; padding: 3px 10px; min-height: 0; }
 .chip.fn { background: var(--surface-2); color: var(--text); }
 
+/* the data catalog (CatalogPage.tsx): parts, models and terms with a clear title, fields by kind */
+.page.catalog { max-width: 1000px; margin-inline: auto; }
+.catalog-part { font-size: 19px; margin: 26px 0 10px; padding-bottom: 6px; border-bottom: 2px solid var(--border); }
+.catalog .card.governance { padding: 16px 18px; }
+.catalog-head { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px 16px; }
+.catalog-title { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 10px; min-width: 0; }
+.catalog-title h2, .catalog-title h3 { margin: 0; font-size: 17px; font-weight: 700; }
+.catalog-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.catalog-actions button[aria-pressed=true] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+.catalog .card.governance p.catalog-description { margin: 8px 0 0; font-size: 14.5px; line-height: 1.5; }
+.catalog .card.governance p.catalog-note { margin: 8px 0 0; padding: 6px 10px; border-left: 3px solid var(--warn); background: var(--surface-2); border-radius: 0 6px 6px 0; }
+.catalog-facts { display: flex; flex-wrap: wrap; gap: 6px 26px; margin: 12px 0 0; }
+.catalog-facts dt, .catalog-rows dt { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.catalog-facts dd { margin: 1px 0 0; font-size: 13px; overflow-wrap: anywhere; }
+.catalog-fields, .lineage { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--border); }
+.catalog-section { margin-top: 12px; }
+.catalog-section h3 { display: flex; align-items: center; gap: 8px; margin: 0; padding: 6px 10px; border-radius: 6px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; }
+.catalog-section.dimension h3 { background: var(--dim-soft); color: var(--dim); }
+.catalog-section.measure h3 { background: var(--mea-soft); color: var(--mea); }
+.catalog-count { font-weight: 600; opacity: .75; }
+.catalog-section h4 { margin: 12px 0 2px; padding-left: 10px; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.catalog-field { display: grid; grid-template-columns: minmax(170px, 260px) 1fr; gap: 4px 20px; padding: 9px 10px; border-bottom: 1px solid var(--border); border-radius: 4px; }
+.catalog-section .catalog-field:last-child { border-bottom: 0; }
+.catalog-field-name { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; min-width: 0; overflow-wrap: anywhere; }
+.catalog-field-name b { font-size: 14px; }
+.catalog-section.dimension .catalog-field-name b { color: var(--dim); }
+.catalog-section.measure .catalog-field-name b { color: var(--mea); }
+.catalog-field-name .mono { font-size: 11.5px; color: var(--text-muted); }
+.catalog .catalog-field-about p { margin: 0 0 3px; line-height: 1.45; }
+.catalog-field-about p.small b { font-weight: 600; color: var(--text-muted); }
+.catalog-field-about p.catalog-none { color: var(--text-muted); font-size: 12.5px; font-style: italic; opacity: .75; }
+.lineage h3 { margin: 0 0 8px; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); }
+.catalog-rows { display: grid; grid-template-columns: 130px 1fr; gap: 6px 14px; margin: 0; align-items: baseline; }
+.catalog-rows dd { margin: 0; overflow-wrap: anywhere; }
+.catalog-unused { margin-top: 10px; font-size: 13px; }
+.catalog-unused summary { cursor: pointer; color: var(--text-muted); }
+.catalog-uses { margin-top: 12px; }
+.catalog-uses td { border-top: 1px solid var(--border); padding: 7px 4px; }
+.catalog-uses td:first-child { width: 230px; }
+@media (max-width: 760px) {
+  .catalog-field { grid-template-columns: 1fr; }
+  .catalog-rows { grid-template-columns: 1fr; gap: 1px; }
+  .catalog-rows dd { margin-bottom: 7px; }
+  .catalog-uses td:first-child { width: auto; }
+}
 /* governance: the data catalog (CatalogPage.tsx) and status badges */
 .status { font-size: 12px; padding: 2px 8px; border-radius: 999px; text-transform: capitalize; }
 .status.certified { border: 1px solid var(--good); color: var(--good); }
