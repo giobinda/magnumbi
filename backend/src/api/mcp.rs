@@ -164,6 +164,23 @@ documentation: read it first (get_catalog) and send it whole. The model's stewar
             description: "Add a business term to the glossary, or change one: its definition and other words for it.",
         },
         Tool {
+            name: "add_file_model",
+            perm: "add_data",
+            writes: true,
+            schema: || {
+                obj(
+                    json!({"connection": {"type": "string", "description": "the attached file's connection"},
+                "table": {"type": "string", "description": "one of the file's tables"},
+                "name": {"type": "string", "description": "the new model's name: letters, digits and underscores"},
+                "label": {"type": "string", "description": "the name people see"},
+                "dry_run": {"type": "boolean"}}),
+                    &["connection", "table", "name"],
+                )
+            },
+            description: "Make a table of a file you attached in the chat a new model: its fields come from the columns. \
+Only your own attached file, and never replacing a model. Everyone in the organisation can then see it.",
+        },
+        Tool {
             name: "run_query",
             perm: "explore",
             writes: false,
@@ -547,8 +564,8 @@ pub async fn endpoint(State(state): State<Shared>, Auth(caller): Auth, body: Byt
 }
 
 /// The writing tools that check without saving when given `dry_run: true`.
-pub(crate) const DRY_RUNS: [&str; 6] =
-    ["save_blend", "save_members", "create_report", "save_formula", "save_docs", "save_term"];
+pub(crate) const DRY_RUNS: [&str; 7] =
+    ["save_blend", "save_members", "create_report", "save_formula", "save_docs", "save_term", "add_file_model"];
 
 /// A tool run as `tools/call` runs it: Ok(what the API answered), or its error as text.
 async fn run_tool(state: &Shared, caller: &std::sync::Arc<Caller>, tool: &Tool, args: Value) -> Result<Value, String> {
@@ -635,6 +652,18 @@ async fn call(state: &Shared, caller: &std::sync::Arc<Caller>, name: &str, args:
             let t: crate::governance::Term = arg(&args, "term")?;
             let p = UrlQuery(WriteParams { dry_run: opt(&args, "dry_run")?.unwrap_or(false) });
             super::governance::save_term(s(), a(), Path(t.name.clone()), p, Body(t)).await?
+        }
+        "add_file_model" => {
+            super::org_models::from_attached_file(
+                state,
+                caller,
+                &arg::<String>(&args, "connection")?,
+                &arg::<String>(&args, "table")?,
+                &arg::<String>(&args, "name")?,
+                opt(&args, "label")?,
+                opt(&args, "dry_run")?.unwrap_or(false),
+            )
+            .await?
         }
         "search_catalog" => {
             let q = arg::<String>(&args, "q")?;

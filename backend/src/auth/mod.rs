@@ -284,7 +284,7 @@ impl Caller {
     }
 
     pub fn can(&self, perm: &str) -> bool {
-        self.role.is_some_and(|r| r.can(perm))
+        self.role.is_some_and(|r| r.can(perm) || (perm == "add_data" && r == Role::PowerUser && self.scope.add_data))
     }
 
     pub fn require(&self, perm: &str) -> Result<(), ApiError> {
@@ -295,7 +295,10 @@ impl Caller {
             None => Err(ApiError::forbidden(
                 "you're not a member of any organisation yet: ask your company's Magnum BI admin",
             )),
-            Some(r) if !r.can(perm) => {
+            Some(_) if perm == "add_data" && !self.can(perm) => {
+                Err(ApiError::forbidden("only Org admins, and power users they've allowed, can add data sources"))
+            }
+            Some(r) if !self.can(perm) => {
                 Err(ApiError::forbidden(format!("your role ({}) can't do this ({perm})", r.label())))
             }
             Some(_) => Ok(()),
@@ -479,6 +482,8 @@ mod tests {
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/query", None));
         assert!(ok(Method::POST, "/api/dashboards/d/tiles/t/export", None), "downloading is reading");
         assert!(ok(Method::POST, "/api/dashboards/d/export", None));
+        // attaching a file writes, dry run or not
+        assert!(!ok(Method::POST, "/api/chat/file", None) && !ok(Method::POST, "/api/chat/file", Some("dry_run=1")));
         // a plan may connect to the addresses its files name, which reading never does
         assert!(!ok(Method::POST, "/api/code", Some("dry_run=1")) && !ok(Method::POST, "/api/code", None));
         // a dry run only where the handler checks without saving

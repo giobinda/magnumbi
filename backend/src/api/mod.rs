@@ -160,7 +160,7 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections", get(connections::list))
         .route("/api/connections/{name}", axum::routing::put(connections::save).delete(connections::delete))
         .route("/api/connections/{name}/test", post(connections::test))
-        // the only route taking more than the general body limit (security::is_upload)
+        // with /api/chat/file, the only routes taking more than the general body limit (security::is_upload)
         .route(
             "/api/connections/{name}/file",
             post(files::upload).layer(axum::extract::DefaultBodyLimit::max(state.config.upload_max_bytes)),
@@ -170,6 +170,10 @@ pub fn router(state: Shared) -> Router {
         .route("/api/connections/{name}/tables", get(org_models::tables))
         .route("/api/connections/{name}/tables/{table}/model", get(org_models::proposal))
         .route("/api/chat", get(chat::list).post(chat::ask))
+        .route(
+            "/api/chat/file",
+            post(files::attach).layer(axum::extract::DefaultBodyLimit::max(state.config.upload_max_bytes)),
+        )
         .route("/api/chat/home", axum::routing::put(chat::set_home))
         .route("/api/chat/settings", get(chat::settings).put(chat::save_settings).delete(chat::delete_settings))
         .route("/api/chat/{id}", get(chat::get).delete(chat::delete))

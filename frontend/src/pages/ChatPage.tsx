@@ -4,7 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom'
 import { api } from '../api'
 import type { ChartTile, ChatMessage, ChatState, DashboardSummary, Proposal } from '../api'
 import { useCan } from '../auth'
-import { basedOn, chartTile, madeLink, suggestions } from '../chat'
+import { attachQuestion, basedOn, chartTile, madeLabel, madeLink, suggestions } from '../chat'
 import TileView from '../components/TileView'
 import { useModels } from '../hooks'
 import { addTile } from '../pin'
@@ -19,7 +19,7 @@ export default function ChatPage() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [pinning, setPinning] = useState<ChartTile | null>(null)
-  const { models } = useModels()
+  const { models, reload } = useModels()
   const can = useCan()
   const end = useRef<HTMLDivElement>(null)
 
@@ -43,13 +43,13 @@ export default function ChatPage() {
     try { await api.deleteConversation(id); if (id === conversation) fresh(); load() } catch (e) { setError((e as Error).message) }
   }
 
-  const ask = async (question: string, conv: string | null = conversation) => {
+  const ask = async (question: string, conv: string | null = conversation, file?: { connection: string; name: string }) => {
     const q = question.trim()
     if (!q || busy) return
     setBusy(true); setError(null); setText('')
-    setMessages(ms => [...ms, { role: 'user', text: q }])
+    setMessages(ms => [...ms, { role: 'user', text: q, file: file?.name }])
     try {
-      const r = await api.ask(q, conv)
+      const r = await api.ask(q, conv, file?.connection)
       if (!conv) load()
       setConversation(r.conversation)
       setMessages(ms => [...ms, r.reply])
@@ -57,6 +57,19 @@ export default function ChatPage() {
       setError((e as Error).message)
       setMessages(ms => ms.slice(0, -1)); setText(q)
     } finally { setBusy(false) }
+  }
+
+  // a file attached: kept as a connection of its own, then the chat is asked to make it a model
+  const fileInput = useRef<HTMLInputElement>(null)
+  const [attaching, setAttaching] = useState(false)
+  const attach = async (file: File | undefined) => {
+    if (fileInput.current) fileInput.current.value = ''
+    if (!file || busy || attaching) return
+    setAttaching(true); setError(null)
+    try {
+      const up = await api.attachFile(file)
+      await ask(attachQuestion(text, file.name), conversation, { connection: up.connection, name: file.name })
+    } catch (e) { setError((e as Error).message) } finally { setAttaching(false) }
   }
 
   // ?ask=: a question from the search in the top bar, asked in a new conversation, once
@@ -76,6 +89,7 @@ export default function ChatPage() {
     try {
       const done = await api.applyProposal(conversation, p.id)
       setMessages(ms => ms.map(m => m.role === 'assistant' ? { ...m, proposals: m.proposals.map(x => (x.id === p.id ? done : x)) } : m))
+      if (p.tool === 'add_file_model') reload()
     } catch (e) { setError((e as Error).message) }
   }
 
@@ -124,7 +138,7 @@ export default function ChatPage() {
             </div>
           )}
           {messages.map((m, i) => m.role === 'user'
-            ? <div key={i} className="chat-msg user">{m.text}</div>
+            ? <div key={i} className="chat-msg user">{m.file && <div className="chat-file small">Attached: {m.file}</div>}{m.text}</div>
             : (
               <div key={i} className="chat-msg assistant">
                 <p className="chat-text">{m.text}</p>
@@ -166,6 +180,13 @@ export default function ChatPage() {
           <textarea rows={2} value={text} placeholder="Ask a question about your data…" disabled={busy}
             onChange={e => setText(e.target.value)}
             onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ask(text) } }} />
+          {can('add_data') && <>
+            <input ref={fileInput} type="file" hidden accept=".csv,.tsv,.xlsx,.xlsm,.xls,.ods" aria-label="Attach a CSV or spreadsheet"
+              onChange={e => attach(e.target.files?.[0])} />
+            <button type="button" disabled={busy || attaching} title="Add a CSV or spreadsheet as a data source" onClick={() => fileInput.current?.click()}>
+              {attaching ? 'Reading…' : 'Attach file'}
+            </button>
+          </>}
           <button className="primary" disabled={busy || !text.trim()}>Ask</button>
         </form>
       </section>
@@ -178,7 +199,7 @@ export default function ChatPage() {
 /** The link to what a confirmed proposal made, if it made something to look at. */
 function made(p: Proposal) {
   const to = madeLink(p)
-  return to && <> <Link to={to}>Open the dashboard</Link></>
+  return to && <> <Link to={to}>{madeLabel(p)}</Link></>
 }
 
 function PinDialog({ tile, onClose }: { tile: ChartTile; onClose: () => void }) {

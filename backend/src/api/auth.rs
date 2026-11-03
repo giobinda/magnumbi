@@ -161,7 +161,12 @@ pub async fn me(State(state): State<Shared>, jar: CookieJar, headers: HeaderMap)
         o.insert("role".into(), json!(role.as_str()));
         o.insert("role_label".into(), json!(role.label()));
         o.insert("actual_role".into(), json!(actual.as_str()));
-        o.insert("permissions".into(), json!(role.permissions()));
+        let mut permissions = role.permissions();
+        if role == Role::PowerUser && scope.add_data {
+            permissions.push("add_data");
+            permissions.sort_unstable();
+        }
+        o.insert("permissions".into(), json!(permissions));
         o.insert("view_as".into(), json!(view_as));
         o.insert("restrictions".into(), json!(describe_restrictions(&scope, &project)));
         if actual == Role::SystemOwner {

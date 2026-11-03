@@ -38,9 +38,20 @@ export function basedOn(query: Query, models: ModelInfo[]) {
   return { model: m?.label ?? query.model, status: m?.governance?.status ?? null, fields: refs.map(r => fieldLabel(m, r)) }
 }
 
-/** Where to see what a confirmed proposal made: the dashboard it saved, or its report's dashboard. */
+/** The question sent with an attached file: what the person typed, or to add it. */
+export function attachQuestion(typed: string, filename: string): string {
+  return typed.trim() || `Add ${filename} as a data source.`
+}
+
+/** What the link to a confirmed proposal's result says. */
+export function madeLabel(p: Proposal): string {
+  return p.tool === 'add_file_model' ? 'Open in Explore' : 'Open the dashboard'
+}
+
+/** Where to see what a confirmed proposal made: the dashboard it saved, its report's dashboard, a file's model. */
 export function madeLink(p: Proposal): string | null {
   if (p.status !== 'applied') return null
+  if (p.tool === 'add_file_model') return typeof p.args.name === 'string' ? `/explore?model=${encodeURIComponent(p.args.name)}` : null
   const id = p.tool === 'save_dashboard' ? p.args.id : p.tool === 'create_report' ? p.args.dashboard : null
   return typeof id === 'string' ? `/dashboards/${encodeURIComponent(id)}` : null
 }

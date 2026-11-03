@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { basedOn, chartTile, madeLink, suggestions } from './chat'
+import { attachQuestion, basedOn, chartTile, madeLabel, madeLink, suggestions } from './chat'
 import type { ModelInfo, Proposal } from './api'
 
 const sales = {
@@ -17,6 +17,18 @@ describe('chat', () => {
     expect(madeLink({ ...p, status: 'proposed' })).toBeNull()
     expect(madeLink({ ...p, tool: 'delete_dashboard' })).toBeNull()
     expect(madeLink({ ...p, tool: 'create_report', args: { dashboard: 'd' } })).toBe('/dashboards/d')
+  })
+
+  it('links a model made from a file to Explore', () => {
+    const p: Proposal = { id: 'p', tool: 'add_file_model', args: { name: 'my orders' }, summary: '', details: [], status: 'applied' }
+    expect(madeLink(p)).toBe('/explore?model=my%20orders')
+    expect(madeLabel(p)).toBe('Open in Explore')
+    expect(madeLabel({ ...p, tool: 'save_dashboard' })).toBe('Open the dashboard')
+  })
+
+  it('asks what was typed with an attached file, or to add it', () => {
+    expect(attachQuestion(' Only the 2026 sheet ', 'sales.xlsx')).toBe('Only the 2026 sheet')
+    expect(attachQuestion('  ', 'sales.xlsx')).toBe('Add sales.xlsx as a data source.')
   })
 
   it('suggests questions from certified models and the glossary', () => {

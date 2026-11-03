@@ -1,7 +1,8 @@
 //! Spreadsheets and CSV files as connections (files.rs), a table per sheet, read by DuckDB in the
 //! workspace's own folder: `POST /api/connections/{name}/file` uploads a copy, `.../sheet` takes a
 //! Google Sheet shared with anyone with the link, `.../refresh` reads that sheet again (as every
-//! hour does, `refresh_sheets`).
+//! hour does, `refresh_sheets`). `POST /api/chat/file` is the chat's way in, for Org admins and the
+//! power users they allow: only ever a new connection, named here, that only its maker can make a model from.
 
 use axum::Json;
 use axum::body::Bytes;
@@ -73,6 +74,74 @@ pub async fn upload(
         });
     }
     Ok(Json(json!({"ok": true, "dry_run": p.dry_run, "tables": names})))
+}
+
+/// Who may attach a file in the chat: Org admins, and power users they've allowed by name
+/// (`add_data`). The platform workspace's models reach other organisations, so there it stays
+/// with system owners.
+pub fn may_attach(caller: &Caller) -> ApiResult<()> {
+    caller.require(if caller.org().is_empty() { "manage_orgs" } else { "add_data" })
+}
+
+/// A new connection's name for an attached file: from the file's own name (never a path), with
+/// `suffix` so it can't be, or become, a connection someone else relies on.
+pub fn attached_name(filename: &str, suffix: &str) -> String {
+    let base = filename.rsplit(['/', '\\']).next().unwrap_or_default();
+    let stem = base.rsplit_once('.').map_or(base, |(stem, _)| stem).to_lowercase();
+    let slug: String = stem.chars().map(|c| if c.is_ascii_alphanumeric() { c } else { '_' }).collect();
+    let slug: String = slug.split('_').filter(|p| !p.is_empty()).collect::<Vec<_>>().join("_");
+    let slug: String = slug.chars().take(40).collect();
+    if slug.is_empty() { format!("file_{suffix}") } else { format!("file_{slug}_{suffix}") }
+}
+
+/// Attach a spreadsheet or CSV in the chat (`?dry_run=1`: read it, keep nothing): always a new
+/// connection, with the upload's checks. Nobody sees its data until a model is confirmed.
+pub async fn attach(
+    State(state): State<Shared>,
+    Auth(caller): Auth,
+    UrlQuery(p): UrlQuery<FileParams>,
+    body: Bytes,
+) -> ApiResult<Json<Value>> {
+    may_attach(&caller)?;
+    let store = state.orgs.store(caller.org()).await?;
+    if !store.chat_settings(caller.org()).await?.is_some_and(|(s, _)| s.enabled) {
+        return Err(ApiError::Status(
+            axum::http::StatusCode::CONFLICT,
+            "the chat isn't set up here: an Org admin can set it up".into(),
+        ));
+    }
+    let filename = p.filename.as_deref().unwrap_or_default().trim().to_string();
+    if filename.is_empty() || filename.len() > 200 {
+        return Err(ApiError::bad_request("filename: the file's name, at most 200 characters"));
+    }
+    let tables = read(&state, &filename, body.to_vec()).await?;
+    let name = attached_name(&filename, &uuid::Uuid::new_v4().simple().to_string()[..8]);
+    check_name(&name).map_err(ApiError::bad_request)?;
+    let source = Source::File(filename.clone());
+    let names = keep(&state, &store, caller.org(), &name, tables, source, p.dry_run, Some(caller.email())).await?;
+    if !p.dry_run {
+        state.usage.record(Event {
+            connection: Some(name.clone()),
+            detail: Some(json!({"tables": names.len(), "chat": true})),
+            ..caller.event("file_uploaded")
+        });
+    }
+    Ok(Json(json!({"ok": true, "dry_run": p.dry_run, "connection": name, "file": filename, "tables": names})))
+}
+
+/// The file the connection `name` holds, and its tables: only for the person who put it there
+/// (the same answer for anything else, so nobody learns what other connections exist).
+pub async fn own_file(state: &AppState, caller: &Caller, name: &str) -> ApiResult<(String, Vec<String>)> {
+    may_attach(caller)?;
+    let store = state.orgs.store(caller.org()).await?;
+    let list = state.connectors.list(&store, caller.org()).await?;
+    list.into_iter()
+        .find(|c| c.name == name && c.updated_by.as_deref() == Some(caller.email()))
+        .and_then(|c| match c.config {
+            ConnectionConfig::Duckdb(d) => d.file.map(|f| (f, d.tables.into_keys().collect())),
+            _ => None,
+        })
+        .ok_or_else(|| ApiError::bad_request(format!("{name:?} isn't a file you attached")))
 }
 
 /// A Google Sheet shared with anyone with the link, as the connection `name`: a table per tab.

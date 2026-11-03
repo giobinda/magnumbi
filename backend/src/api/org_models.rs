@@ -4,7 +4,9 @@
 //! workspace, by system owners (shared data every organisation its list allows uses, on its own
 //! connection of that name, like the YAML models). A model makes a table visible to everyone it
 //! reaches, and restrictions are set per model (and follow the same table into new models): so
-//! only admins make them.
+//! only admins make them. The one exception is `from_attached_file`: the own file of a power user
+//! an Org admin has allowed to add data, attached in the chat, whose tables nobody relied on or
+//! restricted before.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -43,7 +45,7 @@ async fn connector(state: &AppState, caller: &Caller, name: &str) -> ApiResult<(
     Ok(state.connectors.get(&store, caller.org(), name).await?)
 }
 
-fn conn_error(what: &str, e: ConnectorError) -> ApiError {
+pub(super) fn conn_error(what: &str, e: ConnectorError) -> ApiError {
     match e {
         ConnectorError::Unavailable(m) => ApiError::Status(axum::http::StatusCode::SERVICE_UNAVAILABLE, m),
         ConnectorError::Query(m) => ApiError::bad_request(format!("{what}: {m}")),
@@ -109,10 +111,61 @@ pub async fn save(
     if state.org_blends(caller.org()).await?.iter().any(|b| b.name == name) {
         return Err(ApiError::bad_request(format!("{name:?} is the name of one of your blends")));
     }
+    keep_model(&state, &caller, m, &name, p.dry_run).await
+}
+
+/// A new model for a table of the file its maker attached in the chat: its fields proposed from
+/// the columns, nothing written by the person or the chat's model but the names. It never replaces
+/// a model, and goes through the same checks as any other.
+pub async fn from_attached_file(
+    state: &AppState,
+    caller: &Caller,
+    connection: &str,
+    table: &str,
+    name: &str,
+    label: Option<String>,
+    dry_run: bool,
+) -> ApiResult<Json<Value>> {
+    let (_, tables) = super::files::own_file(state, caller, connection).await?;
+    if !tables.iter().any(|t| t == table) {
+        return Err(ApiError::bad_request(format!("{connection:?} has no table {table:?}: {}", tables.join(", "))));
+    }
+    check_name(name).map_err(ApiError::bad_request)?;
+    let store = state.orgs.store(caller.org()).await?;
+    let taken = caller.project.models.contains_key(name)
+        || store.org_models(caller.org()).await?.iter().any(|(m, ..)| m.name == name)
+        || state.org_blends(caller.org()).await?.iter().any(|b| b.name == name);
+    if taken {
+        return Err(ApiError::bad_request(format!("the name {name:?} is taken: choose another")));
+    }
+    let (dialect, c) = connector(state, caller, connection).await?;
+    let columns = c.columns(table).await.map_err(|e| conn_error(&format!("table {table}"), e))?;
+    let (mut model, skipped) = crate::org_models::propose(name, connection, table, dialect, &columns);
+    if let Some(l) = label.map(|l| l.trim().to_string()).filter(|l| !l.is_empty()) {
+        model.label = Some(l);
+    }
+    let saved = keep_model(state, caller, model.clone(), name, dry_run).await?;
+    let fields = |what: &str, names: Vec<String>| format!("{what}: {}", names.join(", "));
+    let label = |name: &str, label: &Option<String>| label.clone().unwrap_or_else(|| name.to_string());
+    let mut details = vec![
+        fields("Fields to group by", model.dimensions.iter().map(|d| label(&d.name, &d.label)).collect()),
+        fields("Numbers", model.measures.iter().map(|m| label(&m.name, &m.label)).collect()),
+    ];
+    if !skipped.is_empty() {
+        details.push(fields("Columns left out", skipped));
+    }
+    details.push("Once confirmed, everyone in your organisation can see this model and its data.".to_string());
+    let mut out = saved.0;
+    out["details"] = json!(details);
+    Ok(Json(out))
+}
+
+/// A model checked against its connection's tables and, unless it's a dry run, saved.
+async fn keep_model(state: &AppState, caller: &Caller, m: Model, name: &str, dry_run: bool) -> ApiResult<Json<Value>> {
     let mut m = m;
     crate::org_models::check(&m).map_err(ApiError::bad_request)?;
     // every field is one of the table's columns (typos caught now, not on a dashboard)
-    let (dialect, c) = connector(&state, &caller, &m.connection).await?;
+    let (dialect, c) = connector(state, caller, &m.connection).await?;
     crate::org_models::quote_columns(&mut m, dialect);
     let table = m.table.clone().unwrap_or_default();
     let columns = c.columns(&table).await.map_err(|e| conn_error(&format!("table {table}"), e))?;
@@ -126,20 +179,20 @@ pub async fn save(
     for j in &m.joins {
         one_row_per_key(dialect, c.as_ref(), j).await?;
     }
-    if p.dry_run {
+    if dry_run {
         return Ok(Json(json!({"ok": true, "dry_run": true})));
     }
     let store = state.orgs.store(caller.org()).await?;
     store.put_org_model(caller.org(), &m, Some(caller.email())).await?;
     // a new model belongs to its maker
-    if !store.governance(caller.org()).await?.iter().any(|(model, ..)| *model == name) {
+    if !store.governance(caller.org()).await?.iter().any(|(model, ..)| model == name) {
         let g = crate::governance::Governance { owner: Some(caller.email().to_string()), ..Default::default() };
-        store.put_governance(caller.org(), &name, &g, Some(caller.email())).await?;
+        store.put_governance(caller.org(), name, &g, Some(caller.email())).await?;
         state.governance.forget(caller.org());
     }
     state.models.forget(caller.org());
     state.blends.forget(caller.org());
-    state.usage.record(crate::usage::Event { model: Some(name), ..caller.event("model_saved") });
+    state.usage.record(crate::usage::Event { model: Some(name.to_string()), ..caller.event("model_saved") });
     Ok(Json(json!({"ok": true})))
 }
 

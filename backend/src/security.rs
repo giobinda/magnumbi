@@ -80,10 +80,14 @@ pub fn csrf_rejection(config: &Config, method: &Method, headers: &HeaderMap) -> 
     }
 }
 
-/// The upload of a spreadsheet or CSV (api/files.rs): the only request with a body over the
-/// general limit, up to the upload limit.
+/// The upload of a spreadsheet or CSV (api/files.rs), on Connections or in the chat: the only
+/// requests with a body over the general limit, up to the upload limit.
 pub fn is_upload(path: &str) -> bool {
-    path.strip_prefix("/api/connections/").and_then(|r| r.strip_suffix("/file")).is_some_and(|n| !n.contains('/'))
+    path == "/api/chat/file"
+        || path
+            .strip_prefix("/api/connections/")
+            .and_then(|r| r.strip_suffix("/file"))
+            .is_some_and(|n| !n.contains('/'))
 }
 
 fn size_rejection(method: &Method, headers: &HeaderMap, limit: usize) -> Option<Response> {
@@ -209,12 +213,15 @@ mod tests {
     #[test]
     fn only_the_upload_takes_a_bigger_body() {
         assert!(is_upload("/api/connections/sales/file"));
+        assert!(is_upload("/api/chat/file"));
         for other in [
             "/api/connections/sales",
             "/api/connections/a/b/file",
             "/api/connections//x/file",
             "/api/connections/file",
             "/api/files",
+            "/api/chat",
+            "/api/chat/x/file",
         ] {
             assert!(!is_upload(other), "{other}");
         }

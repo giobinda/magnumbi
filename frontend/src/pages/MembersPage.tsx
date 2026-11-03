@@ -8,13 +8,14 @@ import { useAuth } from '../auth'
 import Restrictions from '../components/Restrictions'
 import SignInSettings from '../components/SignInSettings'
 import { useModels } from '../hooks'
+import { accessOf, canBeAllowedData } from '../members'
 
 export const PERM_LABELS: Record<Permission, string> = {
   view: 'View', filter: 'Filter', drill: 'Drill down', download: 'Download data', share: 'Share', explore: 'Explore',
-  create: 'Create', edit: 'Edit', view_sql: 'See SQL & YAML', manage_members: 'Manage members',
+  create: 'Create', edit: 'Edit', view_sql: 'See SQL & YAML', manage_members: 'Manage members', add_data: 'Add data sources',
   manage_orgs: 'Manage organisations', manage_system: 'Manage system',
 }
-type Person = { who: string; role: Role; filters: RowRule[] }
+type Person = { who: string; role: Role; filters: RowRule[]; add_data?: boolean }
 
 /** Org admins: the organisation's people, their roles and personal filters. What the organisation
  *  itself may use (models, organisation filters, domains) is the system owner's, shown read-only.
@@ -33,7 +34,7 @@ export default function MembersPage() {
 
   const adopt = (r: MembersResponse) => {
     setData(r); setCfg(r.members)
-    setPeople(Object.entries(r.members.users).map(([who, p]) => ({ who, role: p.role, filters: p.filters ?? [] })))
+    setPeople(Object.entries(r.members.users).map(([who, p]) => ({ who, role: p.role, filters: p.filters ?? [], add_data: p.add_data })))
   }
   useEffect(() => { api.members().then(adopt, e => setMsg({ kind: 'error', text: e.message })) }, [])
 
@@ -47,7 +48,7 @@ export default function MembersPage() {
     }
     setBusy(true); setMsg(null)
     const users: Members['users'] = {}
-    for (const p of people) if (p.who.trim()) users[p.who.trim().toLowerCase()] = { role: p.role, filters: p.filters }
+    for (const p of people) if (p.who.trim()) users[p.who.trim().toLowerCase()] = accessOf(p)
     try {
       adopt(await api.saveMembers({ ...cfg, users }))
       setMsg({ kind: 'ok', text: 'Saved.' })
@@ -118,13 +119,19 @@ export default function MembersPage() {
             <div key={i} className="card person">
               <div className="access-row">
                 <input type="email" placeholder="email" value={p.who} onChange={e => set({ who: e.target.value })} />
-                {roleSelect(p.role, role => set({ role }))}
+                {roleSelect(p.role, role => set({ role, add_data: false }))}
                 <span className="muted small" title="Sign-in status">{status(who)}</span>
                 {data.password_login && saved && who !== auth?.user?.email && (
                   <button className="link small" title="Create a one-time password to hand over" onClick={() => issue(who)}>One-time password…</button>
                 )}
                 <button className="icon" title="Remove person" onClick={() => setPeople(people.filter((_, j) => j !== i))}>✕</button>
               </div>
+              {canBeAllowedData(p.role) && (
+                <label className="check small">
+                  <input type="checkbox" checked={Boolean(p.add_data)} onChange={e => set({ add_data: e.target.checked })} />
+                  Can add data sources: upload files in the chat. What they add can be made visible to everyone here.
+                </label>
+              )}
               {issued[who] && (
                 <div className="ok pw-once">One-time password for {who}: <code>{issued[who]}</code>
                   <span className="muted small">Shown once. Hand it over privately; they choose their own at the next sign-in.</span></div>

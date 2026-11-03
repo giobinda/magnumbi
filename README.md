@@ -849,6 +849,12 @@ are checked and shown as proposals, made only when the person confirms (`POST /a
 most `rows_to_model` rows of a result (200 by default), never SQL, and with `keep_sensitive` (the
 default) no values of fields tagged pii, personal, confidential or restricted. A monthly limit
 per organisation; each person may start on the chat or on dashboards (`PUT /api/chat/home`).
+Org admins, and power users they've allowed (**Can add data sources** on the Members page, or
+`add_data: true` in `members.yaml`; off by default, and never for people joining by email domain),
+can **attach a CSV or spreadsheet** (`POST /api/chat/file`, same limits as an upload): it's kept
+as a new connection of its own, the provider is told its columns (not its rows), and the chat proposes a model per table (`add_file_model`). Once confirmed, everyone in the
+organisation can see that model. Only the person who attached a file can make models from it this
+way, and a model is never replaced. Org admins see and delete these under Connections and Models.
 Ask it to document a model ("fill the catalog for orders") and it looks at the model and a few of
 its values, then proposes descriptions, other names, example values and tags for it and its
 fields (MCP `save_docs`), and glossary terms (`save_term`), for its stewards to confirm.

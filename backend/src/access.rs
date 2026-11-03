@@ -15,6 +15,7 @@
 //! | user         | + drill down, share (embed code)                                        |
 //! | power_user   | + create / edit / delete dashboards, Explore, see SQL and YAML          |
 //! | org_admin    | + manage the organisation's members, roles and personal filters         |
+//! |              | (and may allow a power user, by name, to add data: `add_data`)          |
 //! | system_owner | everything, in every organisation                                       |
 //!
 //! A person belongs to exactly one organisation: listed by email in its members, or else by
@@ -79,7 +80,7 @@ impl Role {
             p.extend(["explore", "create", "edit", "view_sql"]);
         }
         if self >= Role::OrgAdmin {
-            p.push("manage_members");
+            p.extend(["manage_members", "add_data"]);
         }
         if self >= Role::SystemOwner {
             p.extend(["manage_orgs", "manage_system"]);
@@ -112,6 +113,10 @@ pub struct UserAccess {
     pub role: Role,
     #[serde(default)]
     pub filters: Vec<RowRule>,
+    /// a power user who may add data (a file attached in the chat): off unless an Org admin says
+    /// so, since a model makes its data visible to the whole organisation
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub add_data: bool,
 }
 
 fn viewer() -> Role {
@@ -156,6 +161,7 @@ fn people<'de, D: Deserializer<'de>>(d: D) -> Result<BTreeMap<String, UserAccess
                 UserAccess {
                     role: role.ok_or_else(|| serde::de::Error::custom(format!("{k}: unknown role {r:?}")))?,
                     filters: vec![],
+                    add_data: false,
                 }
             }
         };
@@ -338,6 +344,8 @@ pub struct Scope {
     /// None: every model
     pub models: Option<BTreeSet<String>>,
     pub broken: bool,
+    /// listed in the members as allowed to add data (for a power user: see `Caller::can`)
+    pub add_data: bool,
 }
 
 impl Scope {
@@ -360,6 +368,7 @@ fn org_scope(cfg: &AccessConfig, role: Role, oid: &str, personal: Vec<RowRule>) 
         personal_filters: personal,
         models,
         broken: false,
+        add_data: false,
     }
 }
 
@@ -473,7 +482,11 @@ pub fn scope_of(cfg: &AccessConfig, email: &str, org_choice: Option<&str>) -> Sc
         };
     }
     match membership(cfg, email) {
-        Some((oid, role, personal)) => org_scope(cfg, role, &oid, personal),
+        Some((oid, role, personal)) => {
+            // only ever by name: never by joining with an email domain
+            let listed = cfg.members.get(&oid).and_then(|m| m.users.get(&email.to_lowercase()));
+            Scope { add_data: listed.is_some_and(|u| u.add_data), ..org_scope(cfg, role, &oid, personal) }
+        }
         None => Scope::none(),
     }
 }
@@ -717,6 +730,31 @@ mod tests {
                              "berlin@acme.example": {"role": "viewer", "filters": [{"model": "sales", "dimension": "store", "values": ["Store 01"]}]}}}},
                 "globex": {"name": "Globex", "domains": ["globex.example"], "models": ["*"]}
             }}"#).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn adding_data_is_given_person_by_person() {
+        let cfg = AccessConfig::from_document(json!({"system_owners": ["o@x.example"], "organisations": {
+            "acme": {"name": "Acme", "models": ["*"], "domains": ["acme.example"],
+                     "members": {"default_role": "power_user", "users": {
+                "yes@x.example": {"role": "power_user", "add_data": true},
+                "plain@x.example": "power_user",
+                "no@x.example": {"role": "power_user"},
+                "admin@x.example": "org_admin"}}}}}))
+        .unwrap();
+        let flag = |email: &str| scope_of(&cfg, email, None).add_data;
+        assert!(flag("yes@x.example"));
+        // off unless given: a role alone, or joining by email domain, never turns it on
+        assert!(!flag("plain@x.example") && !flag("no@x.example") && !flag("someone@acme.example"));
+        assert_eq!(scope_of(&cfg, "someone@acme.example", None).role, Some(Role::PowerUser));
+        // Org admins and up have it with their role; a role doesn't have it below that
+        assert!(Role::OrgAdmin.can("add_data") && Role::SystemOwner.can("add_data"));
+        assert!(!Role::PowerUser.can("add_data"));
+        // kept when saved, and only written where it's on
+        let m = &cfg.members["acme"];
+        let saved = serde_json::to_value(m).unwrap();
+        assert_eq!(saved["users"]["yes@x.example"]["add_data"], json!(true));
+        assert!(saved["users"]["no@x.example"].get("add_data").is_none());
     }
 
     #[test]

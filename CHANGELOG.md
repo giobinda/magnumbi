@@ -5,6 +5,13 @@ What changed in each release of Magnum BI. Versions follow the Docker image and 
 
 ## Unreleased
 
+### Added
+
+- **Attach a CSV or spreadsheet in the chat**, for Org admins and the power users they allow (a new
+  **Can add data sources** tick on the Members page, off by default): it's kept as a new connection,
+  and the chat proposes a model for each table. Nothing is shared until you confirm; then everyone
+  in the organisation can see that model. Org admins can delete these under Connections and Models.
+
 ### Changed
 
 - **A clearer data catalog**: models and the glossary are sections of their own; each model and

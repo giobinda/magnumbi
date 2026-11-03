@@ -77,7 +77,7 @@ export interface Proposal {
   status: 'proposed' | 'applied' | 'failed'; check?: unknown; result?: unknown; error?: string
 }
 export type ChatMessage =
-  | { role: 'user'; text: string }
+  | { role: 'user'; text: string; file?: string }
   | { role: 'assistant'; text: string; charts: { query: Query }[]; proposals: Proposal[] }
 export interface ChatState {
   enabled: boolean; home: Home; org_home: Home; my_home: Home | null
@@ -176,7 +176,7 @@ export interface DashboardResponse {
 export interface DashboardSummary { id: string; title: string; description?: string | null; tiles?: number; error?: string }
 
 export type Role = 'viewer' | 'user' | 'power_user' | 'org_admin' | 'system_owner'
-export type Permission = 'view' | 'filter' | 'drill' | 'download' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'manage_orgs' | 'manage_system'
+export type Permission = 'view' | 'filter' | 'drill' | 'download' | 'share' | 'explore' | 'create' | 'edit' | 'view_sql' | 'manage_members' | 'add_data' | 'manage_orgs' | 'manage_system'
 export interface AuthState {
   required: boolean; authenticated: boolean; user: { name?: string; email?: string } | null
   /** magnum-bi lite: one person on their own computer, no organisations, accounts or sign-in */
@@ -202,7 +202,7 @@ export interface AuthState {
 export interface OrgRef { id: string; name: string }
 /** Only rows of `model` whose `dimension` is one of `values` (empty: no rows). */
 export interface RowRule { model: string; dimension: string; values: Value[] }
-export interface PersonAccess { role: Role; filters: RowRule[] }
+export interface PersonAccess { role: Role; filters: RowRule[]; add_data?: boolean }
 /** An organisation's people (Org admins manage this). */
 export interface Members { default_role: Role; default_filters: RowRule[]; users: Record<string, PersonAccess> }
 /** A sign-in account (members without one haven't been given a password nor signed in with Google) */
@@ -484,8 +484,12 @@ export const api = {
   governance: () => call<{ models: ModelGovernance[] }>('/api/governance'),
   saveDocs: (model: string, d: ModelDocs) => call<{ ok: boolean }>(`/api/governance/${encodeURIComponent(model)}/docs`, json('PUT', d)),
   chat: () => call<ChatState>('/api/chat'),
-  ask: (message: string, conversation?: string | null) =>
-    call<{ conversation: string; title: string; reply: ChatMessage }>('/api/chat', json('POST', { message, conversation: conversation ?? undefined })),
+  ask: (message: string, conversation?: string | null, file?: string) =>
+    call<{ conversation: string; title: string; reply: ChatMessage }>('/api/chat', json('POST', { message, conversation: conversation ?? undefined, file })),
+  /** Attach a spreadsheet or CSV in the chat (power users and up): a new connection of its own. */
+  attachFile: (file: File) =>
+    call<{ ok: boolean; connection: string; file: string; tables: string[] }>(`/api/chat/file?filename=${encodeURIComponent(file.name)}`,
+      { method: 'POST', headers: { 'content-type': 'application/octet-stream' }, body: file }),
   conversation: (id: string) => call<{ id: string; title: string; messages: ChatMessage[] }>(`/api/chat/${encodeURIComponent(id)}`),
   deleteConversation: (id: string) => call<{ ok: boolean }>(`/api/chat/${encodeURIComponent(id)}`, { method: 'DELETE' }),
   applyProposal: (conversation: string, proposal: string) =>

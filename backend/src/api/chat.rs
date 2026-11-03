@@ -3,7 +3,8 @@
 //!
 //! The tools are MCP's (api/mcp.rs), run as the person asking: the API handlers decide what they
 //! may do, and their data restrictions apply as everywhere. Only analytics tools are offered
-//! (no members, connections, themes or delivery settings). A change is never made in the loop:
+//! (no members, connections, themes or delivery settings; the own attached file of someone allowed to add data is the
+//! one way a new table comes in: `api/files.rs::attach`, `add_file_model`). A change is never made in the loop:
 //! it's checked (a dry run, where the tool has one) and shown to the person as a proposal, made
 //! only when they confirm it. What the provider sees of a result is capped, and the values of
 //! sensitive fields can be kept from it (chat.rs).
@@ -25,7 +26,7 @@ use crate::state::{AppState, Shared};
 use crate::store::random_token;
 
 /// The tools the chat offers: reading, and the analytics changes (proposed, then confirmed).
-const CHAT_TOOLS: [&str; 26] = [
+const CHAT_TOOLS: [&str; 27] = [
     "search_catalog",
     "get_glossary",
     "get_catalog",
@@ -52,6 +53,7 @@ const CHAT_TOOLS: [&str; 26] = [
     "delete_formula",
     "save_docs",
     "save_term",
+    "add_file_model",
 ];
 
 /// Tool rounds per question, before the chat gives up.
@@ -66,7 +68,9 @@ model you used. A query's chart is shown to the person next to your answer, so d
 Changes (dashboards, reports, alerts, formulas, blends, the catalog's documentation and glossary) are never \
 made by you: calling a tool that changes something shows the person a proposal they confirm or not. Say what \
 you proposed; don't call it again. To document a model, look at it (describe_model, get_catalog) and at a few \
-of its values (run_query) first, then describe what you saw: never guess a meaning the data doesn't show.";
+of its values (run_query) first, then describe what you saw: never guess a meaning the data doesn't show. \
+When the person attaches a file, propose a model for each table they want (add_file_model), with a clear name \
+and label: everyone in the organisation will see it once they confirm.";
 
 fn key(state: &AppState) -> ApiResult<&crate::crypto::SecretKey> {
     state
@@ -210,6 +214,24 @@ pub struct Question {
     #[serde(default)]
     conversation: Option<String>,
     message: String,
+    /// the connection of a file just attached (`POST /api/chat/file`)
+    #[serde(default)]
+    file: Option<String>,
+}
+
+/// What the chat's model is told of an attached file: its tables' columns, never their rows.
+async fn attached_note(state: &AppState, caller: &Caller, connection: &str) -> ApiResult<(String, String)> {
+    let (file, tables) = super::files::own_file(state, caller, connection).await?;
+    let store = state.orgs.store(caller.org()).await?;
+    let (_, c) = state.connectors.get(&store, caller.org(), connection).await?;
+    let mut parts = vec![];
+    for t in &tables {
+        let columns = c.columns(t).await.map_err(|e| super::org_models::conn_error(&format!("table {t}"), e))?;
+        let names: Vec<String> = columns.into_iter().map(|(name, _)| name).collect();
+        parts.push(format!("{t} ({})", names.join(", ")));
+    }
+    let note = format!("(I attached the file {file:?}: connection {connection}, tables: {}.)", parts.join("; "));
+    Ok((file, note.chars().take(MAX_TOOL_TEXT).collect()))
 }
 
 /// Ask a question (in a new conversation, or a follow-up): the answer, its charts and the
@@ -220,6 +242,10 @@ pub async fn ask(State(state): State<Shared>, Auth(caller): Auth, Body(q): Body<
     if message.is_empty() || message.chars().count() > 4000 {
         return Err(ApiError::bad_request("ask a question (up to 4,000 characters)"));
     }
+    let attached = match &q.file {
+        Some(connection) => Some(attached_note(&state, &caller, connection).await?),
+        None => None,
+    };
     let org = caller.org().to_string();
     let store = state.orgs.store(&org).await?;
     let (settings, sealed) = match store.chat_settings(&org).await? {
@@ -267,7 +293,13 @@ pub async fn ask(State(state): State<Shared>, Auth(caller): Auth, Body(q): Body<
     if !done.is_empty() {
         text = format!("(Since your last answer I confirmed: {}.)\n\n{text}", done.join("; "));
     }
-    shown.push(json!({"role": "user", "text": message}));
+    match attached {
+        Some((file, note)) => {
+            shown.push(json!({"role": "user", "text": message, "file": file}));
+            text = format!("{note}\n\n{text}");
+        }
+        None => shown.push(json!({"role": "user", "text": message})),
+    }
     turns.push(Turn::User { text });
 
     let tools = crate::api::mcp::tools_for(&caller, &CHAT_TOOLS);
@@ -344,7 +376,9 @@ async fn run(
         }
         let id = random_token(6);
         let summary = crate::chat::summary(tool.name, &args);
-        let details = crate::chat::details(tool.name, &args);
+        // what only the check could know (a file's fields), else what the arguments say
+        let found = check.as_ref().and_then(|c| c.as_ref().ok()).and_then(|v| v["details"].as_array()).cloned();
+        let details = found.map_or_else(|| json!(crate::chat::details(tool.name, &args)), Value::Array);
         proposals.push(json!({"id": id, "tool": tool.name, "args": args, "summary": summary, "details": details,
                               "status": "proposed", "check": check.and_then(Result::ok)}));
         return format!(
@@ -846,5 +880,252 @@ pub(crate) mod tests {
         let (st, b, _) = send(&app, c, &org, "POST", "/api/chat", Some(json!({"message": "Again?"})), None).await;
         assert_eq!(st, StatusCode::TOO_MANY_REQUESTS, "{b}");
         clean_up(&state, &org).await;
+    }
+
+    /// Attach a file in the chat.
+    async fn attach(
+        app: &axum::Router,
+        cookie: &str,
+        org: &str,
+        filename: &str,
+        bytes: &[u8],
+        view_as: Option<&str>,
+    ) -> (StatusCode, Value) {
+        let mut req = axum::http::Request::builder()
+            .method("POST")
+            .uri(format!("/api/chat/file?filename={filename}"))
+            .header("cookie", cookie)
+            .header("x-magnum-org", org)
+            .header("content-type", "application/octet-stream");
+        if let Some(r) = view_as {
+            req = req.header("x-magnum-view-as", r);
+        }
+        let resp = tower::ServiceExt::oneshot(app.clone(), req.body(axum::body::Body::from(bytes.to_vec())).unwrap())
+            .await
+            .unwrap();
+        let status = resp.status();
+        let body = http_body_util::BodyExt::collect(resp.into_body()).await.unwrap().to_bytes();
+        (status, serde_json::from_slice(&body).unwrap_or(Value::Null))
+    }
+
+    /// The organisation's members: `allowed` may add data, `plain` is a power user who may not.
+    fn pin_members(state: &crate::state::AppState, org: &str, allowed: &str, plain: &str, on: bool) {
+        let access = json!({"system_owners": [crate::api::tests::OWNER], "organisations": {org: {
+            "name": "Files", "models": ["*"], "members": {"users": {
+                allowed: {"role": "power_user", "add_data": on}, plain: "power_user"}}}}});
+        state.access.pin(crate::access::AccessConfig::from_document(access).unwrap());
+    }
+
+    /// Two power users of the organisation, signed in: (allowed's email and cookie, plain's cookie).
+    async fn power_users(state: &crate::state::AppState, org: &str) -> (String, String, String, String) {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let (allowed, plain) = (format!("allowed-{id}@files.example"), format!("plain-{id}@files.example"));
+        pin_members(state, org, &allowed, &plain, true);
+        let mut cookies = vec![];
+        for e in [&allowed, &plain] {
+            state.store.set_password(e, None, "x", None, false).await.unwrap();
+            let s = state.store.create_session_as(e, "password", chrono::Duration::hours(1), None).await.unwrap();
+            cookies.push(format!("magnum_session={s}"));
+        }
+        let plain_cookie = cookies.pop().unwrap();
+        (allowed, cookies.pop().unwrap(), plain, plain_cookie)
+    }
+
+    async fn forget_people(state: &crate::state::AppState, org: &str, people: [&str; 2]) {
+        let _ = std::fs::remove_dir_all(crate::connectors::duckdb::org_dir(&state.config.duckdb_dir, org));
+        let c = state.store.pool.get().await.unwrap();
+        for e in people {
+            c.execute("DELETE FROM sessions WHERE user_email = $1::TEXT", &[&e]).await.unwrap();
+            c.execute("DELETE FROM users WHERE email = $1::TEXT", &[&e]).await.unwrap();
+        }
+    }
+
+    const CSV: &[u8] = b"region,amount\nEMEA,10\nAPAC,5\n";
+
+    #[tokio::test]
+    async fn a_power_user_allowed_to_add_data_attaches_a_file_and_confirms_its_model() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let c = Some(cookie.as_str());
+        let (allowed, allowed_cookie, plain, plain_cookie) = power_users(&state, &org).await;
+        let me = Some(allowed_cookie.as_str());
+
+        // the chat is off: no attaching
+        let (st, _) = attach(&app, &allowed_cookie, &org, "orders.csv", CSV, None).await;
+        assert_eq!(st, StatusCode::CONFLICT);
+
+        let name = format!("orders_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let (port, _) = fake_provider(vec![]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+
+        // a power user without the flag can't, nor anyone below; nothing is kept
+        let (st, b) = attach(&app, &plain_cookie, &org, "orders.csv", CSV, None).await;
+        assert_eq!(st, StatusCode::FORBIDDEN, "{b}");
+        assert!(b["detail"].as_str().unwrap().contains("Org admin"), "{b}");
+        for role in ["viewer", "user"] {
+            let (st, _) = attach(&app, &allowed_cookie, &org, "orders.csv", CSV, Some(role)).await;
+            assert_eq!(st, StatusCode::FORBIDDEN, "viewing as {role}");
+        }
+        let (_, before, _) = send(&app, c, &org, "GET", "/api/connections", None, None).await;
+        assert!(!before.to_string().contains("file_orders"), "{before}");
+        // what the screens go by
+        let (_, who, _) = send(&app, me, &org, "GET", "/api/auth/me", None, None).await;
+        assert!(who["permissions"].to_string().contains("add_data"), "{who}");
+        let (_, who, _) = send(&app, Some(&plain_cookie), &org, "GET", "/api/auth/me", None, None).await;
+        assert!(!who["permissions"].to_string().contains("add_data"), "{who}");
+        // Org admins can, without the flag
+        let (st, b) = attach(&app, &cookie, &org, "admin.csv", CSV, Some("org_admin")).await;
+        assert_eq!(st, StatusCode::OK, "{b}");
+
+        let (st, up) = attach(&app, &allowed_cookie, &org, "orders.csv", CSV, None).await;
+        assert_eq!(st, StatusCode::OK, "{up}");
+        let connection = up["connection"].as_str().unwrap().to_string();
+        assert!(connection.starts_with("file_orders_"), "a name of its own: {up}");
+        assert_eq!(up["tables"], json!(["orders"]));
+
+        // the wider right is this route and tool only: everything else stays with Org admins
+        assert_eq!(
+            send(&app, me, &org, "GET", "/api/connections/warehouse/tables", None, None).await.0,
+            StatusCode::FORBIDDEN
+        );
+        let own_tables = format!("/api/connections/{connection}/tables");
+        assert_eq!(send(&app, me, &org, "GET", &own_tables, None, None).await.0, StatusCode::FORBIDDEN);
+
+        // the provider is told the columns, not the rows; the model is proposed, not made
+        let args = json!({"connection": connection, "table": "orders", "name": name, "label": "Orders"});
+        let (port, asked) =
+            fake_provider(vec![calls("c1", "add_file_model", args), says("I've proposed a model.")]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        let q = json!({"message": "Add this file", "file": connection});
+        let (st, r, _) = send(&app, me, &org, "POST", "/api/chat", Some(q), None).await;
+        assert_eq!(st, StatusCode::OK, "{r}");
+        {
+            let asked = asked.lock().unwrap();
+            let first = asked[0].1["messages"].to_string();
+            assert!(first.contains(&connection) && first.contains("region") && first.contains("amount"), "{first}");
+            assert!(!first.contains("EMEA"), "no rows: {first}");
+            assert!(asked[0].1["tools"].to_string().contains("add_file_model"));
+        }
+        let p = r["reply"]["proposals"][0].clone();
+        assert_eq!(p["summary"], json!(format!("Add the file's table orders as the model {name}")), "{r}");
+        let details = p["details"].to_string();
+        assert!(details.contains("everyone") && details.contains("Region") && details.contains("Amount"), "{details}");
+        let conversation = r["conversation"].as_str().unwrap();
+        let (_, shown, _) = send(&app, me, &org, "GET", &format!("/api/chat/{conversation}"), None, None).await;
+        assert_eq!(shown["messages"][0]["file"], json!("orders.csv"), "{shown}");
+        let (_, models, _) = send(&app, me, &org, "GET", "/api/models", None, None).await;
+        assert!(!models.to_string().contains(&name), "nothing made yet");
+
+        // confirmed: everyone's, its maker's to own, and it answers
+        let path = format!("/api/chat/{conversation}/proposals/{}", p["id"].as_str().unwrap());
+        let (st, done, _) = send(&app, me, &org, "POST", &path, None, None).await;
+        assert_eq!((st, &done["status"]), (StatusCode::OK, &json!("applied")), "{done}");
+        let (_, models, _) = send(&app, Some(&plain_cookie), &org, "GET", "/api/models", None, None).await;
+        assert!(models.to_string().contains(&name), "{models}");
+        let query = json!({"model": name, "dimensions": ["region"], "measures": ["amount"]});
+        let (st, rows, _) = send(&app, me, &org, "POST", "/api/query", Some(query), None).await;
+        assert_eq!(st, StatusCode::OK, "{rows}");
+        assert!(rows.to_string().contains("EMEA"), "{rows}");
+        let (_, g, _) = send(&app, c, &org, "GET", "/api/governance", None, None).await;
+        assert!(g.to_string().contains(&allowed), "{g}");
+        forget_people(&state, &org, [&allowed, &plain]).await;
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn taking_the_flag_away_stops_what_was_waiting() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let (allowed, allowed_cookie, plain, _) = power_users(&state, &org).await;
+        let me = Some(allowed_cookie.as_str());
+        let (port, _) = fake_provider(vec![]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        let (_, up) = attach(&app, &allowed_cookie, &org, "orders.csv", CSV, None).await;
+        let connection = up["connection"].as_str().unwrap().to_string();
+        let name = format!("orders_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let args = json!({"connection": connection, "table": "orders", "name": name});
+        let (port, _) = fake_provider(vec![calls("c1", "add_file_model", args), says("Proposed.")]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        let (_, r, _) = send(&app, me, &org, "POST", "/api/chat", Some(json!({"message": "Add it"})), None).await;
+        let p = r["reply"]["proposals"][0].clone();
+        assert_eq!(p["status"], json!("proposed"), "{r}");
+
+        pin_members(&state, &org, &allowed, &plain, false);
+        let path = format!("/api/chat/{}/proposals/{}", r["conversation"].as_str().unwrap(), p["id"].as_str().unwrap());
+        let (st, done, _) = send(&app, me, &org, "POST", &path, None, None).await;
+        assert_eq!((st, &done["status"]), (StatusCode::OK, &json!("failed")), "{done}");
+        let (_, models, _) = send(&app, me, &org, "GET", "/api/models", None, None).await;
+        assert!(!models.to_string().contains(&name), "not made");
+        // nor can it name that file in a question, or attach another
+        let q = json!({"message": "Add it", "file": connection});
+        assert_eq!(send(&app, me, &org, "POST", "/api/chat", Some(q), None).await.0, StatusCode::FORBIDDEN);
+        assert_eq!(attach(&app, &allowed_cookie, &org, "x.csv", CSV, None).await.0, StatusCode::FORBIDDEN);
+        forget_people(&state, &org, [&allowed, &plain]).await;
+        clean_up(&state, &org).await;
+    }
+
+    #[tokio::test]
+    async fn the_chat_makes_models_only_from_your_own_attached_file() {
+        let Some((app, state, cookie, org)) = org_with(DASHBOARD).await else { return };
+        let (allowed, allowed_cookie, plain, _) = power_users(&state, &org).await;
+        let me = Some(allowed_cookie.as_str());
+        // someone else's file, on this organisation's connections
+        let store = state.orgs.store(&org).await.unwrap();
+        let theirs = format!("salaries_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let config: crate::connections::ConnectionConfig = serde_json::from_value(json!({
+            "type": "duckdb", "file": "salaries.csv", "tables": {"salaries": format!("files/{theirs}/salaries.csv")}}))
+        .unwrap();
+        state.connectors.save(&store, &org, &theirs, config, None, Some("someone@else.example")).await.unwrap();
+
+        let (port, _) = fake_provider(vec![]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        let (st, up) = attach(&app, &allowed_cookie, &org, "orders.csv", CSV, None).await;
+        assert_eq!(st, StatusCode::OK, "{up}");
+        let mine = up["connection"].as_str().unwrap().to_string();
+
+        // not theirs, not a real connection, not a table outside the file, not a taken name
+        let fresh = format!("m_{}", &uuid::Uuid::new_v4().simple().to_string()[..8]);
+        let attempts = [
+            (json!({"connection": theirs, "table": "salaries", "name": fresh}), "isn't a file you attached"),
+            (json!({"connection": "warehouse", "table": "sample_sales", "name": fresh}), "isn't a file you attached"),
+            (json!({"connection": mine, "table": "sample_sales", "name": fresh}), "has no table"),
+            (json!({"connection": mine, "table": "orders", "name": "sales"}), "is taken"),
+            (json!({"connection": mine, "table": "orders", "name": "bad name"}), "name"),
+        ];
+        for (args, says_back) in &attempts {
+            let (port, asked) = fake_provider(vec![calls("c1", "add_file_model", args.clone()), says("no")]).await;
+            set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+            let (st, r, _) = send(&app, me, &org, "POST", "/api/chat", Some(json!({"message": "Add it"})), None).await;
+            assert_eq!(st, StatusCode::OK, "{r}");
+            assert_eq!(r["reply"]["proposals"], json!([]), "{args} -> {r}");
+            let back = asked.lock().unwrap()[1].1["messages"].as_array().unwrap().last().unwrap()["content"].clone();
+            assert!(back.as_str().unwrap().contains(says_back), "{args} -> {back}");
+        }
+
+        // a file named in a question must be your own, too, and you must still be able to add it
+        let (port, _) = fake_provider(vec![says("no")]).await;
+        set_up(&app, &cookie, &org, "openai", port, json!({})).await;
+        for (file, view_as) in [(theirs.as_str(), None), ("warehouse", None), (mine.as_str(), Some("viewer"))] {
+            let q = json!({"message": "Add it", "file": file});
+            let (st, r, _) = send(&app, me, &org, "POST", "/api/chat", Some(q), view_as).await;
+            assert!(st == StatusCode::BAD_REQUEST || st == StatusCode::FORBIDDEN, "{file}: {st} {r}");
+        }
+        // what isn't a spreadsheet; a file's name can't reach the path
+        let (st, _) = attach(&app, &allowed_cookie, &org, "notes.txt", b"hello", None).await;
+        assert_eq!(st, StatusCode::BAD_REQUEST);
+        let (st, up) = attach(&app, &allowed_cookie, &org, "..%2F..%2Fevil.csv", CSV, None).await;
+        assert_eq!(st, StatusCode::OK, "{up}");
+        assert!(up["connection"].as_str().unwrap().starts_with("file_evil_"), "{up}");
+        forget_people(&state, &org, [&allowed, &plain]).await;
+        clean_up(&state, &org).await;
+    }
+
+    #[test]
+    fn an_attached_file_gets_a_name_of_its_own() {
+        use super::super::files::attached_name;
+        assert_eq!(attached_name("Sales 2026.xlsx", "ab12"), "file_sales_2026_ab12");
+        assert_eq!(attached_name("../../etc/passwd.csv", "ab12"), "file_passwd_ab12");
+        assert_eq!(attached_name("C:\\docs\\Q1 é.csv", "ab12"), "file_q1_ab12");
+        assert_eq!(attached_name(".csv", "ab12"), "file_ab12");
+        let long = attached_name(&format!("{}.csv", "x".repeat(200)), "ab12");
+        assert!(long.len() <= 63 && crate::connections::check_name(&long).is_ok(), "{long}");
     }
 }

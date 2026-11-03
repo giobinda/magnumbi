@@ -130,6 +130,7 @@ pub const MATRIX: &[(&str, &str, Min)] = &[
     // ownership isn't a role: any member may own a model (the handler decides; see below)
     ("GET", "/api/chat", VIEWER),
     ("POST", "/api/chat", VIEWER),
+    ("POST", "/api/chat/file", ADMIN),
     ("PUT", "/api/chat/home", VIEWER),
     ("GET", "/api/tour", VIEWER),
     ("PUT", "/api/tour", VIEWER),

@@ -687,6 +687,7 @@ label.check.inline { align-items: center; gap: 4px; }
 .chat-ideas button { border-radius: 999px; }
 .chat-msg { max-width: 860px; }
 .chat-msg.user { align-self: flex-end; background: var(--accent-soft); padding: 8px 14px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
+.chat-file { font-weight: 600; margin-bottom: 2px; }
 .chat-msg.assistant { align-self: flex-start; width: 100%; display: flex; flex-direction: column; gap: 10px; }
 .chat-msg.thinking { color: var(--text-muted); font-style: italic; }
 .chat-text { margin: 0; white-space: pre-wrap; line-height: 1.5; }

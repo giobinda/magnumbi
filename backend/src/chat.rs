@@ -290,6 +290,7 @@ pub fn summary(tool: &str, args: &Value) -> String {
         "delete_formula" => format!("Remove the shared formula {} from {}", s("name"), s("model")),
         "save_docs" => format!("Document the model {}", s("model")),
         "save_term" => format!("Add \"{}\" to the glossary", args["term"]["name"].as_str().unwrap_or("?")),
+        "add_file_model" => format!("Add the file's table {} as the model {}", s("table"), s("name")),
         other => format!("Run {other}"),
     }
 }

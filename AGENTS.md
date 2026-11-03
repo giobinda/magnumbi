@@ -28,7 +28,9 @@ organisation owns.
     sandbox, CSRF/origin checks, session and token checks, write-only secrets;
   - organisations' own models (`org_models.rs`): no SQL, columns and aggregations only, Org
     admins only; lookups on the same connection, one row per key (checked when saved), adding
-    dimensions only;
+    dimensions only. One exception: a power user an Org admin has allowed by name (`add_data` in the
+    members, off by default, never by email domain) may confirm a new model, never replacing one,
+    from a file they attached in the chat themselves (`org_models::from_attached_file`);
   - each tenant's delivery settings (`api/delivery.rs`): the platform workspace and every
     organisation have their own mail server and webhooks, never shared or inherited; their
     addresses go through `netguard`, and passwords and webhook addresses are write-only;
@@ -41,8 +43,10 @@ organisation owns.
     drilling) and guest links (`api/guest.rs`: password, at most 14 days, the maker's role or
     lower, the maker's row filters plus the link's).
 
-  - files and Google Sheets (`api/files.rs`, `files.rs`): the upload is the only route allowed past
-    the 1 MB body limit, up to `MAGNUM_UPLOAD_MAX_MB` (`security::is_upload`); a workbook's unpacked
+  - files and Google Sheets (`api/files.rs`, `files.rs`): the uploads (on Connections, Org admins;
+    `POST /api/chat/file`, Org admins and the power users they allow, always a new connection named
+    by the server) are the only
+    routes allowed past the 1 MB body limit, up to `MAGNUM_UPLOAD_MAX_MB` (`security::is_upload`); a workbook's unpacked
     size is capped before it's read (zip bombs); its tables are written only into the workspace's own
     folder, under a checked connection name; a sheet is fetched only from Google, by its id (never a
     given address), following redirects to Google's hosts only;
